@@ -5,6 +5,13 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
+/**
+ * Representa un animal almacenado en la tabla `animales`.
+ *
+ * El código de identificación es único y puede corresponder al método de
+ * identificación que decida utilizar la finca. Las fechas se guardan como
+ * milisegundos para que Room pueda almacenarlas sin convertidores adicionales.
+ */
 @Entity(
     tableName = "animales",
     indices = [

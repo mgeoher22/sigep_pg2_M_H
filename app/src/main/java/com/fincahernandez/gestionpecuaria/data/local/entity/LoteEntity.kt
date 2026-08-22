@@ -5,6 +5,11 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
+/**
+ * Representa un lote utilizado para agrupar animales.
+ *
+ * Un lote puede permanecer activo o cerrarse conservando su historial.
+ */
 @Entity(
     tableName = "lotes",
     indices = [

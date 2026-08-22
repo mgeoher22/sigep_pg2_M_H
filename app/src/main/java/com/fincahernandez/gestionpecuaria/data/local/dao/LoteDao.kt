@@ -11,30 +11,44 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Administra lotes y el historial de asignaciones de animales.
+ */
 @Dao
 interface LoteDao {
 
+    /** Crea un lote y rechaza códigos de lote duplicados. */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(lote: LoteEntity)
 
+    /** Actualiza los datos generales de un lote. */
     @Update
     suspend fun actualizar(lote: LoteEntity)
 
+    /** Observa todos los lotes registrados. */
     @Query("SELECT * FROM lotes ORDER BY nombre")
     fun observarTodos(): Flow<List<LoteEntity>>
 
+    /** Observa solamente los lotes que continúan abiertos. */
     @Query("SELECT * FROM lotes WHERE estado = 'ACTIVO' ORDER BY nombre")
     fun observarActivos(): Flow<List<LoteEntity>>
 
+    /** Busca un lote mediante su identificador interno. */
     @Query("SELECT * FROM lotes WHERE id = :id LIMIT 1")
     suspend fun buscarPorId(id: String): LoteEntity?
 
+    /** Busca un lote mediante el código utilizado por la finca. */
     @Query("SELECT * FROM lotes WHERE codigo = :codigo LIMIT 1")
     suspend fun buscarPorCodigo(codigo: String): LoteEntity?
 
+    /** Inserta directamente un registro en el historial de asignaciones. */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertarAsignacion(asignacion: LoteAnimalEntity)
 
+    /**
+     * Asigna un animal dentro de una transacción.
+     * La comprobación evita que pertenezca a dos lotes activos al mismo tiempo.
+     */
     @Transaction
     suspend fun asignarAnimal(asignacion: LoteAnimalEntity) {
         check(buscarAsignacionActiva(asignacion.animalId) == null) {
@@ -43,6 +57,7 @@ interface LoteDao {
         insertarAsignacion(asignacion)
     }
 
+    /** Obtiene la asignación que todavía no tiene fecha de salida. */
     @Query(
         """
         SELECT * FROM lote_animales
@@ -52,6 +67,7 @@ interface LoteDao {
     )
     suspend fun buscarAsignacionActiva(animalId: String): LoteAnimalEntity?
 
+    /** Observa los animales activos que actualmente pertenecen a un lote. */
     @Query(
         """
         SELECT animales.* FROM animales
@@ -65,6 +81,7 @@ interface LoteDao {
     )
     fun observarAnimalesActivos(loteId: String): Flow<List<AnimalEntity>>
 
+    /** Observa todos los lotes por los que ha pasado un animal. */
     @Query(
         """
         SELECT * FROM lote_animales
@@ -74,6 +91,7 @@ interface LoteDao {
     )
     fun observarHistorialDelAnimal(animalId: String): Flow<List<LoteAnimalEntity>>
 
+    /** Finaliza la pertenencia actual del animal sin eliminar el registro. */
     @Query(
         """
         UPDATE lote_animales
@@ -90,6 +108,7 @@ interface LoteDao {
         fechaActualizacion: Long = System.currentTimeMillis()
     ): Int
 
+    /** Cierra un lote y conserva toda la información asociada. */
     @Query(
         """
         UPDATE lotes

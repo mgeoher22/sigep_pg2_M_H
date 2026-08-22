@@ -12,6 +12,12 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 
+/**
+ * Clase central de Room para la base local `gestion_pecuaria.db`.
+ *
+ * Declara las tablas disponibles y proporciona acceso a sus DAO. Se utiliza
+ * una sola instancia para evitar abrir varias conexiones a la misma base.
+ */
 @Database(
     entities = [
         AnimalEntity::class,
@@ -33,9 +39,11 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
 
+        // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
 
+        /** Crea la base la primera vez y reutiliza la misma instancia después. */
         fun obtenerInstancia(context: Context): GestionPecuariaDatabase {
             return instancia ?: synchronized(this) {
                 instancia ?: Room.databaseBuilder(

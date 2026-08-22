@@ -6,6 +6,12 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
+/**
+ * Representa una medición de peso individual.
+ *
+ * Todos los pesos se almacenan en kilogramos. `loteId` es opcional porque un
+ * animal puede pesarse aunque todavía no esté asignado a un lote.
+ */
 @Entity(
     tableName = "pesajes",
     foreignKeys = [
@@ -43,6 +49,7 @@ data class PesajeEntity(
     val actualizadoEn: Long = System.currentTimeMillis()
 ) {
     init {
+        // Evita guardar valores negativos, cero, infinitos o no numéricos.
         require(pesoKg.isFinite() && pesoKg > 0.0) {
             "El peso debe ser un valor positivo expresado en kilogramos"
         }

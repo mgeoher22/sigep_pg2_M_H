@@ -6,6 +6,12 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
+/**
+ * Registra la permanencia de un animal dentro de un lote.
+ *
+ * No se sobrescribe al trasladar un animal: se completa `fechaSalida` y se
+ * crea una nueva asignación, preservando así todo el historial.
+ */
 @Entity(
     tableName = "lote_animales",
     foreignKeys = [
