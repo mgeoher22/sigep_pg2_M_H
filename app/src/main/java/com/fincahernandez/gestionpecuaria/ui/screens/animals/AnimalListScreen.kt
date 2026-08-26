@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
 /** Modelo sencillo que contiene únicamente los datos que necesita la lista. */
@@ -75,6 +76,8 @@ fun AnimalListScreen(
     animales: List<AnimalListItem>,
     onRegistrarAnimal: () -> Unit,
     onAnimalClick: (String) -> Unit,
+    onMenuClick: () -> Unit = {},
+    onNavigateMain: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var busqueda by rememberSaveable { mutableStateOf("") }
@@ -90,8 +93,13 @@ fun AnimalListScreen(
     // Scaffold organiza la barra superior, el botón flotante y el contenido.
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = { AnimalTopBar() },
-        bottomBar = { AppBottomBar() },
+        topBar = { AnimalTopBar(onMenuClick = onMenuClick) },
+        bottomBar = {
+            AppBottomBar(
+                selectedRoute = Routes.ANIMAL_LIST,
+                onNavigate = onNavigateMain
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onRegistrarAnimal,
@@ -172,7 +180,7 @@ fun AnimalListScreen(
 /** Barra superior inspirada en el prototipo de Gestión de Animales. */
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun AnimalTopBar() {
+private fun AnimalTopBar(onMenuClick: () -> Unit) {
     TopAppBar(
         title = {
             Text(
@@ -182,7 +190,7 @@ private fun AnimalTopBar() {
             )
         },
         navigationIcon = {
-            IconButton(onClick = {}) {
+            IconButton(onClick = onMenuClick) {
                 Icon(Icons.Default.Menu, contentDescription = "Abrir menú")
             }
         },

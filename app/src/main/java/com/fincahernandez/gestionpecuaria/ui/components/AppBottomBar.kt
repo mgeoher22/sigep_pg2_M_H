@@ -2,45 +2,49 @@ package com.fincahernandez.gestionpecuaria.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 
 /**
- * Barra inferior compartida con los destinos mostrados en los prototipos.
- * Solo Ganado está activo hasta que existan los demás módulos.
+ * Barra inferior con los cuatro accesos de uso más frecuente.
+ * Los demás módulos continúan disponibles desde el menú lateral.
  */
 @Composable
-fun AppBottomBar() {
+fun AppBottomBar(
+    selectedRoute: String,
+    onNavigate: (String) -> Unit
+) {
     NavigationBar {
         NavigationBarItem(
-            selected = false,
-            onClick = {},
+            selected = selectedRoute == Routes.DASHBOARD,
+            onClick = { onNavigate(Routes.DASHBOARD) },
             icon = { Icon(Icons.Default.Home, contentDescription = null) },
             label = { Text("Inicio") }
         )
         NavigationBarItem(
-            selected = true,
-            onClick = {},
+            selected = selectedRoute == Routes.ANIMAL_LIST,
+            onClick = { onNavigate(Routes.ANIMAL_LIST) },
             icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
             label = { Text("Ganado") }
         )
         NavigationBarItem(
-            selected = false,
-            onClick = {},
-            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
-            label = { Text("Tareas") }
+            selected = selectedRoute == Routes.WEIGHINGS,
+            onClick = { onNavigate(Routes.WEIGHINGS) },
+            icon = { Icon(Icons.Default.Scale, contentDescription = null) },
+            label = { Text("Pesajes") }
         )
         NavigationBarItem(
-            selected = false,
-            onClick = {},
-            icon = { Icon(Icons.Default.Explore, contentDescription = null) },
-            label = { Text("Mapa") }
+            selected = selectedRoute == Routes.FINANCE,
+            onClick = { onNavigate(Routes.FINANCE) },
+            icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null) },
+            label = { Text("Finanzas") }
         )
     }
 }

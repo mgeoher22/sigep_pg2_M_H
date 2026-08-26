@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
 /** Pantalla que confirma visualmente la recepción de un nuevo registro. */
@@ -41,11 +42,17 @@ fun AnimalConfirmationScreen(
     onViewProfile: () -> Unit,
     onRegisterAnother: () -> Unit,
     onBackToList: () -> Unit,
+    onNavigateMain: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        bottomBar = { AppBottomBar() }
+        bottomBar = {
+            AppBottomBar(
+                selectedRoute = Routes.ANIMAL_LIST,
+                onNavigate = onNavigateMain
+            )
+        }
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
