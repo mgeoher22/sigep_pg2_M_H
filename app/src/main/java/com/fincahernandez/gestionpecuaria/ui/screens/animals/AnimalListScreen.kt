@@ -54,14 +54,24 @@ import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
-/** Modelo sencillo que contiene únicamente los datos que necesita la lista. */
+/**
+ * Modelo temporal compartido por el listado, la confirmación y el detalle.
+ * Conserva todos los valores del formulario hasta conectar HU-07 con Room.
+ */
 data class AnimalListItem(
     val id: String,
     val codigoIdentificacion: String,
     val nombre: String?,
     val categoria: String,
     val estado: String,
-    val ultimoPesoKg: Double? = null
+    val ultimoPesoKg: Double? = null,
+    val raza: String = "",
+    val sexo: String = "",
+    val tipoOrigen: String = "",
+    val fechaNacimiento: String = "",
+    val fechaIngreso: String = "",
+    val procedencia: String = "",
+    val observaciones: String = ""
 )
 
 /**

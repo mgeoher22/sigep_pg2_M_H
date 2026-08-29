@@ -149,8 +149,18 @@ private fun ConfirmationCard(animal: AnimalListItem) {
             animal.nombre?.let { Text(it, style = MaterialTheme.typography.titleLarge) }
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Text("Raza", style = MaterialTheme.typography.labelMedium)
+                    Text(animal.raza.ifBlank { "Sin registro" })
+                }
+                Column(modifier = Modifier.weight(1f)) {
                     Text("Categoría", style = MaterialTheme.typography.labelMedium)
                     Text(animal.categoria)
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Procedencia", style = MaterialTheme.typography.labelMedium)
+                    Text(animal.procedencia.ifBlank { "Sin registro" })
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Peso inicial", style = MaterialTheme.typography.labelMedium)

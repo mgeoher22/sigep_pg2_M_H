@@ -22,6 +22,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.placeholder.ModulePlaceholderScreen
+import java.util.Calendar
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -39,6 +40,7 @@ fun AppNavigation() {
     var animales by remember { mutableStateOf(animalesIniciales) }
     var animalSeleccionado by remember { mutableStateOf(animalesIniciales.first()) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
+    var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val selectedMainRoute = when (currentRoute) {
@@ -89,7 +91,10 @@ fun AppNavigation() {
             composable(Routes.ANIMAL_LIST) {
                 AnimalListScreen(
                     animales = animales,
-                    onRegistrarAnimal = { navController.navigate(Routes.ANIMAL_FORM) },
+                    onRegistrarAnimal = {
+                        animalEnEdicionId = null
+                        navController.navigate(Routes.ANIMAL_FORM)
+                    },
                     onAnimalClick = { animalId ->
                         animales.firstOrNull { it.id == animalId }?.let {
                             animalSeleccionado = it
@@ -102,14 +107,37 @@ fun AppNavigation() {
             }
 
             composable(Routes.ANIMAL_FORM) {
+                val animalEnEdicion = animales.firstOrNull { it.id == animalEnEdicionId }
                 AnimalFormScreen(
+                    codigoGenerado = animalEnEdicion?.codigoIdentificacion
+                        ?: generarCodigoAnimal(animales),
+                    initialData = animalEnEdicion?.toFormData(),
                     onBack = { navController.popBackStack() },
                     onSubmit = { formulario ->
-                        val nuevoAnimal = formulario.toListItem()
-                        animales = animales + nuevoAnimal
-                        animalSeleccionado = nuevoAnimal
-                        ultimoRegistro = nuevoAnimal
-                        navController.navigate(Routes.ANIMAL_CONFIRMATION)
+                        val animalGuardado = formulario.toListItem(
+                            id = animalEnEdicion?.id ?: UUID.randomUUID().toString()
+                        )
+
+                        if (animalEnEdicion != null) {
+                            // Sustituye el elemento existente y vuelve al perfil actualizado.
+                            animales = animales.map { actual ->
+                                if (actual.id == animalGuardado.id) animalGuardado else actual
+                            }
+                            animalSeleccionado = animalGuardado
+                            animalEnEdicionId = null
+                            val regresoAlDetalle = navController.popBackStack(
+                                route = Routes.ANIMAL_DETAIL,
+                                inclusive = false
+                            )
+                            if (!regresoAlDetalle) {
+                                navController.navigate(Routes.ANIMAL_DETAIL)
+                            }
+                        } else {
+                            animales = animales + animalGuardado
+                            animalSeleccionado = animalGuardado
+                            ultimoRegistro = animalGuardado
+                            navController.navigate(Routes.ANIMAL_CONFIRMATION)
+                        }
                     }
                 )
             }
@@ -120,11 +148,22 @@ fun AppNavigation() {
                     animal = animal,
                     onViewProfile = { navController.navigate(Routes.ANIMAL_DETAIL) },
                     onRegisterAnother = {
+                        animalEnEdicionId = null
                         navController.navigate(Routes.ANIMAL_FORM) {
                             popUpTo(Routes.ANIMAL_CONFIRMATION) { inclusive = true }
                         }
                     },
-                    onBackToList = { navigateMain(Routes.ANIMAL_LIST) },
+                    onBackToList = {
+                        // Regresa al listado existente y elimina formulario/confirmación
+                        // del historial para que Atrás no vuelva a abrir el registro.
+                        val regresoExitoso = navController.popBackStack(
+                            route = Routes.ANIMAL_LIST,
+                            inclusive = false
+                        )
+                        if (!regresoExitoso) {
+                            navigateMain(Routes.ANIMAL_LIST)
+                        }
+                    },
                     onNavigateMain = navigateMain
                 )
             }
@@ -133,8 +172,11 @@ fun AppNavigation() {
                 AnimalDetailScreen(
                     animal = animalSeleccionado,
                     onBack = { navController.popBackStack() },
-                    onEdit = {},
-                    onRegisterWeight = {},
+                    onEdit = {
+                        animalEnEdicionId = animalSeleccionado.id
+                        navController.navigate(Routes.ANIMAL_FORM)
+                    },
+                    onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
                     onNavigateMain = navigateMain
                 )
             }
@@ -197,14 +239,56 @@ fun AppNavigation() {
     }
 }
 
-/** Convierte los valores del formulario al modelo utilizado por la lista. */
-private fun AnimalFormData.toListItem() = AnimalListItem(
-    id = UUID.randomUUID().toString(),
+/**
+ * Genera un código consecutivo para que el usuario no tenga que escribirlo.
+ * En HU-07 esta responsabilidad se moverá al repositorio conectado con Room.
+ */
+private fun generarCodigoAnimal(animales: List<AnimalListItem>): String {
+    val anioActual = Calendar.getInstance().get(Calendar.YEAR)
+    val prefijo = "FH-$anioActual-"
+    val ultimoConsecutivo = animales
+        .mapNotNull { animal ->
+            animal.codigoIdentificacion
+                .takeIf { it.startsWith(prefijo) }
+                ?.removePrefix(prefijo)
+                ?.toIntOrNull()
+        }
+        .maxOrNull() ?: 0
+
+    return prefijo + (ultimoConsecutivo + 1).toString().padStart(3, '0')
+}
+
+/** Conserva los valores del formulario para mostrarlos en confirmación y detalle. */
+private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
+    id = id,
     codigoIdentificacion = codigoIdentificacion.trim(),
     nombre = nombre.trim().ifBlank { null },
     categoria = categoria,
     estado = estadoSalud,
-    ultimoPesoKg = pesoInicial.toDoubleOrNull()
+    ultimoPesoKg = pesoInicial.toDoubleOrNull(),
+    raza = raza.trim(),
+    sexo = sexo,
+    tipoOrigen = tipoOrigen,
+    fechaNacimiento = fechaNacimiento,
+    fechaIngreso = fechaIngreso,
+    procedencia = procedencia.trim(),
+    observaciones = observaciones.trim()
+)
+
+/** Recupera los datos del animal para precargar el formulario de edición. */
+private fun AnimalListItem.toFormData() = AnimalFormData(
+    codigoIdentificacion = codigoIdentificacion,
+    nombre = nombre.orEmpty(),
+    raza = raza,
+    sexo = sexo,
+    categoria = categoria,
+    tipoOrigen = tipoOrigen,
+    fechaNacimiento = fechaNacimiento,
+    fechaIngreso = fechaIngreso,
+    estadoSalud = estado,
+    pesoInicial = ultimoPesoKg?.toString().orEmpty(),
+    procedencia = procedencia,
+    observaciones = observaciones
 )
 
 // Información ficticia para evaluar el diseño antes de conectar Room.
@@ -215,7 +299,13 @@ private val animalesIniciales = listOf(
         nombre = "Luna",
         categoria = "LECHERO",
         estado = "EXCELENTE",
-        ultimoPesoKg = 450.0
+        ultimoPesoKg = 450.0,
+        raza = "Holstein",
+        sexo = "HEMBRA",
+        tipoOrigen = "NACIDO_EN_FINCA",
+        fechaNacimiento = "12/08/2024",
+        fechaIngreso = "12/08/2024",
+        procedencia = "Parcela Norte"
     ),
     AnimalListItem(
         id = "demo-2",
@@ -223,6 +313,12 @@ private val animalesIniciales = listOf(
         nombre = "Brahman 102",
         categoria = "ENGORDE",
         estado = "OBSERVACIÓN",
-        ultimoPesoKg = 612.0
+        ultimoPesoKg = 612.0,
+        raza = "Brahman",
+        sexo = "MACHO",
+        tipoOrigen = "INGRESADO_A_FINCA",
+        fechaNacimiento = "05/02/2023",
+        fechaIngreso = "18/06/2024",
+        procedencia = "Criadero regional"
     )
 )

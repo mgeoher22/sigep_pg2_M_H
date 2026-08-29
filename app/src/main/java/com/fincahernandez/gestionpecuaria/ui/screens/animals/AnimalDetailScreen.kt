@@ -26,6 +26,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -105,6 +106,7 @@ fun AnimalDetailScreen(
                     )
                 }
             }
+            item { AnimalRegisteredInformation(animal) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard("LOTE ACTUAL", "Sin asignar", Modifier.weight(1f))
@@ -127,6 +129,71 @@ fun AnimalDetailScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Muestra los valores capturados en el formulario para cumplir HU-03. */
+@Composable
+private fun AnimalRegisteredInformation(animal: AnimalListItem) {
+    val origen = when (animal.tipoOrigen) {
+        "NACIDO_EN_FINCA" -> "Nacido en la finca/parcela"
+        "INGRESADO_A_FINCA" -> "Ingresado a la finca"
+        else -> "Sin registro"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Información registrada",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            AnimalInformationRow("Raza", animal.raza.ifBlank { "Sin registro" })
+            AnimalInformationRow("Sexo", animal.sexo.ifBlank { "Sin registro" })
+            AnimalInformationRow("Origen", origen)
+            AnimalInformationRow(
+                "Fecha de nacimiento",
+                animal.fechaNacimiento.ifBlank { "Sin registro" }
+            )
+            if (animal.tipoOrigen == "INGRESADO_A_FINCA") {
+                AnimalInformationRow(
+                    "Fecha de llegada",
+                    animal.fechaIngreso.ifBlank { "Sin registro" }
+                )
+            }
+            AnimalInformationRow(
+                if (animal.tipoOrigen == "NACIDO_EN_FINCA") "Parcela de nacimiento" else "Procedencia",
+                animal.procedencia.ifBlank { "Sin registro" }
+            )
+            AnimalInformationRow(
+                "Observaciones",
+                animal.observaciones.ifBlank { "Sin observaciones" },
+                showDivider = false
+            )
+        }
+    }
+}
+
+/** Fila reutilizable para presentar una etiqueta y su valor. */
+@Composable
+private fun AnimalInformationRow(
+    label: String,
+    value: String,
+    showDivider: Boolean = true
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        if (showDivider) {
+            HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
         }
     }
 }

@@ -19,15 +19,20 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -69,7 +74,7 @@ data class AnimalFormData(
 )
 
 /**
- * Formulario visual para registrar un animal.
+ * Formulario visual para registrar o corregir la información de un animal.
  *
  * Todavía no escribe en Room. Entrega los valores mediante [onSubmit] para que
  * la navegación muestre el flujo completo antes de integrar persistencia.
@@ -77,22 +82,45 @@ data class AnimalFormData(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnimalFormScreen(
+    codigoGenerado: String,
+    initialData: AnimalFormData? = null,
     onBack: () -> Unit,
     onSubmit: (AnimalFormData) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var codigo by rememberSaveable { mutableStateOf("") }
-    var nombre by rememberSaveable { mutableStateOf("") }
-    var raza by rememberSaveable { mutableStateOf("") }
-    var sexo by rememberSaveable { mutableStateOf("MACHO") }
-    var categoria by rememberSaveable { mutableStateOf("LECHERO") }
-    var tipoOrigen by rememberSaveable { mutableStateOf("NACIDO_EN_FINCA") }
-    var fechaNacimiento by rememberSaveable { mutableStateOf("") }
-    var fechaIngreso by rememberSaveable { mutableStateOf("") }
-    var estadoSalud by rememberSaveable { mutableStateOf("EXCELENTE") }
-    var pesoInicial by rememberSaveable { mutableStateOf("") }
-    var procedencia by rememberSaveable { mutableStateOf("") }
-    var observaciones by rememberSaveable { mutableStateOf("") }
+    // El código viene de la navegación y no puede ser modificado por el usuario.
+    val isEditing = initialData != null
+    val codigo = initialData?.codigoIdentificacion ?: codigoGenerado
+    var nombre by rememberSaveable { mutableStateOf(initialData?.nombre.orEmpty()) }
+    var raza by rememberSaveable { mutableStateOf(initialData?.raza.orEmpty()) }
+    var sexo by rememberSaveable { mutableStateOf(initialData?.sexo?.ifBlank { "MACHO" } ?: "MACHO") }
+    var categoria by rememberSaveable {
+        mutableStateOf(initialData?.categoria?.ifBlank { "LECHERO" } ?: "LECHERO")
+    }
+    var tipoOrigen by rememberSaveable {
+        mutableStateOf(initialData?.tipoOrigen?.ifBlank { "NACIDO_EN_FINCA" } ?: "NACIDO_EN_FINCA")
+    }
+    var fechaNacimiento by rememberSaveable {
+        mutableStateOf(initialData?.fechaNacimiento.orEmpty())
+    }
+    var fechaIngreso by rememberSaveable { mutableStateOf(initialData?.fechaIngreso.orEmpty()) }
+    var estadoSalud by rememberSaveable {
+        mutableStateOf(initialData?.estadoSalud?.ifBlank { "EXCELENTE" } ?: "EXCELENTE")
+    }
+    var pesoInicial by rememberSaveable { mutableStateOf(initialData?.pesoInicial.orEmpty()) }
+    var procedencia by rememberSaveable { mutableStateOf(initialData?.procedencia.orEmpty()) }
+    var observaciones by rememberSaveable { mutableStateOf(initialData?.observaciones.orEmpty()) }
+    var intentoGuardar by rememberSaveable { mutableStateOf(false) }
+
+    // HU-03 requiere señalar visualmente los campos obligatorios o inválidos.
+    val codigoInvalido = codigo.isBlank()
+    val fechaObligatoriaInvalida = if (tipoOrigen == "NACIDO_EN_FINCA") {
+        fechaNacimiento.isBlank()
+    } else {
+        fechaIngreso.isBlank()
+    }
+    val pesoInvalido = pesoInicial.isNotBlank() && pesoInicial.toDoubleOrNull() == null
+    val formularioValido = !codigoInvalido && !fechaObligatoriaInvalida && !pesoInvalido
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -101,7 +129,10 @@ fun AnimalFormScreen(
                 title = {
                     Column {
                         Text("Finca Hernández", color = MaterialTheme.colorScheme.primary)
-                        Text("Registro de animal", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (isEditing) "Editar animal" else "Registro de animal",
+                            style = MaterialTheme.typography.titleMedium
+                        )
                     }
                 },
                 navigationIcon = {
@@ -123,10 +154,21 @@ fun AnimalFormScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Text(
-                    text = "Complete los datos para añadir un nuevo ejemplar al inventario.",
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = if (isEditing) {
+                            "Corrija los datos necesarios y guarde los cambios del animal."
+                        } else {
+                            "Complete los datos para añadir un nuevo ejemplar al inventario."
+                        },
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "* Campos obligatorios",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
 
             // Marcador visual: la selección y el almacenamiento de fotos se implementarán después.
@@ -150,10 +192,16 @@ fun AnimalFormScreen(
             item {
                 OutlinedTextField(
                     value = codigo,
-                    onValueChange = { codigo = it },
+                    onValueChange = {},
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Código de identificación *") },
-                    placeholder = { Text("Ej. FH-2024-88") },
+                    label = { Text("Código de identificación") },
+                    leadingIcon = {
+                        Icon(Icons.Default.Tag, contentDescription = null)
+                    },
+                    supportingText = {
+                        Text("Generado automáticamente por el sistema.")
+                    },
+                    readOnly = true,
                     singleLine = true
                 )
             }
@@ -167,12 +215,9 @@ fun AnimalFormScreen(
                 )
             }
             item {
-                OutlinedTextField(
+                BreedDropdownField(
                     value = raza,
-                    onValueChange = { raza = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Raza") },
-                    singleLine = true
+                    onValueSelected = { raza = it }
                 )
             }
 
@@ -217,7 +262,10 @@ fun AnimalFormScreen(
                         "Fecha de nacimiento"
                     },
                     value = fechaNacimiento,
-                    onDateSelected = { fechaNacimiento = it }
+                    onDateSelected = { fechaNacimiento = it },
+                    showError = intentoGuardar &&
+                        tipoOrigen == "NACIDO_EN_FINCA" &&
+                        fechaNacimiento.isBlank()
                 )
             }
 
@@ -227,7 +275,8 @@ fun AnimalFormScreen(
                     DateSelectorField(
                         label = "Fecha de llegada *",
                         value = fechaIngreso,
-                        onDateSelected = { fechaIngreso = it }
+                        onDateSelected = { fechaIngreso = it },
+                        showError = intentoGuardar && fechaIngreso.isBlank()
                     )
                 }
             }
@@ -252,6 +301,12 @@ fun AnimalFormScreen(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Peso inicial en kg") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = intentoGuardar && pesoInvalido,
+                    supportingText = if (intentoGuardar && pesoInvalido) {
+                        { Text("Ingrese un peso numérico válido.") }
+                    } else {
+                        null
+                    },
                     singleLine = true
                 )
             }
@@ -285,36 +340,32 @@ fun AnimalFormScreen(
             // El botón forma parte de la lista para que pueda alcanzarse al desplazarse,
             // incluso en pantallas pequeñas o cuando está abierto el teclado.
             item {
-                val fechaObligatoriaCompleta = if (tipoOrigen == "NACIDO_EN_FINCA") {
-                    fechaNacimiento.isNotBlank()
-                } else {
-                    fechaIngreso.isNotBlank()
-                }
-
                 Button(
                     onClick = {
-                        onSubmit(
-                            AnimalFormData(
-                                codigoIdentificacion = codigo,
-                                nombre = nombre,
-                                raza = raza,
-                                sexo = sexo,
-                                categoria = categoria,
-                                tipoOrigen = tipoOrigen,
-                                fechaNacimiento = fechaNacimiento,
-                                fechaIngreso = if (tipoOrigen == "NACIDO_EN_FINCA") {
-                                    fechaNacimiento
-                                } else {
-                                    fechaIngreso
-                                },
-                                estadoSalud = estadoSalud,
-                                pesoInicial = pesoInicial,
-                                procedencia = procedencia,
-                                observaciones = observaciones
+                        intentoGuardar = true
+                        if (formularioValido) {
+                            onSubmit(
+                                AnimalFormData(
+                                    codigoIdentificacion = codigo,
+                                    nombre = nombre,
+                                    raza = raza,
+                                    sexo = sexo,
+                                    categoria = categoria,
+                                    tipoOrigen = tipoOrigen,
+                                    fechaNacimiento = fechaNacimiento,
+                                    fechaIngreso = if (tipoOrigen == "NACIDO_EN_FINCA") {
+                                        fechaNacimiento
+                                    } else {
+                                        fechaIngreso
+                                    },
+                                    estadoSalud = estadoSalud,
+                                    pesoInicial = pesoInicial,
+                                    procedencia = procedencia,
+                                    observaciones = observaciones
+                                )
                             )
-                        )
+                        }
                     },
-                    enabled = codigo.isNotBlank() && fechaObligatoriaCompleta,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -322,7 +373,10 @@ fun AnimalFormScreen(
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("Confirmar registro", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (isEditing) "Guardar cambios" else "Confirmar registro",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -332,6 +386,88 @@ fun AnimalFormScreen(
 }
 
 /**
+ * Selector de raza con valores normalizados para evitar errores de escritura.
+ * Incluye razas lecheras, cárnicas, de doble propósito, criollas y mixtas.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BreedDropdownField(
+    value: String,
+    onValueSelected: (String) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+            readOnly = true,
+            label = { Text("Raza") },
+            placeholder = { Text("Seleccione una raza bovina") },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            singleLine = true
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            bovineBreeds.forEach { breed ->
+                DropdownMenuItem(
+                    text = { Text(breed) },
+                    onClick = {
+                        onValueSelected(breed)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Catálogo inicial de razas disponibles durante la etapa de pruebas. */
+private val bovineBreeds = listOf(
+    "Angus",
+    "Ayrshire",
+    "Azul Belga",
+    "Beefmaster",
+    "Brahman",
+    "Brangus",
+    "Charolais",
+    "Chianina",
+    "Criolla",
+    "Dexter",
+    "Gyr",
+    "Girolando",
+    "Guzerá",
+    "Hereford",
+    "Holstein",
+    "Jersey",
+    "Limousin",
+    "Mixta",
+    "Nelore",
+    "Normando",
+    "Pardo Suizo",
+    "Red Angus",
+    "Red Poll",
+    "Romagnola",
+    "Santa Gertrudis",
+    "Senepol",
+    "Shorthorn",
+    "Simmental",
+    "Sindi",
+    "Wagyu"
+)
+
+/**
  * Campo de fecha que abre un calendario y evita el ingreso manual de formatos.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -339,26 +475,37 @@ fun AnimalFormScreen(
 private fun DateSelectorField(
     label: String,
     value: String,
-    onDateSelected: (String) -> Unit
+    onDateSelected: (String) -> Unit,
+    showError: Boolean = false
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState()
 
-    OutlinedButton(
-        onClick = { showDialog = true },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-            Text(label, style = MaterialTheme.typography.labelMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedButton(
+            onClick = { showDialog = true },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text(label, style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = value.ifBlank { "Seleccionar fecha" },
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            Icon(Icons.Default.CalendarMonth, contentDescription = "Abrir calendario")
+        }
+        if (showError) {
             Text(
-                text = value.ifBlank { "Seleccionar fecha" },
-                style = MaterialTheme.typography.bodyLarge
+                text = "Seleccione la fecha obligatoria.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
-        Icon(Icons.Default.CalendarMonth, contentDescription = "Abrir calendario")
     }
 
     if (showDialog) {
@@ -424,6 +571,10 @@ private fun SelectorDosOpciones(
 @Composable
 private fun AnimalFormPreview() {
     GestionPecuariaTheme {
-        AnimalFormScreen(onBack = {}, onSubmit = {})
+        AnimalFormScreen(
+            codigoGenerado = "FH-2026-001",
+            onBack = {},
+            onSubmit = {}
+        )
     }
 }
