@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -511,6 +512,8 @@ private fun DateSelectorField(
     if (showDialog) {
         DatePickerDialog(
             onDismissRequest = { showDialog = false },
+            // Evita que los botones queden debajo de la barra del sistema en tabletas.
+            modifier = Modifier.navigationBarsPadding(),
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -533,6 +536,10 @@ private fun DateSelectorField(
         ) {
             DatePicker(
                 state = datePickerState,
+                // Se omite el encabezado grande porque la fecha ya se ve seleccionada
+                // en el calendario y posteriormente en el campo del formulario.
+                title = null,
+                headline = null,
                 showModeToggle = false
             )
         }

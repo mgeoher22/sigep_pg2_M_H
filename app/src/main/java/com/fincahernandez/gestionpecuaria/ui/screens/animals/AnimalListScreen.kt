@@ -18,8 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +30,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -91,13 +94,43 @@ fun AnimalListScreen(
     modifier: Modifier = Modifier
 ) {
     var busqueda by rememberSaveable { mutableStateOf("") }
+    var categoriaSeleccionada by rememberSaveable { mutableStateOf(FILTER_ALL) }
+    var estadoSeleccionado by rememberSaveable { mutableStateOf(FILTER_ALL) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
 
-    // Filtra localmente los elementos visibles mientras el usuario escribe.
+    val activeFilterCount = listOf(categoriaSeleccionada, estadoSeleccionado)
+        .count { it != FILTER_ALL }
+
+    // Combina la búsqueda de texto con categoría y estado de salud.
     val animalesFiltrados = animales.filter { animal ->
-        busqueda.isBlank() ||
+        val coincideBusqueda = busqueda.isBlank() ||
             animal.codigoIdentificacion.contains(busqueda, ignoreCase = true) ||
             animal.nombre.orEmpty().contains(busqueda, ignoreCase = true) ||
             animal.categoria.contains(busqueda, ignoreCase = true)
+        val coincideCategoria = categoriaSeleccionada == FILTER_ALL ||
+            animal.categoria.equals(categoriaSeleccionada, ignoreCase = true)
+        val coincideEstado = estadoSeleccionado == FILTER_ALL ||
+            animal.estado.equals(estadoSeleccionado, ignoreCase = true)
+
+        coincideBusqueda && coincideCategoria && coincideEstado
+    }
+
+    if (showFilters) {
+        AnimalFiltersDialog(
+            selectedCategory = categoriaSeleccionada,
+            selectedStatus = estadoSeleccionado,
+            onDismiss = { showFilters = false },
+            onClear = {
+                categoriaSeleccionada = FILTER_ALL
+                estadoSeleccionado = FILTER_ALL
+                showFilters = false
+            },
+            onApply = { category, status ->
+                categoriaSeleccionada = category
+                estadoSeleccionado = status
+                showFilters = false
+            }
+        )
     }
 
     // Scaffold organiza la barra superior, el botón flotante y el contenido.
@@ -142,10 +175,10 @@ fun AnimalListScreen(
                 )
             }
 
-            // Control reservado para los filtros de categoría y estado.
+            // Abre el selector de filtros y muestra cuántos están activos.
             item {
                 Surface(
-                    onClick = {},
+                    onClick = { showFilters = true },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant
@@ -157,7 +190,10 @@ fun AnimalListScreen(
                     ) {
                         Icon(Icons.Default.Tune, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Filtros", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (activeFilterCount == 0) "Filtros" else "Filtros ($activeFilterCount)",
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
@@ -166,7 +202,7 @@ fun AnimalListScreen(
             if (animalesFiltrados.isEmpty()) {
                 item {
                     EmptyAnimalsCard(
-                        hayBusqueda = busqueda.isNotBlank(),
+                        hayBusqueda = busqueda.isNotBlank() || activeFilterCount > 0,
                         onRegistrarAnimal = onRegistrarAnimal
                     )
                 }
@@ -186,6 +222,103 @@ fun AnimalListScreen(
         }
     }
 }
+
+/** Cuadro de selección para filtrar el inventario sin abandonar la pantalla. */
+@Composable
+private fun AnimalFiltersDialog(
+    selectedCategory: String,
+    selectedStatus: String,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit,
+    onApply: (String, String) -> Unit
+) {
+    var temporaryCategory by rememberSaveable(selectedCategory) {
+        mutableStateOf(selectedCategory)
+    }
+    var temporaryStatus by rememberSaveable(selectedStatus) {
+        mutableStateOf(selectedStatus)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filtrar animales") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Categoría", fontWeight = FontWeight.SemiBold)
+                FilterOptionGrid(
+                    options = categoryFilterOptions,
+                    selectedValue = temporaryCategory,
+                    onSelected = { temporaryCategory = it }
+                )
+                Text("Estado de salud", fontWeight = FontWeight.SemiBold)
+                FilterOptionGrid(
+                    options = statusFilterOptions,
+                    selectedValue = temporaryStatus,
+                    onSelected = { temporaryStatus = it }
+                )
+                if (selectedCategory != FILTER_ALL || selectedStatus != FILTER_ALL) {
+                    TextButton(onClick = onClear) {
+                        Text("Limpiar filtros")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(temporaryCategory, temporaryStatus) }) {
+                Text("Aplicar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+/** Distribuye las opciones en dos columnas para teléfono y tableta. */
+@Composable
+private fun FilterOptionGrid(
+    options: List<Pair<String, String>>,
+    selectedValue: String,
+    onSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.chunked(2).forEach { optionRow ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                optionRow.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedValue == value,
+                        onClick = { onSelected(value) },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (optionRow.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+private const val FILTER_ALL = "TODOS"
+
+private val categoryFilterOptions = listOf(
+    FILTER_ALL to "Todas",
+    "LECHERO" to "Lechero",
+    "ENGORDE" to "Engorde",
+    "AMBOS" to "Ambos"
+)
+
+private val statusFilterOptions = listOf(
+    FILTER_ALL to "Todos",
+    "EXCELENTE" to "Excelente",
+    "OBSERVACIÓN" to "Observación"
+)
 
 /** Barra superior inspirada en el prototipo de Gestión de Animales. */
 @Composable
