@@ -19,7 +19,9 @@ object Routes {
     const val MILK_PRODUCTION = "milk_production"
     const val MILK_PRODUCTION_FORM = "milk_production_form"
     const val FINANCE = "finance"
+    const val FINANCE_FORM = "finance_form"
     const val EMPLOYEES = "employees"
+    const val EMPLOYEE_FORM = "employee_form"
 
     /** Destinos accesibles desde el menú principal. */
     val mainDestinations = setOf(

@@ -21,6 +21,12 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinanceListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalOption
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalSelectionScreen
@@ -34,7 +40,6 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
-import com.fincahernandez.gestionpecuaria.ui.screens.placeholder.ModulePlaceholderScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.AnimalWeightOption
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
@@ -65,6 +70,8 @@ fun AppNavigation() {
     var selectedParcel by remember { mutableStateOf(initialParcels.first()) }
     var weighings by remember { mutableStateOf(initialWeighings) }
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
+    var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
+    var employees by remember { mutableStateOf(initialEmployees) }
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val selectedMainRoute = when (currentRoute) {
@@ -78,6 +85,8 @@ fun AppNavigation() {
         Routes.PARCEL_DETAIL -> Routes.PARCELS
         Routes.WEIGHING_FORM -> Routes.WEIGHINGS
         Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
+        Routes.FINANCE_FORM -> Routes.FINANCE
+        Routes.EMPLOYEE_FORM -> Routes.EMPLOYEES
         else -> currentRoute
     }
 
@@ -436,21 +445,62 @@ fun AppNavigation() {
                 )
             }
             composable(Routes.FINANCE) {
-                ModulePlaceholderScreen(
-                    title = "Finanzas",
-                    sprintReference = "HU-06",
-                    route = Routes.FINANCE,
+                FinanceListScreen(
+                    movements = financialMovements,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateMovement = { navController.navigate(Routes.FINANCE_FORM) },
+                    onNavigateMain = navigateMain
                 )
             }
+
+            composable(Routes.FINANCE_FORM) {
+                FinancialMovementFormScreen(
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        financialMovements = financialMovements + FinancialMovementUiModel(
+                            id = UUID.randomUUID().toString(),
+                            type = form.type,
+                            category = form.category,
+                            amount = form.amount.toDouble(),
+                            date = form.date,
+                            notes = form.notes
+                        )
+                        if (!navController.popBackStack(Routes.FINANCE, false)) {
+                            navigateMain(Routes.FINANCE)
+                        }
+                    }
+                )
+            }
+
             composable(Routes.EMPLOYEES) {
-                ModulePlaceholderScreen(
-                    title = "Empleados",
-                    sprintReference = "HU-06",
-                    route = Routes.EMPLOYEES,
+                EmployeeListScreen(
+                    employees = employees,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateEmployee = { navController.navigate(Routes.EMPLOYEE_FORM) },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.EMPLOYEE_FORM) {
+                EmployeeFormScreen(
+                    sectorOptions = parcels.map { it.name },
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        employees = employees + EmployeeUiModel(
+                            id = UUID.randomUUID().toString(),
+                            fullName = form.fullName,
+                            role = form.role,
+                            hireDate = form.hireDate,
+                            salary = form.salary.toDouble(),
+                            paymentFrequency = form.paymentFrequency,
+                            assignedSector = form.assignedSector,
+                            phone = form.phone,
+                            active = form.active
+                        )
+                        if (!navController.popBackStack(Routes.EMPLOYEES, false)) {
+                            navigateMain(Routes.EMPLOYEES)
+                        }
+                    }
                 )
             }
         }
@@ -643,5 +693,51 @@ private val initialMilkProductionRecords = listOf(
         date = "29/08/2026",
         liters = 118.0,
         notes = "Sin observaciones"
+    )
+)
+
+// Movimientos ficticios para revisar el panel financiero antes de conectar Room.
+private val initialFinancialMovements = listOf(
+    FinancialMovementUiModel(
+        id = "finance-demo-1",
+        type = "INGRESO",
+        category = "Venta de leche",
+        amount = 4250.0,
+        date = "28/08/2026",
+        notes = "Registro de prueba"
+    ),
+    FinancialMovementUiModel(
+        id = "finance-demo-2",
+        type = "EGRESO",
+        category = "Alimentación",
+        amount = 1850.0,
+        date = "29/08/2026",
+        notes = "Compra de concentrado"
+    )
+)
+
+// Personal ficticio para validar visualmente el listado de HU-06.
+private val initialEmployees = listOf(
+    EmployeeUiModel(
+        id = "employee-demo-1",
+        fullName = "Ricardo Hernández",
+        role = "Vaquero",
+        hireDate = "10/01/2025",
+        salary = 3200.0,
+        paymentFrequency = "Mensual",
+        assignedSector = "Potrero Norte",
+        phone = "5555 0101",
+        active = true
+    ),
+    EmployeeUiModel(
+        id = "employee-demo-2",
+        fullName = "María García",
+        role = "Veterinario",
+        hireDate = "15/03/2025",
+        salary = 4500.0,
+        paymentFrequency = "Mensual",
+        assignedSector = "General",
+        phone = "5555 0202",
+        active = true
     )
 )
