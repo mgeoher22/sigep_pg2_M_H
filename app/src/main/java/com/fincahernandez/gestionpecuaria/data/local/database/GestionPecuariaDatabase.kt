@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
@@ -25,7 +27,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
         LoteAnimalEntity::class,
         PesajeEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -39,6 +41,17 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
 
+        /**
+         * Conserva los pesajes existentes al cambiar la unidad oficial de kg a libras.
+         * Primero renombra la columna y luego convierte numéricamente cada registro.
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE pesajes RENAME COLUMN pesoKg TO pesoLibras")
+                database.execSQL("UPDATE pesajes SET pesoLibras = pesoLibras * 2.2046226218")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -50,7 +63,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     context.applicationContext,
                     GestionPecuariaDatabase::class.java,
                     DATABASE_NAME
-                ).build().also { nuevaInstancia ->
+                ).addMigrations(MIGRATION_1_2)
+                    .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia
                 }
             }

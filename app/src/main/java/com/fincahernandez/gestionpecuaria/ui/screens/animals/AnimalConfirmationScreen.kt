@@ -164,7 +164,7 @@ private fun ConfirmationCard(animal: AnimalListItem) {
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Peso inicial", style = MaterialTheme.typography.labelMedium)
-                    Text(animal.ultimoPesoKg?.let { "$it kg" } ?: "Sin registro")
+                    Text(animal.ultimoPesoLibras?.let { "$it lb" } ?: "Sin registro")
                 }
             }
         }

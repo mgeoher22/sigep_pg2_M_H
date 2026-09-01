@@ -67,7 +67,7 @@ data class AnimalListItem(
     val nombre: String?,
     val categoria: String,
     val estado: String,
-    val ultimoPesoKg: Double? = null,
+    val ultimoPesoLibras: Double? = null,
     val raza: String = "",
     val sexo: String = "",
     val tipoOrigen: String = "",
@@ -464,7 +464,7 @@ private fun AnimalCard(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = animal.ultimoPesoKg?.let { "${it.toInt()} kg" } ?: "Sin pesaje",
+                        text = animal.ultimoPesoLibras?.let { "${it.toInt()} lb" } ?: "Sin pesaje",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -504,7 +504,7 @@ private fun AnimalListScreenPreview() {
                     nombre = "Luna",
                     categoria = "LECHERO",
                     estado = "ACTIVO",
-                    ultimoPesoKg = 450.0
+                    ultimoPesoLibras = 450.0
                 ),
                 AnimalListItem(
                     id = "2",
@@ -512,7 +512,7 @@ private fun AnimalListScreenPreview() {
                     nombre = null,
                     categoria = "ENGORDE",
                     estado = "ACTIVO",
-                    ultimoPesoKg = 612.0
+                    ultimoPesoLibras = 612.0
                 )
             ),
             onRegistrarAnimal = {},

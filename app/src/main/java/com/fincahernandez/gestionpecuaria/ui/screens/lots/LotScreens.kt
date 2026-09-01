@@ -94,6 +94,15 @@ data class LotFormData(
     val selectedAnimalIds: List<String>
 )
 
+/** Datos mínimos que necesita el flujo de lotes para mostrar y seleccionar un animal. */
+data class LotAnimalOption(
+    val id: String,
+    val code: String,
+    val name: String?,
+    val category: String,
+    val weightLibras: Double?
+)
+
 /** Panel y listado independiente de lotes activos. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -289,7 +298,7 @@ private fun LotCard(lot: LotUiModel, onClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Peso promedio: ${lot.initialAverageWeight?.let { "$it kg" } ?: "Sin dato"}")
+                Text("Peso promedio: ${lot.initialAverageWeight?.let { "$it lb" } ?: "Sin dato"}")
                 Text(lot.parcelName.ifBlank { "Sin parcela" })
             }
         }
@@ -315,7 +324,9 @@ private fun LotStatusBadge(status: String) {
 @Composable
 fun LotFormScreen(
     parcelNames: List<String>,
-    animalOptions: List<Pair<String, String>>,
+    animalOptions: List<LotAnimalOption>,
+    selectedAnimalIds: List<String>,
+    onOpenAnimalSelector: () -> Unit,
     onBack: () -> Unit,
     onSubmit: (LotFormData) -> Unit,
     modifier: Modifier = Modifier
@@ -323,15 +334,16 @@ fun LotFormScreen(
     var name by rememberSaveable { mutableStateOf("") }
     var type by rememberSaveable { mutableStateOf("ENGORDE") }
     var parcelName by rememberSaveable { mutableStateOf("") }
-    var initialWeight by rememberSaveable { mutableStateOf("") }
     var targetWeight by rememberSaveable { mutableStateOf("") }
     var exitDate by rememberSaveable { mutableStateOf("") }
-    var selectedAnimalIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
-    val initialWeightInvalid = initialWeight.isNotBlank() && initialWeight.toDoubleOrNull() == null
+    // El promedio se obtiene únicamente de los animales seleccionados que tienen un peso registrado.
+    val selectedAnimals = animalOptions.filter { it.id in selectedAnimalIds }
+    val selectedWeights = selectedAnimals.mapNotNull { it.weightLibras }
+    val initialAverageWeight = selectedWeights.takeIf { it.isNotEmpty() }?.average()
     val targetWeightInvalid = targetWeight.isNotBlank() && targetWeight.toDoubleOrNull() == null
-    val formValid = name.isNotBlank() && !initialWeightInvalid && !targetWeightInvalid
+    val formValid = name.isNotBlank() && !targetWeightInvalid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -394,39 +406,64 @@ fun LotFormScreen(
                 )
             }
             item {
-                NumericLotField(
-                    label = "Peso inicial promedio (kg)",
-                    value = initialWeight,
-                    onValueChange = { initialWeight = it },
-                    showError = attemptedSave && initialWeightInvalid
+                OutlinedTextField(
+                    value = initialAverageWeight?.let { String.format(Locale.getDefault(), "%.1f", it) }
+                        ?: "Sin datos",
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    label = { Text("Peso inicial promedio (lb)") },
+                    supportingText = {
+                        Text(
+                            when {
+                                selectedAnimals.isEmpty() -> "Se calculará al seleccionar animales."
+                                selectedWeights.size < selectedAnimals.size ->
+                                    "Calculado con ${selectedWeights.size} de ${selectedAnimals.size} animales que tienen peso."
+                                else -> "Calculado automáticamente con ${selectedWeights.size} animales."
+                            }
+                        )
+                    },
+                    singleLine = true
                 )
             }
             item {
-                Text("Selección de animales", fontWeight = FontWeight.Bold)
-                if (animalOptions.isEmpty()) {
-                    Text("No hay animales disponibles.")
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        animalOptions.forEach { (id, label) ->
-                            FilterChip(
-                                selected = id in selectedAnimalIds,
-                                onClick = {
-                                    selectedAnimalIds = if (id in selectedAnimalIds) {
-                                        selectedAnimalIds - id
-                                    } else {
-                                        selectedAnimalIds + id
-                                    }
-                                },
-                                label = { Text(label) },
-                                modifier = Modifier.fillMaxWidth()
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Animales del lote", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (selectedAnimalIds.isEmpty()) {
+                                "Todavía no se han seleccionado animales."
+                            } else {
+                                "${selectedAnimalIds.size} animales seleccionados"
+                            }
+                        )
+                        OutlinedButton(
+                            onClick = onOpenAnimalSelector,
+                            enabled = animalOptions.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Groups, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                if (selectedAnimalIds.isEmpty()) {
+                                    "Seleccionar animales"
+                                } else {
+                                    "Cambiar selección"
+                                }
                             )
+                        }
+                        if (animalOptions.isEmpty()) {
+                            Text("No hay animales disponibles para asignar.")
                         }
                     }
                 }
             }
             item {
                 NumericLotField(
-                    label = "Meta de peso final (kg)",
+                    label = "Meta de peso final (lb)",
                     value = targetWeight,
                     onValueChange = { targetWeight = it },
                     showError = attemptedSave && targetWeightInvalid
@@ -449,7 +486,7 @@ fun LotFormScreen(
                                     name = name.trim(),
                                     type = type,
                                     parcelName = parcelName,
-                                    initialAverageWeight = initialWeight,
+                                    initialAverageWeight = initialAverageWeight?.toString().orEmpty(),
                                     targetWeight = targetWeight,
                                     estimatedExitDate = exitDate,
                                     selectedAnimalIds = selectedAnimalIds
@@ -639,7 +676,7 @@ fun LotDetailScreen(
                     )
                     SummaryValueCard(
                         "PESO PROM.",
-                        lot.initialAverageWeight?.let { "$it kg" } ?: "Sin dato",
+                        lot.initialAverageWeight?.let { "$it lb" } ?: "Sin dato",
                         Modifier.weight(1f)
                     )
                 }
@@ -653,7 +690,7 @@ fun LotDetailScreen(
                         Text("Configuración", fontWeight = FontWeight.Bold)
                         Text("Tipo: ${lot.type.lowercase().replaceFirstChar { it.uppercase() }}")
                         Text("Parcela: ${lot.parcelName.ifBlank { "Sin asignar" }}")
-                        Text("Meta de peso: ${lot.targetWeight?.let { "$it kg" } ?: "Sin dato"}")
+                        Text("Meta de peso: ${lot.targetWeight?.let { "$it lb" } ?: "Sin dato"}")
                         Text("Salida estimada: ${lot.estimatedExitDate.ifBlank { "Sin fecha" }}")
                     }
                 }

@@ -61,7 +61,7 @@ import java.util.Locale
 data class AnimalWeightOption(
     val id: String,
     val label: String,
-    val previousWeightKg: Double?
+    val previousWeightLibras: Double?
 )
 
 /** Registro temporal visible en el panel de pesajes. */
@@ -69,7 +69,7 @@ data class WeighingUiModel(
     val id: String,
     val animalId: String,
     val animalLabel: String,
-    val weightKg: Double,
+    val weightLibras: Double,
     val date: String,
     val notes: String
 )
@@ -77,7 +77,7 @@ data class WeighingUiModel(
 /** Datos validados entregados por el formulario. */
 data class WeighingFormData(
     val animalId: String,
-    val weightKg: String,
+    val weightLibras: String,
     val date: String,
     val notes: String
 )
@@ -96,7 +96,7 @@ fun WeighingListScreen(
     val filteredWeighings = weighings.filter { record ->
         search.isBlank() || record.animalLabel.contains(search, ignoreCase = true)
     }
-    val averageWeight = weighings.map { it.weightKg }.average().takeUnless { it.isNaN() }
+    val averageWeight = weighings.map { it.weightLibras }.average().takeUnless { it.isNaN() }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -153,7 +153,7 @@ fun WeighingListScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     WeighingSummaryCard(
                         title = "PROMEDIO",
-                        value = averageWeight?.let { "${oneDecimal(it)} kg" } ?: "Sin datos",
+                        value = averageWeight?.let { "${oneDecimal(it)} lb" } ?: "Sin datos",
                         modifier = Modifier.weight(1f)
                     )
                     WeighingSummaryCard(
@@ -215,7 +215,7 @@ private fun WeighingSummaryCard(title: String, value: String, modifier: Modifier
 /** Gráfico visual con los últimos pesos registrados. */
 @Composable
 private fun WeighingGrowthChart(weighings: List<WeighingUiModel>) {
-    val values = weighings.takeLast(7).map { it.weightKg }
+    val values = weighings.takeLast(7).map { it.weightLibras }
     val maximum = values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -273,7 +273,7 @@ private fun WeighingRecordCard(record: WeighingUiModel) {
                 }
             }
             Text(
-                "${oneDecimal(record.weightKg)} kg",
+                "${oneDecimal(record.weightLibras)} lb",
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
             )
@@ -344,7 +344,7 @@ fun WeighingFormScreen(
                             Text("Animal identificado", style = MaterialTheme.typography.labelMedium)
                             Text(animal.label, fontWeight = FontWeight.Bold)
                             Text(
-                                "Peso anterior: ${animal.previousWeightKg?.let { "${oneDecimal(it)} kg" } ?: "Sin registro"}"
+                                "Peso anterior: ${animal.previousWeightLibras?.let { "${oneDecimal(it)} lb" } ?: "Sin registro"}"
                             )
                         }
                     }
@@ -356,7 +356,7 @@ fun WeighingFormScreen(
                     onValueChange = { weight = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Peso actual *") },
-                    suffix = { Text("kg") },
+                    suffix = { Text("lb") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     isError = attemptedSave && weightInvalid,
                     supportingText = if (attemptedSave && weightInvalid) {
@@ -391,7 +391,7 @@ fun WeighingFormScreen(
                             onSubmit(
                                 WeighingFormData(
                                     animalId = animalId,
-                                    weightKg = weight,
+                                    weightLibras = weight,
                                     date = date,
                                     notes = notes.trim()
                                 )

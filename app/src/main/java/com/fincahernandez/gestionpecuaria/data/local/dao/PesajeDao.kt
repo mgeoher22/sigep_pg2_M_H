@@ -61,7 +61,7 @@ interface PesajeDao {
     /** Calcula el promedio de los pesajes registrados para un lote y periodo. */
     @Query(
         """
-        SELECT AVG(pesoKg) FROM pesajes
+        SELECT AVG(pesoLibras) FROM pesajes
         WHERE loteId = :loteId
             AND fechaPesaje BETWEEN :fechaInicio AND :fechaFin
         """

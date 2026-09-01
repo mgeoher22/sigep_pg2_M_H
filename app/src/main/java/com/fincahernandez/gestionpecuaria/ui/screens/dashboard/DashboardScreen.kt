@@ -305,9 +305,9 @@ private fun FinancialValue(label: String, value: String, color: Color) {
 @Composable
 private fun LotGrowthSummary() {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        GrowthRow("Lote A-01 · Engorde", "+1.2 kg/día", 0.88f)
-        GrowthRow("Lote B-04 · Terneros", "+0.8 kg/día", 0.64f)
-        GrowthRow("Lote C-02 · Vacas", "+0.4 kg/día", 0.42f)
+        GrowthRow("Lote A-01 · Engorde", "+2.6 lb/día", 0.88f)
+        GrowthRow("Lote B-04 · Terneros", "+1.8 lb/día", 0.64f)
+        GrowthRow("Lote C-02 · Vacas", "+0.9 lb/día", 0.42f)
     }
 }
 

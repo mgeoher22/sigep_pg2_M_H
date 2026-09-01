@@ -9,7 +9,7 @@ import java.util.UUID
 /**
  * Representa una medición de peso individual.
  *
- * Todos los pesos se almacenan en kilogramos. `loteId` es opcional porque un
+ * Todos los pesos se almacenan en libras. `loteId` es opcional porque un
  * animal puede pesarse aunque todavía no esté asignado a un lote.
  */
 @Entity(
@@ -41,7 +41,7 @@ data class PesajeEntity(
     val id: String = UUID.randomUUID().toString(),
     val animalId: String,
     val loteId: String? = null,
-    val pesoKg: Double,
+    val pesoLibras: Double,
     val fechaPesaje: Long,
     val tipoRegistro: String = "INDIVIDUAL",
     val observaciones: String? = null,
@@ -50,8 +50,8 @@ data class PesajeEntity(
 ) {
     init {
         // Evita guardar valores negativos, cero, infinitos o no numéricos.
-        require(pesoKg.isFinite() && pesoKg > 0.0) {
-            "El peso debe ser un valor positivo expresado en kilogramos"
+        require(pesoLibras.isFinite() && pesoLibras > 0.0) {
+            "El peso debe ser un valor positivo expresado en libras"
         }
     }
 }

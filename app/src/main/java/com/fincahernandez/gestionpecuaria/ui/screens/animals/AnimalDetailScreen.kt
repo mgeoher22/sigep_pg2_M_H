@@ -96,7 +96,7 @@ fun AnimalDetailScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard(
                         title = "PESO ACTUAL",
-                        value = animal.ultimoPesoKg?.let { "${it.toInt()} kg" } ?: "Sin dato",
+                        value = animal.ultimoPesoLibras?.let { "${it.toInt()} lb" } ?: "Sin dato",
                         modifier = Modifier.weight(1f)
                     )
                     MetricCard(

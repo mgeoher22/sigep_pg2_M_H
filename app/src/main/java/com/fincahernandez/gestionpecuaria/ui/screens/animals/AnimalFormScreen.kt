@@ -300,7 +300,8 @@ fun AnimalFormScreen(
                     value = pesoInicial,
                     onValueChange = { pesoInicial = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Peso inicial en kg") },
+                    label = { Text("Peso inicial en libras") },
+                    suffix = { Text("lb") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     isError = intentoGuardar && pesoInvalido,
                     supportingText = if (intentoGuardar && pesoInvalido) {

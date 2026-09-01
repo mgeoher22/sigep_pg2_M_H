@@ -22,6 +22,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalOption
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalSelectionScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
@@ -59,6 +61,7 @@ fun AppNavigation() {
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
     var lots by remember { mutableStateOf(initialLots) }
     var selectedLot by remember { mutableStateOf(initialLots.first()) }
+    var lotDraftAnimalIds by remember { mutableStateOf(emptyList<String>()) }
     var parcels by remember { mutableStateOf(initialParcels) }
     var selectedParcel by remember { mutableStateOf(initialParcels.first()) }
     var weighings by remember { mutableStateOf(initialWeighings) }
@@ -70,6 +73,7 @@ fun AppNavigation() {
         Routes.ANIMAL_CONFIRMATION,
         Routes.ANIMAL_DETAIL -> Routes.ANIMAL_LIST
         Routes.LOT_FORM,
+        Routes.LOT_ANIMAL_SELECTION,
         Routes.LOT_DETAIL -> Routes.LOTS
         Routes.PARCEL_FORM,
         Routes.PARCEL_DETAIL -> Routes.PARCELS
@@ -213,7 +217,11 @@ fun AppNavigation() {
                 LotListScreen(
                     lots = lots,
                     onMenuClick = openDrawer,
-                    onCreateLot = { navController.navigate(Routes.LOT_FORM) },
+                    onCreateLot = {
+                        // Cada lote nuevo comienza sin conservar selecciones de un formulario anterior.
+                        lotDraftAnimalIds = emptyList()
+                        navController.navigate(Routes.LOT_FORM)
+                    },
                     onLotClick = { lotId ->
                         lots.firstOrNull { it.id == lotId }?.let { lot ->
                             selectedLot = lot
@@ -228,10 +236,17 @@ fun AppNavigation() {
                 LotFormScreen(
                     parcelNames = parcels.map { it.name },
                     animalOptions = animales.map { animal ->
-                        animal.id to buildString {
-                            append(animal.codigoIdentificacion)
-                            animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
-                        }
+                        LotAnimalOption(
+                            id = animal.id,
+                            code = animal.codigoIdentificacion,
+                            name = animal.nombre,
+                            category = animal.categoria,
+                            weightLibras = animal.ultimoPesoLibras
+                        )
+                    },
+                    selectedAnimalIds = lotDraftAnimalIds,
+                    onOpenAnimalSelector = {
+                        navController.navigate(Routes.LOT_ANIMAL_SELECTION)
                     },
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
@@ -252,6 +267,26 @@ fun AppNavigation() {
                         navController.navigate(Routes.LOT_DETAIL) {
                             popUpTo(Routes.LOT_FORM) { inclusive = true }
                         }
+                    }
+                )
+            }
+
+            composable(Routes.LOT_ANIMAL_SELECTION) {
+                LotAnimalSelectionScreen(
+                    animals = animales.map { animal ->
+                        LotAnimalOption(
+                            id = animal.id,
+                            code = animal.codigoIdentificacion,
+                            name = animal.nombre,
+                            category = animal.categoria,
+                            weightLibras = animal.ultimoPesoLibras
+                        )
+                    },
+                    initiallySelectedIds = lotDraftAnimalIds,
+                    onBack = { navController.popBackStack() },
+                    onConfirm = { selectedIds ->
+                        lotDraftAnimalIds = selectedIds
+                        navController.popBackStack()
                     }
                 )
             }
@@ -331,7 +366,7 @@ fun AppNavigation() {
                             append(animal.codigoIdentificacion)
                             animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
                         },
-                        previousWeightKg = animal.ultimoPesoKg
+                        previousWeightLibras = animal.ultimoPesoLibras
                     )
                 }
                 WeighingFormScreen(
@@ -339,7 +374,7 @@ fun AppNavigation() {
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
                         val selectedAnimal = animales.first { it.id == form.animalId }
-                        val newWeight = form.weightKg.toDouble()
+                        val newWeight = form.weightLibras.toDouble()
                         val record = WeighingUiModel(
                             id = UUID.randomUUID().toString(),
                             animalId = selectedAnimal.id,
@@ -347,7 +382,7 @@ fun AppNavigation() {
                                 append(selectedAnimal.codigoIdentificacion)
                                 selectedAnimal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
                             },
-                            weightKg = newWeight,
+                            weightLibras = newWeight,
                             date = form.date,
                             notes = form.notes
                         )
@@ -356,13 +391,13 @@ fun AppNavigation() {
                         // Mantiene coherente el peso mostrado en listado y perfil del animal.
                         animales = animales.map { animal ->
                             if (animal.id == selectedAnimal.id) {
-                                animal.copy(ultimoPesoKg = newWeight)
+                                animal.copy(ultimoPesoLibras = newWeight)
                             } else {
                                 animal
                             }
                         }
                         if (animalSeleccionado.id == selectedAnimal.id) {
-                            animalSeleccionado = animalSeleccionado.copy(ultimoPesoKg = newWeight)
+                            animalSeleccionado = animalSeleccionado.copy(ultimoPesoLibras = newWeight)
                         }
 
                         if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
@@ -463,7 +498,7 @@ private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
     nombre = nombre.trim().ifBlank { null },
     categoria = categoria,
     estado = estadoSalud,
-    ultimoPesoKg = pesoInicial.toDoubleOrNull(),
+    ultimoPesoLibras = pesoInicial.toDoubleOrNull(),
     raza = raza.trim(),
     sexo = sexo,
     tipoOrigen = tipoOrigen,
@@ -484,7 +519,7 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     estadoSalud = estado,
-    pesoInicial = ultimoPesoKg?.toString().orEmpty(),
+    pesoInicial = ultimoPesoLibras?.toString().orEmpty(),
     procedencia = procedencia,
     observaciones = observaciones
 )
@@ -504,7 +539,7 @@ private val animalesIniciales = listOf(
         nombre = "Luna",
         categoria = "LECHERO",
         estado = "EXCELENTE",
-        ultimoPesoKg = 450.0,
+        ultimoPesoLibras = 450.0,
         raza = "Holstein",
         sexo = "HEMBRA",
         tipoOrigen = "NACIDO_EN_FINCA",
@@ -518,7 +553,7 @@ private val animalesIniciales = listOf(
         nombre = "Brahman 102",
         categoria = "ENGORDE",
         estado = "OBSERVACIÓN",
-        ultimoPesoKg = 612.0,
+        ultimoPesoLibras = 612.0,
         raza = "Brahman",
         sexo = "MACHO",
         tipoOrigen = "INGRESADO_A_FINCA",
@@ -597,7 +632,7 @@ private val initialWeighings = listOf(
         id = "weight-demo-1",
         animalId = "demo-1",
         animalLabel = "FH-2024-88 • Luna",
-        weightKg = 450.0,
+        weightLibras = 450.0,
         date = "28/08/2026",
         notes = "Condición corporal estable"
     ),
@@ -605,7 +640,7 @@ private val initialWeighings = listOf(
         id = "weight-demo-2",
         animalId = "demo-2",
         animalLabel = "FH-2023-102 • Brahman 102",
-        weightKg = 612.0,
+        weightLibras = 612.0,
         date = "29/08/2026",
         notes = "Seguimiento de engorde"
     )
