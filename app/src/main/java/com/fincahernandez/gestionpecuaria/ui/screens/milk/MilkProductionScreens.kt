@@ -25,16 +25,11 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -57,28 +52,17 @@ import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Locale
 
-/** Animal o lote disponible como origen de un registro de leche. */
-data class MilkSourceOption(
-    val id: String,
-    val label: String
-)
-
-/** Registro temporal visible en el panel de producción. */
+/** Registro temporal de la producción total obtenida durante un día. */
 data class MilkProductionUiModel(
     val id: String,
-    val sourceId: String,
-    val sourceLabel: String,
     val date: String,
-    val session: String,
     val liters: Double,
     val notes: String
 )
 
 /** Datos capturados por el formulario de producción. */
 data class MilkProductionFormData(
-    val sourceId: String,
     val date: String,
-    val session: String,
     val liters: String,
     val notes: String
 )
@@ -269,8 +253,8 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(record.sourceLabel, fontWeight = FontWeight.Bold)
-                Text("${record.date} • ${record.session}")
+                Text(record.date, fontWeight = FontWeight.Bold)
+                Text("Producción total del día")
                 if (record.notes.isNotBlank()) {
                     Text(record.notes, style = MaterialTheme.typography.bodySmall)
                 }
@@ -284,25 +268,22 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
     }
 }
 
-/** Formulario para registrar litros, fecha, sesión y procedencia. */
+/** Formulario simple para registrar la producción total de leche de un día. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MilkProductionFormScreen(
-    sourceOptions: List<MilkSourceOption>,
     onBack: () -> Unit,
     onSubmit: (MilkProductionFormData) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var sourceId by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf("") }
-    var session by rememberSaveable { mutableStateOf("MAÑANA") }
     var liters by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     val litersValue = liters.toDoubleOrNull()
     val litersInvalid = liters.isBlank() || litersValue == null || litersValue <= 0
-    val formValid = sourceId.isNotBlank() && date.isNotBlank() && !litersInvalid
+    val formValid = date.isNotBlank() && !litersInvalid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -326,40 +307,17 @@ fun MilkProductionFormScreen(
         ) {
             item {
                 Text(
-                    "Ingrese los datos diarios de ordeño para el seguimiento de rendimiento.",
+                    "Registre la producción total obtenida en el ordeño de la mañana.",
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
             item {
-                MilkSourceDropdown(
-                    options = sourceOptions,
-                    selectedId = sourceId,
-                    onSelected = { sourceId = it },
-                    showError = attemptedSave && sourceId.isBlank()
-                )
-            }
-            item {
                 CompactDateSelector(
-                    label = "Fecha *",
+                    label = "Día del registro *",
                     value = date,
                     onDateSelected = { date = it },
                     showError = attemptedSave && date.isBlank()
                 )
-            }
-            item {
-                Text("Sesión de ordeño", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("MAÑANA", "TARDE").forEach { option ->
-                        FilterChip(
-                            selected = session == option,
-                            onClick = { session = option },
-                            label = {
-                                Text(option.lowercase().replaceFirstChar { it.uppercase() })
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
             }
             item {
                 OutlinedTextField(
@@ -393,9 +351,7 @@ fun MilkProductionFormScreen(
                         if (formValid) {
                             onSubmit(
                                 MilkProductionFormData(
-                                    sourceId = sourceId,
                                     date = date,
-                                    session = session,
                                     liters = liters,
                                     notes = notes.trim()
                                 )
@@ -411,57 +367,6 @@ fun MilkProductionFormScreen(
                     Text("Guardar registro", fontWeight = FontWeight.Bold)
                 }
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MilkSourceDropdown(
-    options: List<MilkSourceOption>,
-    selectedId: String,
-    onSelected: (String) -> Unit,
-    showError: Boolean
-) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    val selectedLabel = options.firstOrNull { it.id == selectedId }?.label.orEmpty()
-
-    Column {
-        ExposedDropdownMenuBox(
-            expanded = expanded,
-            onExpandedChange = { if (options.isNotEmpty()) expanded = !expanded }
-        ) {
-            OutlinedTextField(
-                value = selectedLabel,
-                onValueChange = {},
-                modifier = Modifier
-                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                    .fillMaxWidth(),
-                readOnly = true,
-                label = { Text("Animal o lote *") },
-                placeholder = { Text("Seleccione el origen de la producción") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                isError = showError
-            )
-            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        onClick = {
-                            onSelected(option.id)
-                            expanded = false
-                        }
-                    )
-                }
-            }
-        }
-        if (showError) {
-            Text(
-                "Seleccione un animal o lote.",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
         }
     }
 }

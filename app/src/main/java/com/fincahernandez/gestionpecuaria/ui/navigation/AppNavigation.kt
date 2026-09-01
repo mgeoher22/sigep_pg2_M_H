@@ -30,7 +30,6 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
-import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkSourceOption
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
@@ -417,33 +416,19 @@ fun AppNavigation() {
             }
 
             composable(Routes.MILK_PRODUCTION_FORM) {
-                val sourceOptions = buildList {
-                    animales.forEach { animal ->
-                        add(
-                            MilkSourceOption(
-                                id = "animal:${animal.id}",
-                                label = "Animal • ${animal.nombre ?: animal.codigoIdentificacion}"
-                            )
-                        )
-                    }
-                    lots.forEach { lot ->
-                        add(MilkSourceOption(id = "lot:${lot.id}", label = "Lote • ${lot.name}"))
-                    }
-                }
                 MilkProductionFormScreen(
-                    sourceOptions = sourceOptions,
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        val source = sourceOptions.first { it.id == form.sourceId }
-                        milkProductionRecords = milkProductionRecords + MilkProductionUiModel(
+                        val dailyRecord = MilkProductionUiModel(
                             id = UUID.randomUUID().toString(),
-                            sourceId = source.id,
-                            sourceLabel = source.label,
                             date = form.date,
-                            session = form.session,
                             liters = form.liters.toDouble(),
                             notes = form.notes
                         )
+
+                        // Solo existe un total por día; registrar la misma fecha corrige el valor anterior.
+                        milkProductionRecords = milkProductionRecords
+                            .filterNot { it.date == form.date } + dailyRecord
                         if (!navController.popBackStack(Routes.MILK_PRODUCTION, false)) {
                             navigateMain(Routes.MILK_PRODUCTION)
                         }
@@ -649,19 +634,13 @@ private val initialWeighings = listOf(
 private val initialMilkProductionRecords = listOf(
     MilkProductionUiModel(
         id = "milk-demo-1",
-        sourceId = "animal:demo-1",
-        sourceLabel = "Animal • Luna",
         date = "28/08/2026",
-        session = "MAÑANA",
         liters = 24.5,
         notes = "Producción normal"
     ),
     MilkProductionUiModel(
         id = "milk-demo-2",
-        sourceId = "lot:lot-demo-2",
-        sourceLabel = "Lote • Lote Lechero A-2",
         date = "29/08/2026",
-        session = "TARDE",
         liters = 118.0,
         notes = "Sin observaciones"
     )
