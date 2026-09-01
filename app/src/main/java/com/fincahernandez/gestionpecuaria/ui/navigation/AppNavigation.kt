@@ -21,7 +21,23 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkSourceOption
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.placeholder.ModulePlaceholderScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.AnimalWeightOption
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import java.util.Calendar
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -41,12 +57,24 @@ fun AppNavigation() {
     var animalSeleccionado by remember { mutableStateOf(animalesIniciales.first()) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
+    var lots by remember { mutableStateOf(initialLots) }
+    var selectedLot by remember { mutableStateOf(initialLots.first()) }
+    var parcels by remember { mutableStateOf(initialParcels) }
+    var selectedParcel by remember { mutableStateOf(initialParcels.first()) }
+    var weighings by remember { mutableStateOf(initialWeighings) }
+    var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val selectedMainRoute = when (currentRoute) {
         Routes.ANIMAL_FORM,
         Routes.ANIMAL_CONFIRMATION,
         Routes.ANIMAL_DETAIL -> Routes.ANIMAL_LIST
+        Routes.LOT_FORM,
+        Routes.LOT_DETAIL -> Routes.LOTS
+        Routes.PARCEL_FORM,
+        Routes.PARCEL_DETAIL -> Routes.PARCELS
+        Routes.WEIGHING_FORM -> Routes.WEIGHINGS
+        Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
         else -> currentRoute
     }
 
@@ -182,39 +210,209 @@ fun AppNavigation() {
             }
 
             composable(Routes.LOTS) {
-                ModulePlaceholderScreen(
-                    title = "Gestión de lotes",
-                    sprintReference = "HU-04",
-                    route = Routes.LOTS,
+                LotListScreen(
+                    lots = lots,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateLot = { navController.navigate(Routes.LOT_FORM) },
+                    onLotClick = { lotId ->
+                        lots.firstOrNull { it.id == lotId }?.let { lot ->
+                            selectedLot = lot
+                            navController.navigate(Routes.LOT_DETAIL)
+                        }
+                    },
+                    onNavigateMain = navigateMain
                 )
             }
+
+            composable(Routes.LOT_FORM) {
+                LotFormScreen(
+                    parcelNames = parcels.map { it.name },
+                    animalOptions = animales.map { animal ->
+                        animal.id to buildString {
+                            append(animal.codigoIdentificacion)
+                            animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        val newLot = LotUiModel(
+                            id = UUID.randomUUID().toString(),
+                            code = generateLotCode(lots),
+                            name = form.name,
+                            type = form.type,
+                            status = "ACTIVO",
+                            parcelName = form.parcelName,
+                            initialAverageWeight = form.initialAverageWeight.toDoubleOrNull(),
+                            targetWeight = form.targetWeight.toDoubleOrNull(),
+                            estimatedExitDate = form.estimatedExitDate,
+                            selectedAnimalIds = form.selectedAnimalIds
+                        )
+                        lots = lots + newLot
+                        selectedLot = newLot
+                        navController.navigate(Routes.LOT_DETAIL) {
+                            popUpTo(Routes.LOT_FORM) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.LOT_DETAIL) {
+                LotDetailScreen(
+                    lot = selectedLot,
+                    selectedAnimalLabels = animales
+                        .filter { it.id in selectedLot.selectedAnimalIds }
+                        .map { it.nombre ?: it.codigoIdentificacion },
+                    onBack = { navController.popBackStack() },
+                    onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
+                    onNavigateMain = navigateMain
+                )
+            }
+
             composable(Routes.PARCELS) {
-                ModulePlaceholderScreen(
-                    title = "Gestión de parcelas",
-                    sprintReference = "HU-04",
-                    route = Routes.PARCELS,
+                ParcelListScreen(
+                    parcels = parcels,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateParcel = { navController.navigate(Routes.PARCEL_FORM) },
+                    onParcelClick = { parcelId ->
+                        parcels.firstOrNull { it.id == parcelId }?.let { parcel ->
+                            selectedParcel = parcel
+                            navController.navigate(Routes.PARCEL_DETAIL)
+                        }
+                    },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.PARCEL_FORM) {
+                ParcelFormScreen(
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        val newParcel = ParcelUiModel(
+                            id = UUID.randomUUID().toString(),
+                            code = generateParcelCode(parcels),
+                            name = form.name,
+                            areaHectares = form.areaHectares.toDoubleOrNull() ?: 0.0,
+                            pastureType = form.pastureType,
+                            status = "DISPONIBLE",
+                            capacity = form.capacity.toIntOrNull(),
+                            currentLot = "",
+                            productivityPercent = 100
+                        )
+                        parcels = parcels + newParcel
+                        selectedParcel = newParcel
+                        navController.navigate(Routes.PARCEL_DETAIL) {
+                            popUpTo(Routes.PARCEL_FORM) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.PARCEL_DETAIL) {
+                ParcelDetailScreen(
+                    parcel = selectedParcel,
+                    onBack = { navController.popBackStack() },
+                    onNavigateMain = navigateMain
                 )
             }
             composable(Routes.WEIGHINGS) {
-                ModulePlaceholderScreen(
-                    title = "Gestión de pesajes",
-                    sprintReference = "HU-05",
-                    route = Routes.WEIGHINGS,
+                WeighingListScreen(
+                    weighings = weighings,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateWeighing = { navController.navigate(Routes.WEIGHING_FORM) },
+                    onNavigateMain = navigateMain
                 )
             }
+
+            composable(Routes.WEIGHING_FORM) {
+                val animalOptions = animales.map { animal ->
+                    AnimalWeightOption(
+                        id = animal.id,
+                        label = buildString {
+                            append(animal.codigoIdentificacion)
+                            animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
+                        },
+                        previousWeightKg = animal.ultimoPesoKg
+                    )
+                }
+                WeighingFormScreen(
+                    animalOptions = animalOptions,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        val selectedAnimal = animales.first { it.id == form.animalId }
+                        val newWeight = form.weightKg.toDouble()
+                        val record = WeighingUiModel(
+                            id = UUID.randomUUID().toString(),
+                            animalId = selectedAnimal.id,
+                            animalLabel = buildString {
+                                append(selectedAnimal.codigoIdentificacion)
+                                selectedAnimal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
+                            },
+                            weightKg = newWeight,
+                            date = form.date,
+                            notes = form.notes
+                        )
+                        weighings = weighings + record
+
+                        // Mantiene coherente el peso mostrado en listado y perfil del animal.
+                        animales = animales.map { animal ->
+                            if (animal.id == selectedAnimal.id) {
+                                animal.copy(ultimoPesoKg = newWeight)
+                            } else {
+                                animal
+                            }
+                        }
+                        if (animalSeleccionado.id == selectedAnimal.id) {
+                            animalSeleccionado = animalSeleccionado.copy(ultimoPesoKg = newWeight)
+                        }
+
+                        if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
+                            navigateMain(Routes.WEIGHINGS)
+                        }
+                    }
+                )
+            }
+
             composable(Routes.MILK_PRODUCTION) {
-                ModulePlaceholderScreen(
-                    title = "Producción lechera",
-                    sprintReference = "HU-05",
-                    route = Routes.MILK_PRODUCTION,
+                MilkProductionListScreen(
+                    records = milkProductionRecords,
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onCreateRecord = { navController.navigate(Routes.MILK_PRODUCTION_FORM) },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.MILK_PRODUCTION_FORM) {
+                val sourceOptions = buildList {
+                    animales.forEach { animal ->
+                        add(
+                            MilkSourceOption(
+                                id = "animal:${animal.id}",
+                                label = "Animal • ${animal.nombre ?: animal.codigoIdentificacion}"
+                            )
+                        )
+                    }
+                    lots.forEach { lot ->
+                        add(MilkSourceOption(id = "lot:${lot.id}", label = "Lote • ${lot.name}"))
+                    }
+                }
+                MilkProductionFormScreen(
+                    sourceOptions = sourceOptions,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        val source = sourceOptions.first { it.id == form.sourceId }
+                        milkProductionRecords = milkProductionRecords + MilkProductionUiModel(
+                            id = UUID.randomUUID().toString(),
+                            sourceId = source.id,
+                            sourceLabel = source.label,
+                            date = form.date,
+                            session = form.session,
+                            liters = form.liters.toDouble(),
+                            notes = form.notes
+                        )
+                        if (!navController.popBackStack(Routes.MILK_PRODUCTION, false)) {
+                            navigateMain(Routes.MILK_PRODUCTION)
+                        }
+                    }
                 )
             }
             composable(Routes.FINANCE) {
@@ -291,6 +489,13 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     observaciones = observaciones
 )
 
+/** Genera identificadores consecutivos mientras HU-04 trabaja con datos temporales. */
+private fun generateLotCode(lots: List<LotUiModel>): String =
+    "LOT-${(lots.size + 1).toString().padStart(3, '0')}"
+
+private fun generateParcelCode(parcels: List<ParcelUiModel>): String =
+    "PR-${(parcels.size + 1).toString().padStart(3, '0')}"
+
 // Información ficticia para evaluar el diseño antes de conectar Room.
 private val animalesIniciales = listOf(
     AnimalListItem(
@@ -320,5 +525,109 @@ private val animalesIniciales = listOf(
         fechaNacimiento = "05/02/2023",
         fechaIngreso = "18/06/2024",
         procedencia = "Criadero regional"
+    )
+)
+
+// Datos demostrativos para validar visualmente HU-04 antes de conectar Room.
+private val initialLots = listOf(
+    LotUiModel(
+        id = "lot-demo-1",
+        code = "LOT-001",
+        name = "Lote Alpha-2024",
+        type = "ENGORDE",
+        status = "ACTIVO",
+        parcelName = "Potrero Norte",
+        initialAverageWeight = 420.0,
+        targetWeight = 520.0,
+        estimatedExitDate = "15/12/2026",
+        selectedAnimalIds = listOf("demo-2")
+    ),
+    LotUiModel(
+        id = "lot-demo-2",
+        code = "LOT-002",
+        name = "Lote Lechero A-2",
+        type = "LECHERO",
+        status = "ACTIVO",
+        parcelName = "Loma del Sol",
+        initialAverageWeight = 450.0,
+        targetWeight = 480.0,
+        estimatedExitDate = "",
+        selectedAnimalIds = listOf("demo-1")
+    )
+)
+
+private val initialParcels = listOf(
+    ParcelUiModel(
+        id = "parcel-demo-1",
+        code = "PR-001",
+        name = "Potrero Norte",
+        areaHectares = 15.4,
+        pastureType = "Brachiaria",
+        status = "OCUPADA",
+        capacity = 45,
+        currentLot = "Lote Alpha-2024",
+        productivityPercent = 88
+    ),
+    ParcelUiModel(
+        id = "parcel-demo-2",
+        code = "PR-002",
+        name = "Loma del Sol",
+        areaHectares = 22.1,
+        pastureType = "Mombasa",
+        status = "DISPONIBLE",
+        capacity = 60,
+        currentLot = "",
+        productivityPercent = 95
+    ),
+    ParcelUiModel(
+        id = "parcel-demo-3",
+        code = "PR-003",
+        name = "Bajo Húmedo",
+        areaHectares = 10.2,
+        pastureType = "Pasto mixto",
+        status = "DESCANSO",
+        capacity = 28,
+        currentLot = "",
+        productivityPercent = 45
+    )
+)
+
+private val initialWeighings = listOf(
+    WeighingUiModel(
+        id = "weight-demo-1",
+        animalId = "demo-1",
+        animalLabel = "FH-2024-88 • Luna",
+        weightKg = 450.0,
+        date = "28/08/2026",
+        notes = "Condición corporal estable"
+    ),
+    WeighingUiModel(
+        id = "weight-demo-2",
+        animalId = "demo-2",
+        animalLabel = "FH-2023-102 • Brahman 102",
+        weightKg = 612.0,
+        date = "29/08/2026",
+        notes = "Seguimiento de engorde"
+    )
+)
+
+private val initialMilkProductionRecords = listOf(
+    MilkProductionUiModel(
+        id = "milk-demo-1",
+        sourceId = "animal:demo-1",
+        sourceLabel = "Animal • Luna",
+        date = "28/08/2026",
+        session = "MAÑANA",
+        liters = 24.5,
+        notes = "Producción normal"
+    ),
+    MilkProductionUiModel(
+        id = "milk-demo-2",
+        sourceId = "lot:lot-demo-2",
+        sourceLabel = "Lote • Lote Lechero A-2",
+        date = "29/08/2026",
+        session = "TARDE",
+        liters = 118.0,
+        notes = "Sin observaciones"
     )
 )
