@@ -14,6 +14,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PesajeDao {
 
+    /** Observa todos los pesajes para calcular el último peso de cada animal. */
+    @Query("SELECT * FROM pesajes ORDER BY fechaPesaje DESC")
+    fun observarTodos(): Flow<List<PesajeEntity>>
+
     /** Registra una nueva medición de peso. */
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(pesaje: PesajeEntity)

@@ -77,14 +77,15 @@ data class AnimalFormData(
 /**
  * Formulario visual para registrar o corregir la información de un animal.
  *
- * Todavía no escribe en Room. Entrega los valores mediante [onSubmit] para que
- * la navegación muestre el flujo completo antes de integrar persistencia.
+ * Entrega los valores mediante [onSubmit]; HU-07 los guarda posteriormente en Room.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnimalFormScreen(
     codigoGenerado: String,
     initialData: AnimalFormData? = null,
+    saveError: String? = null,
+    isSaving: Boolean = false,
     onBack: () -> Unit,
     onSubmit: (AnimalFormData) -> Unit,
     modifier: Modifier = Modifier
@@ -339,6 +340,19 @@ fun AnimalFormScreen(
                 )
             }
 
+            // Presenta errores de Room, por ejemplo un código duplicado, sin cerrar el formulario.
+            item {
+                if (saveError != null) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            saveError,
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
             // El botón forma parte de la lista para que pueda alcanzarse al desplazarse,
             // incluso en pantallas pequeñas o cuando está abierto el teclado.
             item {
@@ -368,6 +382,7 @@ fun AnimalFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -376,7 +391,11 @@ fun AnimalFormScreen(
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        if (isEditing) "Guardar cambios" else "Confirmar registro",
+                        when {
+                            isSaving -> "Guardando..."
+                            isEditing -> "Guardar cambios"
+                            else -> "Confirmar registro"
+                        },
                         fontWeight = FontWeight.Bold
                     )
                 }

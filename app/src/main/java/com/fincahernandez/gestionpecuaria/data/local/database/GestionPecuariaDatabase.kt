@@ -27,7 +27,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
         LoteAnimalEntity::class,
         PesajeEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -52,6 +52,18 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Añade los campos visuales de HU-03 sin eliminar animales existentes. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE animales ADD COLUMN tipoOrigen TEXT NOT NULL DEFAULT 'NACIDO_EN_FINCA'"
+                )
+                database.execSQL(
+                    "ALTER TABLE animales ADD COLUMN estadoSalud TEXT NOT NULL DEFAULT 'EXCELENTE'"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -63,7 +75,7 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     context.applicationContext,
                     GestionPecuariaDatabase::class.java,
                     DATABASE_NAME
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia
                 }

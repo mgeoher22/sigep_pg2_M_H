@@ -1,19 +1,26 @@
 package com.fincahernandez.gestionpecuaria.ui.navigation
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
+import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
+import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.repository.AnimalRepository
+import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
@@ -45,24 +52,38 @@ import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScree
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.launch
 
 /**
  * Conecta los destinos principales y las pantallas internas de animales.
  *
- * Este estado es temporal y se reemplazará por un ViewModel conectado a Room
- * cuando el diseño del flujo haya sido aprobado.
+ * Los animales y sus pesajes se obtienen de Room. Los demás módulos conservan
+ * estado temporal hasta que sus historias funcionales se implementen.
  */
 @Composable
 fun AppNavigation() {
+    val context = LocalContext.current
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
-    var animales by remember { mutableStateOf(animalesIniciales) }
-    var animalSeleccionado by remember { mutableStateOf(animalesIniciales.first()) }
+    val animalRepository = remember(context) {
+        AnimalRepository(GestionPecuariaDatabase.obtenerInstancia(context))
+    }
+    val storedAnimalsFlow = remember(animalRepository) { animalRepository.observeAnimals() }
+    val storedAnimals by storedAnimalsFlow.collectAsState(initial = emptyList())
+    val allAnimalItems = storedAnimals.map { it.toListItem() }
+    val animales = storedAnimals
+        .filter { it.animal.estado == "ACTIVO" }
+        .map { it.toListItem() }
+    var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
+    var animalSaveError by remember { mutableStateOf<String?>(null) }
+    var animalIsSaving by remember { mutableStateOf(false) }
     var lots by remember { mutableStateOf(initialLots) }
     var selectedLot by remember { mutableStateOf(initialLots.first()) }
     var lotDraftAnimalIds by remember { mutableStateOf(emptyList<String>()) }
@@ -72,6 +93,15 @@ fun AppNavigation() {
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
+
+    // Mantiene abierto el perfil con la versión más reciente emitida por Room.
+    LaunchedEffect(animales) {
+        animalSeleccionado?.id?.let { selectedId ->
+            animales.firstOrNull { it.id == selectedId }?.let { updated ->
+                animalSeleccionado = updated
+            }
+        }
+    }
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val selectedMainRoute = when (currentRoute) {
@@ -133,6 +163,7 @@ fun AppNavigation() {
                     animales = animales,
                     onRegistrarAnimal = {
                         animalEnEdicionId = null
+                        animalSaveError = null
                         navController.navigate(Routes.ANIMAL_FORM)
                     },
                     onAnimalClick = { animalId ->
@@ -150,33 +181,51 @@ fun AppNavigation() {
                 val animalEnEdicion = animales.firstOrNull { it.id == animalEnEdicionId }
                 AnimalFormScreen(
                     codigoGenerado = animalEnEdicion?.codigoIdentificacion
-                        ?: generarCodigoAnimal(animales),
+                        ?: generarCodigoAnimal(allAnimalItems),
                     initialData = animalEnEdicion?.toFormData(),
+                    saveError = animalSaveError,
+                    isSaving = animalIsSaving,
                     onBack = { navController.popBackStack() },
                     onSubmit = { formulario ->
                         val animalGuardado = formulario.toListItem(
                             id = animalEnEdicion?.id ?: UUID.randomUUID().toString()
                         )
+                        animalIsSaving = true
+                        animalSaveError = null
 
-                        if (animalEnEdicion != null) {
-                            // Sustituye el elemento existente y vuelve al perfil actualizado.
-                            animales = animales.map { actual ->
-                                if (actual.id == animalGuardado.id) animalGuardado else actual
+                        coroutineScope.launch {
+                            runCatching {
+                                animalRepository.saveAnimal(
+                                    animal = formulario.toEntity(animalGuardado.id),
+                                    weightPounds = formulario.pesoInicial.toDoubleOrNull()
+                                )
+                            }.onSuccess {
+                                animalIsSaving = false
+                                animalSeleccionado = animalGuardado
+                                animalEnEdicionId = null
+
+                                if (animalEnEdicion != null) {
+                                    val regresoAlDetalle = navController.popBackStack(
+                                        route = Routes.ANIMAL_DETAIL,
+                                        inclusive = false
+                                    )
+                                    if (!regresoAlDetalle) {
+                                        navController.navigate(Routes.ANIMAL_DETAIL)
+                                    }
+                                } else {
+                                    ultimoRegistro = animalGuardado
+                                    navController.navigate(Routes.ANIMAL_CONFIRMATION)
+                                }
+                            }.onFailure { error ->
+                                animalIsSaving = false
+                                animalSaveError = if (
+                                    error.message.orEmpty().contains("UNIQUE", ignoreCase = true)
+                                ) {
+                                    "Ese código de identificación ya existe. Intente nuevamente."
+                                } else {
+                                    "No fue posible guardar el animal. Verifique los datos e inténtelo otra vez."
+                                }
                             }
-                            animalSeleccionado = animalGuardado
-                            animalEnEdicionId = null
-                            val regresoAlDetalle = navController.popBackStack(
-                                route = Routes.ANIMAL_DETAIL,
-                                inclusive = false
-                            )
-                            if (!regresoAlDetalle) {
-                                navController.navigate(Routes.ANIMAL_DETAIL)
-                            }
-                        } else {
-                            animales = animales + animalGuardado
-                            animalSeleccionado = animalGuardado
-                            ultimoRegistro = animalGuardado
-                            navController.navigate(Routes.ANIMAL_CONFIRMATION)
                         }
                     }
                 )
@@ -184,11 +233,16 @@ fun AppNavigation() {
 
             composable(Routes.ANIMAL_CONFIRMATION) {
                 val animal = ultimoRegistro ?: animalSeleccionado
+                if (animal == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.ANIMAL_LIST) }
+                    return@composable
+                }
                 AnimalConfirmationScreen(
                     animal = animal,
                     onViewProfile = { navController.navigate(Routes.ANIMAL_DETAIL) },
                     onRegisterAnother = {
                         animalEnEdicionId = null
+                        animalSaveError = null
                         navController.navigate(Routes.ANIMAL_FORM) {
                             popUpTo(Routes.ANIMAL_CONFIRMATION) { inclusive = true }
                         }
@@ -209,12 +263,30 @@ fun AppNavigation() {
             }
 
             composable(Routes.ANIMAL_DETAIL) {
+                val animal = animalSeleccionado
+                if (animal == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.ANIMAL_LIST) }
+                    return@composable
+                }
                 AnimalDetailScreen(
-                    animal = animalSeleccionado,
+                    animal = animal,
                     onBack = { navController.popBackStack() },
                     onEdit = {
-                        animalEnEdicionId = animalSeleccionado.id
+                        animalEnEdicionId = animal.id
+                        animalSaveError = null
                         navController.navigate(Routes.ANIMAL_FORM)
+                    },
+                    onDelete = {
+                        coroutineScope.launch {
+                            runCatching { animalRepository.removeAnimal(animal.id) }
+                                .onSuccess {
+                                    animalSeleccionado = null
+                                    if (ultimoRegistro?.id == animal.id) ultimoRegistro = null
+                                    if (!navController.popBackStack(Routes.ANIMAL_LIST, false)) {
+                                        navigateMain(Routes.ANIMAL_LIST)
+                                    }
+                                }
+                        }
                     },
                     onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
                     onNavigateMain = navigateMain
@@ -394,22 +466,21 @@ fun AppNavigation() {
                             date = form.date,
                             notes = form.notes
                         )
-                        weighings = weighings + record
 
-                        // Mantiene coherente el peso mostrado en listado y perfil del animal.
-                        animales = animales.map { animal ->
-                            if (animal.id == selectedAnimal.id) {
-                                animal.copy(ultimoPesoLibras = newWeight)
-                            } else {
-                                animal
+                        coroutineScope.launch {
+                            runCatching {
+                                animalRepository.registerWeight(
+                                    animalId = selectedAnimal.id,
+                                    weightPounds = newWeight,
+                                    weighingDate = parseDate(form.date) ?: System.currentTimeMillis(),
+                                    notes = form.notes.ifBlank { null }
+                                )
+                            }.onSuccess {
+                                weighings = weighings + record
+                                if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
+                                    navigateMain(Routes.WEIGHINGS)
+                                }
                             }
-                        }
-                        if (animalSeleccionado.id == selectedAnimal.id) {
-                            animalSeleccionado = animalSeleccionado.copy(ultimoPesoLibras = newWeight)
-                        }
-
-                        if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
-                            navigateMain(Routes.WEIGHINGS)
                         }
                     }
                 )
@@ -509,7 +580,7 @@ fun AppNavigation() {
 
 /**
  * Genera un código consecutivo para que el usuario no tenga que escribirlo.
- * En HU-07 esta responsabilidad se moverá al repositorio conectado con Room.
+ * También considera animales inactivos para no reutilizar un código persistido.
  */
 private fun generarCodigoAnimal(animales: List<AnimalListItem>): String {
     val anioActual = Calendar.getInstance().get(Calendar.YEAR)
@@ -543,6 +614,42 @@ private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
     observaciones = observaciones.trim()
 )
 
+/** Convierte el formulario visual a la entidad persistente utilizada por Room. */
+private fun AnimalFormData.toEntity(id: String) = AnimalEntity(
+    id = id,
+    codigoIdentificacion = codigoIdentificacion.trim(),
+    nombre = nombre.trim().ifBlank { null },
+    sexo = sexo,
+    raza = raza.trim().ifBlank { null },
+    fechaNacimiento = parseDate(fechaNacimiento),
+    fechaIngreso = parseDate(fechaIngreso)
+        ?: parseDate(fechaNacimiento)
+        ?: System.currentTimeMillis(),
+    categoria = categoria,
+    tipoOrigen = tipoOrigen,
+    procedencia = procedencia.trim().ifBlank { null },
+    estadoSalud = estadoSalud,
+    estado = "ACTIVO",
+    observaciones = observaciones.trim().ifBlank { null }
+)
+
+/** Convierte el registro combinado de Room al modelo que ya consumen las vistas. */
+private fun AnimalStoredRecord.toListItem() = AnimalListItem(
+    id = animal.id,
+    codigoIdentificacion = animal.codigoIdentificacion,
+    nombre = animal.nombre,
+    categoria = animal.categoria,
+    estado = animal.estadoSalud,
+    ultimoPesoLibras = lastWeightPounds,
+    raza = animal.raza.orEmpty(),
+    sexo = animal.sexo,
+    tipoOrigen = animal.tipoOrigen,
+    fechaNacimiento = formatDate(animal.fechaNacimiento),
+    fechaIngreso = formatDate(animal.fechaIngreso),
+    procedencia = animal.procedencia.orEmpty(),
+    observaciones = animal.observaciones.orEmpty()
+)
+
 /** Recupera los datos del animal para precargar el formulario de edición. */
 private fun AnimalListItem.toFormData() = AnimalFormData(
     codigoIdentificacion = codigoIdentificacion,
@@ -566,37 +673,15 @@ private fun generateLotCode(lots: List<LotUiModel>): String =
 private fun generateParcelCode(parcels: List<ParcelUiModel>): String =
     "PR-${(parcels.size + 1).toString().padStart(3, '0')}"
 
-// Información ficticia para evaluar el diseño antes de conectar Room.
-private val animalesIniciales = listOf(
-    AnimalListItem(
-        id = "demo-1",
-        codigoIdentificacion = "FH-2024-88",
-        nombre = "Luna",
-        categoria = "LECHERO",
-        estado = "EXCELENTE",
-        ultimoPesoLibras = 450.0,
-        raza = "Holstein",
-        sexo = "HEMBRA",
-        tipoOrigen = "NACIDO_EN_FINCA",
-        fechaNacimiento = "12/08/2024",
-        fechaIngreso = "12/08/2024",
-        procedencia = "Parcela Norte"
-    ),
-    AnimalListItem(
-        id = "demo-2",
-        codigoIdentificacion = "FH-2023-102",
-        nombre = "Brahman 102",
-        categoria = "ENGORDE",
-        estado = "OBSERVACIÓN",
-        ultimoPesoLibras = 612.0,
-        raza = "Brahman",
-        sexo = "MACHO",
-        tipoOrigen = "INGRESADO_A_FINCA",
-        fechaNacimiento = "05/02/2023",
-        fechaIngreso = "18/06/2024",
-        procedencia = "Criadero regional"
-    )
-)
+private fun parseDate(value: String): Long? = runCatching {
+    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
+        isLenient = false
+    }.parse(value)?.time
+}.getOrNull()
+
+private fun formatDate(value: Long?): String = value?.let {
+    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(it))
+}.orEmpty()
 
 // Datos demostrativos para validar visualmente HU-04 antes de conectar Room.
 private val initialLots = listOf(
@@ -610,7 +695,7 @@ private val initialLots = listOf(
         initialAverageWeight = 420.0,
         targetWeight = 520.0,
         estimatedExitDate = "15/12/2026",
-        selectedAnimalIds = listOf("demo-2")
+        selectedAnimalIds = emptyList()
     ),
     LotUiModel(
         id = "lot-demo-2",
@@ -622,7 +707,7 @@ private val initialLots = listOf(
         initialAverageWeight = 450.0,
         targetWeight = 480.0,
         estimatedExitDate = "",
-        selectedAnimalIds = listOf("demo-1")
+        selectedAnimalIds = emptyList()
     )
 )
 
