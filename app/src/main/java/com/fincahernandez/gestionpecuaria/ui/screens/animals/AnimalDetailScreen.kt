@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -261,11 +260,11 @@ private fun AnimalProfileCard(
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Pets,
-                contentDescription = null,
-                modifier = Modifier.size(82.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            AnimalPhoto(
+                photoUri = animal.fotoUri,
+                modifier = Modifier.fillMaxSize(),
+                placeholderIcon = Icons.Default.Pets,
+                placeholderText = "Sin fotografía registrada"
             )
             Surface(
                 modifier = Modifier

@@ -3,7 +3,6 @@ package com.fincahernandez.gestionpecuaria.ui.screens.animals
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,7 +71,8 @@ data class AnimalListItem(
     val fechaNacimiento: String = "",
     val fechaIngreso: String = "",
     val procedencia: String = "",
-    val observaciones: String = ""
+    val observaciones: String = "",
+    val fotoUri: String = ""
 )
 
 /**
@@ -400,20 +400,15 @@ private fun AnimalCard(
             modifier = Modifier,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(
+            AnimalPhoto(
+                photoUri = animal.fotoUri,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(132.dp)
                     .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Pets,
-                    contentDescription = null,
-                    modifier = Modifier.height(56.dp),
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                )
-            }
+                placeholderIcon = Icons.Default.Pets,
+                placeholderText = "Sin fotografía"
+            )
 
             Column(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),

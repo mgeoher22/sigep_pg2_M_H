@@ -1,5 +1,8 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.animals
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -71,7 +75,8 @@ data class AnimalFormData(
     val estadoSalud: String,
     val pesoInicial: String,
     val procedencia: String,
-    val observaciones: String
+    val observaciones: String,
+    val fotoUri: String = ""
 )
 
 /**
@@ -112,7 +117,23 @@ fun AnimalFormScreen(
     var pesoInicial by rememberSaveable { mutableStateOf(initialData?.pesoInicial.orEmpty()) }
     var procedencia by rememberSaveable { mutableStateOf(initialData?.procedencia.orEmpty()) }
     var observaciones by rememberSaveable { mutableStateOf(initialData?.observaciones.orEmpty()) }
+    var fotoUri by rememberSaveable { mutableStateOf(initialData?.fotoUri.orEmpty()) }
     var intentoGuardar by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { selectedUri ->
+        selectedUri?.let { uri ->
+            // Conserva el permiso para que la imagen siga disponible al volver a abrir la app.
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            fotoUri = uri.toString()
+        }
+    }
 
     // HU-03 requiere señalar visualmente los campos obligatorios o inválidos.
     val codigoInvalido = codigo.isBlank()
@@ -173,22 +194,12 @@ fun AnimalFormScreen(
                 }
             }
 
-            // Marcador visual: la selección y el almacenamiento de fotos se implementarán después.
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(170.dp),
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = null)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Agregar foto")
-                        }
-                    }
-                }
+                AnimalPhotoSelector(
+                    photoUri = fotoUri,
+                    onSelectPhoto = { photoPicker.launch(arrayOf("image/*")) },
+                    onRemovePhoto = { fotoUri = "" }
+                )
             }
 
             item {
@@ -377,7 +388,8 @@ fun AnimalFormScreen(
                                     estadoSalud = estadoSalud,
                                     pesoInicial = pesoInicial,
                                     procedencia = procedencia,
-                                    observaciones = observaciones
+                                    observaciones = observaciones,
+                                    fotoUri = fotoUri
                                 )
                             )
                         }
@@ -403,6 +415,52 @@ fun AnimalFormScreen(
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
+    }
+}
+
+/** Selector de imagen con vista previa, reemplazo y eliminación. */
+@Composable
+private fun AnimalPhotoSelector(
+    photoUri: String,
+    onSelectPhoto: () -> Unit,
+    onRemovePhoto: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Fotografía del animal", fontWeight = FontWeight.SemiBold)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            AnimalPhoto(
+                photoUri = photoUri,
+                modifier = Modifier.fillMaxSize(),
+                placeholderIcon = Icons.Default.CameraAlt,
+                placeholderText = if (photoUri.isBlank()) {
+                    "Aún no se ha seleccionado una foto"
+                } else {
+                    "No fue posible mostrar la foto seleccionada"
+                }
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = onSelectPhoto, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (photoUri.isBlank()) "Seleccionar foto" else "Cambiar foto")
+            }
+            if (photoUri.isNotBlank()) {
+                TextButton(onClick = onRemovePhoto) {
+                    Text("Quitar")
+                }
+            }
+        }
+        Text(
+            "Seleccione una imagen guardada en la tableta. La foto es opcional.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

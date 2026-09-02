@@ -33,6 +33,7 @@ data class AnimalEntity(
     val estadoSalud: String = "EXCELENTE",
     val estado: String = "ACTIVO",
     val observaciones: String? = null,
+    val fotoUri: String? = null,
     val creadoEn: Long = System.currentTimeMillis(),
     val actualizadoEn: Long = System.currentTimeMillis()
 )

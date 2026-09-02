@@ -41,6 +41,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.InitialAdminSetupScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardRecentItem
+import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardUiData
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeUiModel
@@ -205,6 +207,24 @@ fun AppNavigation() {
         }
     }
 
+    /** Abre directamente los formularios ofrecidos por el dashboard. */
+    val navigateQuickAction: (String) -> Unit = { destination ->
+        val requiredRoute = when (destination) {
+            Routes.ANIMAL_FORM -> Routes.ANIMAL_LIST
+            Routes.WEIGHING_FORM -> Routes.WEIGHINGS
+            Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
+            Routes.FINANCE_FORM -> Routes.FINANCE
+            else -> null
+        }
+        if (requiredRoute != null && requiredRoute in allowedMainRoutes) {
+            if (destination == Routes.ANIMAL_FORM) {
+                animalEnEdicionId = null
+                animalSaveError = null
+            }
+            navController.navigate(destination) { launchSingleTop = true }
+        }
+    }
+
     /** Abre el menú lateral desde las pantallas principales. */
     val openDrawer: () -> Unit = {
         coroutineScope.launch { drawerState.open() }
@@ -363,9 +383,77 @@ fun AppNavigation() {
             }
 
             composable(Routes.DASHBOARD) {
+                val latestMilk = milkProductionRecords.lastOrNull()
+                val dashboardRecentItems = buildList {
+                    allAnimalItems.lastOrNull()?.let { animal ->
+                        add(
+                            DashboardRecentItem(
+                                title = "Animal ${animal.codigoIdentificacion}",
+                                detail = animal.nombre?.let { "Registrado como $it" }
+                                    ?: "Registro de animal actualizado",
+                                route = Routes.ANIMAL_LIST
+                            )
+                        )
+                    }
+                    weighings.lastOrNull()?.let { weighing ->
+                        add(
+                            DashboardRecentItem(
+                                title = "Pesaje de ${weighing.animalLabel}",
+                                detail = "${weighing.weightLibras} lb · ${weighing.date}",
+                                route = Routes.WEIGHINGS
+                            )
+                        )
+                    }
+                    latestMilk?.let { milk ->
+                        add(
+                            DashboardRecentItem(
+                                title = "Producción de leche",
+                                detail = "${milk.liters} L · ${milk.date}",
+                                route = Routes.MILK_PRODUCTION
+                            )
+                        )
+                    }
+                    financialMovements.lastOrNull()?.let { movement ->
+                        add(
+                            DashboardRecentItem(
+                                title = movement.category,
+                                detail = "${movement.type} · Q ${movement.amount} · ${movement.date}",
+                                route = Routes.FINANCE
+                            )
+                        )
+                    }
+                }
                 DashboardScreen(
+                    data = DashboardUiData(
+                        activeAnimals = animales.size,
+                        totalAnimals = allAnimalItems.size,
+                        activeLots = lots.count { it.status == "ACTIVO" },
+                        totalLots = lots.size,
+                        availableParcels = parcels.count { it.status == "DISPONIBLE" },
+                        totalParcels = parcels.size,
+                        weighingRecords = weighings.size,
+                        averageWeightPounds = weighings.map { it.weightLibras }
+                            .average()
+                            .takeUnless { it.isNaN() },
+                        latestMilkLiters = latestMilk?.liters,
+                        latestMilkDate = latestMilk?.date.orEmpty(),
+                        income = financialMovements
+                            .filter { it.type == "INGRESO" }
+                            .sumOf { it.amount },
+                        expenses = financialMovements
+                            .filter { it.type == "EGRESO" }
+                            .sumOf { it.amount },
+                        activeEmployees = employees.count { it.active },
+                        totalEmployees = employees.size,
+                        activeUsers = users.count { it.active },
+                        totalUsers = users.size,
+                        recentItems = dashboardRecentItems
+                    ),
+                    userName = currentUser?.fullName.orEmpty(),
+                    roleName = currentUser?.roleName.orEmpty(),
                     onMenuClick = openDrawer,
-                    onNavigate = navigateMain
+                    onNavigate = navigateMain,
+                    onQuickAction = navigateQuickAction
                 )
             }
 
@@ -936,7 +1024,8 @@ private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     procedencia = procedencia.trim(),
-    observaciones = observaciones.trim()
+    observaciones = observaciones.trim(),
+    fotoUri = fotoUri
 )
 
 /** Convierte el formulario visual a la entidad persistente utilizada por Room. */
@@ -955,7 +1044,8 @@ private fun AnimalFormData.toEntity(id: String) = AnimalEntity(
     procedencia = procedencia.trim().ifBlank { null },
     estadoSalud = estadoSalud,
     estado = "ACTIVO",
-    observaciones = observaciones.trim().ifBlank { null }
+    observaciones = observaciones.trim().ifBlank { null },
+    fotoUri = fotoUri.ifBlank { null }
 )
 
 /** Convierte el registro combinado de Room al modelo que ya consumen las vistas. */
@@ -972,7 +1062,8 @@ private fun AnimalStoredRecord.toListItem() = AnimalListItem(
     fechaNacimiento = formatDate(animal.fechaNacimiento),
     fechaIngreso = formatDate(animal.fechaIngreso),
     procedencia = animal.procedencia.orEmpty(),
-    observaciones = animal.observaciones.orEmpty()
+    observaciones = animal.observaciones.orEmpty(),
+    fotoUri = animal.fotoUri.orEmpty()
 )
 
 /** Recupera los datos del animal para precargar el formulario de edición. */
@@ -988,7 +1079,8 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     estadoSalud = estado,
     pesoInicial = ultimoPesoLibras?.toString().orEmpty(),
     procedencia = procedencia,
-    observaciones = observaciones
+    observaciones = observaciones,
+    fotoUri = fotoUri
 )
 
 /** Genera identificadores consecutivos mientras HU-04 trabaja con datos temporales. */

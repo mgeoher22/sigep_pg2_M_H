@@ -30,7 +30,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         PesajeEntity::class,
         UsuarioEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -100,6 +100,13 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Conserva los animales existentes y permite asociarles una foto local. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE animales ADD COLUMN fotoUri TEXT")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -111,7 +118,12 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     context.applicationContext,
                     GestionPecuariaDatabase::class.java,
                     DATABASE_NAME
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5
+                )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia
                 }
