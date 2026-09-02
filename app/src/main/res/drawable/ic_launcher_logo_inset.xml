@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Mantiene el logo completo dentro de la zona segura del ícono adaptable.
+    Sin este margen, algunos lanzadores circulares recortan las orejas y el hocico.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/finca_logo"
+    android:inset="18dp" />

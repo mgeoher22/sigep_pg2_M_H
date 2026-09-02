@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
@@ -127,13 +128,40 @@ fun AppNavigation() {
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
-    var currentUser by remember { mutableStateOf<AuthenticatedUser?>(null) }
+    // Estos valores simples sobreviven a una recreación de la actividad, por ejemplo
+    // cuando Android cambia la configuración de pantalla de la tableta.
+    var currentUserId by rememberSaveable { mutableStateOf("") }
+    var currentUserFullName by rememberSaveable { mutableStateOf("") }
+    var currentUsername by rememberSaveable { mutableStateOf("") }
+    var currentUserRole by rememberSaveable { mutableStateOf("") }
     var loginIsLoading by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf<String?>(null) }
     var setupIsSaving by remember { mutableStateOf(false) }
     var setupError by remember { mutableStateOf<String?>(null) }
     var userIsSaving by remember { mutableStateOf(false) }
     var userSaveError by remember { mutableStateOf<String?>(null) }
+
+    val currentUser = currentUserId.takeIf { it.isNotBlank() }?.let {
+        AuthenticatedUser(
+            id = it,
+            fullName = currentUserFullName,
+            username = currentUsername,
+            roleName = currentUserRole
+        )
+    }
+    val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
+        if (user == null) {
+            currentUserId = ""
+            currentUserFullName = ""
+            currentUsername = ""
+            currentUserRole = ""
+        } else {
+            currentUserFullName = user.fullName
+            currentUsername = user.username
+            currentUserRole = user.roleName
+            currentUserId = user.id
+        }
+    }
 
     val allowedMainRoutes = allowedRoutesForRole(currentUser?.roleName)
     val allowedReportIds = allowedReportsForRole(currentUser?.roleName)
@@ -185,7 +213,7 @@ fun AppNavigation() {
     /** Cierra la sesión actual y evita que las pantallas protegidas queden en el historial. */
     val logout: () -> Unit = {
         sessionManager.clear()
-        currentUser = null
+        updateCurrentUser(null)
         coroutineScope.launch { drawerState.close() }
         navController.navigate(Routes.LOGIN) {
             popUpTo(Routes.DASHBOARD) { inclusive = true }
@@ -226,7 +254,7 @@ fun AppNavigation() {
                     val rememberedUser = sessionManager.rememberedUserId()
                         ?.let { userRepository.activeUserById(it) }
                     if (rememberedUser == null) sessionManager.clear()
-                    currentUser = rememberedUser
+                    updateCurrentUser(rememberedUser)
 
                     val elapsed = System.currentTimeMillis() - startedAt
                     delay((1_700L - elapsed).coerceAtLeast(0L))
@@ -289,7 +317,7 @@ fun AppNavigation() {
                                     sessionManager.clear()
                                 }.onSuccess {
                                     loginIsLoading = false
-                                    currentUser = null
+                                    updateCurrentUser(null)
                                     navController.navigate(Routes.SETUP_ADMIN) {
                                         popUpTo(Routes.LOGIN) { inclusive = true }
                                     }
@@ -309,7 +337,7 @@ fun AppNavigation() {
                             when (val result = userRepository.authenticate(username, password)) {
                                 is AuthenticationResult.Success -> {
                                     loginIsLoading = false
-                                    currentUser = result.user
+                                    updateCurrentUser(result.user)
                                     if (rememberSession) {
                                         sessionManager.remember(result.user.id)
                                     } else {

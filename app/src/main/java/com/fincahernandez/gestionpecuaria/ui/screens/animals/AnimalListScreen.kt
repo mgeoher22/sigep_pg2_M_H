@@ -46,9 +46,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Search
@@ -335,17 +333,6 @@ private fun AnimalTopBar(onMenuClick: () -> Unit) {
         navigationIcon = {
             IconButton(onClick = onMenuClick) {
                 Icon(Icons.Default.Menu, contentDescription = "Abrir menú")
-            }
-        },
-        actions = {
-            Icon(
-                imageVector = Icons.Default.CloudDone,
-                contentDescription = "Datos locales",
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            IconButton(onClick = {}) {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Perfil")
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
