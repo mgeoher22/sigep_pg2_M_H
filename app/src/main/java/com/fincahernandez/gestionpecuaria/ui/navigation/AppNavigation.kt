@@ -27,6 +27,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeListScreen
@@ -56,6 +58,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -149,8 +152,30 @@ fun AppNavigation() {
     ) {
         NavHost(
             navController = navController,
-            startDestination = Routes.DASHBOARD
+            startDestination = Routes.SPLASH
         ) {
+            composable(Routes.SPLASH) {
+                SplashScreen()
+                LaunchedEffect(Unit) {
+                    delay(1_700)
+                    navController.navigate(Routes.LOGIN) {
+                        // La pantalla de carga solo debe mostrarse durante el inicio.
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                }
+            }
+
+            composable(Routes.LOGIN) {
+                LoginScreen(
+                    onLogin = { _, _, _ ->
+                        // Autenticación visual de prueba hasta implementar usuarios y permisos.
+                        navController.navigate(Routes.DASHBOARD) {
+                            popUpTo(Routes.LOGIN) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
             composable(Routes.DASHBOARD) {
                 DashboardScreen(
                     onMenuClick = openDrawer,
