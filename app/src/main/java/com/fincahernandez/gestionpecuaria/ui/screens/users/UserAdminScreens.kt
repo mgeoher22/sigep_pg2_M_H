@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -57,10 +58,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
+import com.fincahernandez.gestionpecuaria.data.security.definedRoles
+import com.fincahernandez.gestionpecuaria.data.security.rolePermissions
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 
-/** Cuenta temporal que permite probar la administración de usuarios antes de conectarla a Room. */
+/** Cuenta persistida que se presenta en la administración de accesos. */
 data class UserUiModel(
     val id: String,
     val fullName: String,
@@ -76,62 +78,6 @@ data class UserFormData(
     val temporaryPassword: String,
     val roleName: String,
     val active: Boolean
-)
-
-data class RolePermission(
-    val id: String,
-    val label: String
-)
-
-data class DefinedRole(
-    val name: String,
-    val description: String,
-    val permissionIds: Set<String>
-)
-
-/** Permisos que resumen las funciones descritas por los actores del ERS. */
-val rolePermissions = listOf(
-    RolePermission("dashboard", "Consultar el panel principal"),
-    RolePermission("animals", "Consultar y registrar animales"),
-    RolePermission("weighings", "Registrar pesajes y producción lechera"),
-    RolePermission("lots", "Administrar lotes y parcelas"),
-    RolePermission("health", "Gestionar sanidad y reproducción"),
-    RolePermission("finance", "Registrar movimientos financieros"),
-    RolePermission("employees", "Consultar empleados y nómina"),
-    RolePermission("reports", "Consultar reportes estratégicos"),
-    RolePermission("users", "Crear usuarios y asignar roles")
-)
-
-/**
- * Roles fijos definidos por el ERS. Elegir un rol concede su conjunto completo
- * de permisos y evita configuraciones inseguras permiso por permiso.
- */
-val definedRoles = listOf(
-    DefinedRole(
-        name = "Administrador General",
-        description = "Toma decisiones estratégicas y financieras.",
-        permissionIds = rolePermissions.map { it.id }.toSet()
-    ),
-    DefinedRole(
-        name = "Administrador de Campo",
-        description = "Supervisa animales, lotes, parcelas y operarios.",
-        permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
-    ),
-    DefinedRole(
-        name = "Técnico Veterinario",
-        description = "Gestiona la salud y reproducción del hato.",
-        permissionIds = setOf("dashboard", "animals", "health", "reports")
-    ),
-    DefinedRole(
-        name = "Operario",
-        description = "Captura diariamente los datos primarios de campo.",
-        permissionIds = setOf("dashboard", "animals", "weighings", "lots")
-    ),
-    DefinedRole(
-        name = "Auxiliar Contable",
-        description = "Gestiona ingresos, egresos, empleados y nómina.",
-        permissionIds = setOf("dashboard", "finance", "employees", "reports")
-    )
 )
 
 /** Listado administrativo desde el cual se crean cuentas y se revisa el RBAC. */
@@ -184,7 +130,23 @@ fun UserManagementScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("CUENTAS LOCALES", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Los usuarios de esta pantalla controlan el acceso real a la aplicación."
+                        )
+                    }
+                }
+            }
             item {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -274,6 +236,8 @@ fun UserFormScreen(
     existingUsernames: Set<String>,
     onBack: () -> Unit,
     onSubmit: (UserFormData) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var fullName by rememberSaveable { mutableStateOf("") }
@@ -286,8 +250,9 @@ fun UserFormScreen(
     val normalizedUsername = username.trim().lowercase()
     val usernameExists = normalizedUsername in existingUsernames.map { it.lowercase() }
     val selectedRole = definedRoles.first { it.name == selectedRoleName }
-    val formValid = fullName.isNotBlank() && normalizedUsername.isNotBlank() &&
-        !usernameExists && password.length >= 6
+    val usernameValid = normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
+    val formValid = fullName.isNotBlank() && usernameValid &&
+        !usernameExists && password.length >= 8
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -338,10 +303,10 @@ fun UserFormScreen(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Usuario *") },
                     prefix = { Text("@") },
-                    isError = attemptedSave && (normalizedUsername.isBlank() || usernameExists),
+                    isError = attemptedSave && (!usernameValid || usernameExists),
                     supportingText = when {
-                        attemptedSave && normalizedUsername.isBlank() -> {
-                            { Text("Ingrese un nombre de usuario.") }
+                        attemptedSave && !usernameValid -> {
+                            { Text("Use de 3 a 30 letras, números, punto, guion o guion bajo.") }
                         }
                         attemptedSave && usernameExists -> {
                             { Text("Ese usuario ya está registrado.") }
@@ -359,9 +324,9 @@ fun UserFormScreen(
                     label = { Text("Contraseña temporal *") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation(),
-                    isError = attemptedSave && password.length < 6,
+                    isError = attemptedSave && password.length < 8,
                     supportingText = {
-                        Text("Debe contener al menos 6 caracteres.")
+                        Text("Debe contener al menos 8 caracteres.")
                     },
                     singleLine = true
                 )
@@ -417,6 +382,11 @@ fun UserFormScreen(
                 }
             }
             item {
+                saveError?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         attemptedSave = true
@@ -434,11 +404,21 @@ fun UserFormScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(56.dp),
+                    enabled = !isSaving
                 ) {
-                    Icon(Icons.Default.Save, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar usuario", fontWeight = FontWeight.Bold)
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(22.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Guardando...")
+                    } else {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Guardar usuario", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

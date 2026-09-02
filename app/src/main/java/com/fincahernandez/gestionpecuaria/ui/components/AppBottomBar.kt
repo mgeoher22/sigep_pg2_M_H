@@ -10,7 +10,18 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
+
+/** Rutas visibles para la cuenta autenticada en el árbol de Compose actual. */
+val LocalAllowedMainRoutes = staticCompositionLocalOf { Routes.mainDestinations }
+
+private data class BottomDestination(
+    val route: String,
+    val label: String,
+    val icon: ImageVector
+)
 
 /**
  * Barra inferior con los cuatro accesos de uso más frecuente.
@@ -21,30 +32,22 @@ fun AppBottomBar(
     selectedRoute: String,
     onNavigate: (String) -> Unit
 ) {
+    val allowedRoutes = LocalAllowedMainRoutes.current
     NavigationBar {
-        NavigationBarItem(
-            selected = selectedRoute == Routes.DASHBOARD,
-            onClick = { onNavigate(Routes.DASHBOARD) },
-            icon = { Icon(Icons.Default.Home, contentDescription = null) },
-            label = { Text("Inicio") }
-        )
-        NavigationBarItem(
-            selected = selectedRoute == Routes.ANIMAL_LIST,
-            onClick = { onNavigate(Routes.ANIMAL_LIST) },
-            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-            label = { Text("Ganado") }
-        )
-        NavigationBarItem(
-            selected = selectedRoute == Routes.WEIGHINGS,
-            onClick = { onNavigate(Routes.WEIGHINGS) },
-            icon = { Icon(Icons.Default.Scale, contentDescription = null) },
-            label = { Text("Pesajes") }
-        )
-        NavigationBarItem(
-            selected = selectedRoute == Routes.FINANCE,
-            onClick = { onNavigate(Routes.FINANCE) },
-            icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null) },
-            label = { Text("Finanzas") }
-        )
+        bottomDestinations.filter { it.route in allowedRoutes }.forEach { destination ->
+            NavigationBarItem(
+                selected = selectedRoute == destination.route,
+                onClick = { onNavigate(destination.route) },
+                icon = { Icon(destination.icon, contentDescription = null) },
+                label = { Text(destination.label) }
+            )
+        }
     }
 }
+
+private val bottomDestinations = listOf(
+    BottomDestination(Routes.DASHBOARD, "Inicio", Icons.Default.Home),
+    BottomDestination(Routes.ANIMAL_LIST, "Ganado", Icons.AutoMirrored.Filled.List),
+    BottomDestination(Routes.WEIGHINGS, "Pesajes", Icons.Default.Scale),
+    BottomDestination(Routes.FINANCE, "Finanzas", Icons.Default.AccountBalanceWallet)
+)

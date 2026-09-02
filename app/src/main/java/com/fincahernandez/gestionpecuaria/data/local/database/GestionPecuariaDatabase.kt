@@ -9,10 +9,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 
 /**
  * Clase central de Room para la base local `gestion_pecuaria.db`.
@@ -25,9 +27,10 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
         AnimalEntity::class,
         LoteEntity::class,
         LoteAnimalEntity::class,
-        PesajeEntity::class
+        PesajeEntity::class,
+        UsuarioEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -37,6 +40,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun loteDao(): LoteDao
 
     abstract fun pesajeDao(): PesajeDao
+
+    abstract fun usuarioDao(): UsuarioDao
 
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
@@ -64,6 +69,37 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Incorpora las cuentas locales sin modificar las tablas productivas existentes.
+         * La primera cuenta administrativa se crea desde la pantalla de configuración.
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `usuarios` (
+                        `id` TEXT NOT NULL,
+                        `nombreCompleto` TEXT NOT NULL,
+                        `usuario` TEXT NOT NULL,
+                        `usuarioNormalizado` TEXT NOT NULL,
+                        `passwordHash` TEXT NOT NULL,
+                        `passwordSalt` TEXT NOT NULL,
+                        `passwordAlgorithm` TEXT NOT NULL,
+                        `passwordIterations` INTEGER NOT NULL,
+                        `rol` TEXT NOT NULL,
+                        `activo` INTEGER NOT NULL,
+                        `creadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_usuarios_usuarioNormalizado` " +
+                        "ON `usuarios` (`usuarioNormalizado`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -75,7 +111,7 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     context.applicationContext,
                     GestionPecuariaDatabase::class.java,
                     DATABASE_NAME
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia
                 }

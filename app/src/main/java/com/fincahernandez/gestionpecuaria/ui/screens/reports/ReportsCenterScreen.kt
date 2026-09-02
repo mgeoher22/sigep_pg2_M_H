@@ -85,17 +85,21 @@ private data class ReportOption(
 @Composable
 fun ReportsCenterScreen(
     data: ReportDashboardData,
+    allowedReportIds: Set<String>,
     onMenuClick: () -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val visibleReportOptions = reportOptions.filter { it.id in allowedReportIds }
     var selectedPeriod by rememberSaveable { mutableStateOf("Mensual") }
-    var selectedReportId by rememberSaveable { mutableStateOf(reportOptions.first().id) }
+    var selectedReportId by rememberSaveable {
+        mutableStateOf(visibleReportOptions.first().id)
+    }
     var generatedPreviewId by rememberSaveable { mutableStateOf<String?>(null) }
     var exportMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val selectedReport = reportOptions.first { it.id == selectedReportId }
-    val generatedReport = reportOptions.firstOrNull { it.id == generatedPreviewId }
+    val selectedReport = visibleReportOptions.first { it.id == selectedReportId }
+    val generatedReport = visibleReportOptions.firstOrNull { it.id == generatedPreviewId }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -161,7 +165,7 @@ fun ReportsCenterScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
-            items(reportOptions, key = { it.id }) { report ->
+            items(visibleReportOptions, key = { it.id }) { report ->
                 val selected = report.id == selectedReportId
                 Card(
                     modifier = Modifier

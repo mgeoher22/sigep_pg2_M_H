@@ -3,6 +3,7 @@ package com.fincahernandez.gestionpecuaria.ui.navigation
 /** Rutas principales y rutas internas disponibles en la aplicación. */
 object Routes {
     const val SPLASH = "splash"
+    const val SETUP_ADMIN = "setup_admin"
     const val LOGIN = "login"
     const val DASHBOARD = "dashboard"
     const val ANIMAL_LIST = "animal_list"

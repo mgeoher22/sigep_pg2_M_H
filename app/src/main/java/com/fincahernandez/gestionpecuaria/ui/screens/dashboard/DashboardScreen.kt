@@ -53,6 +53,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
+import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
@@ -79,6 +80,7 @@ fun DashboardScreen(
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val allowedRoutes = LocalAllowedMainRoutes.current
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -159,25 +161,31 @@ fun DashboardScreen(
                 DemoModeNotice()
             }
 
-            items(dashboardStats, key = { it.title }) { stat ->
+            items(dashboardStats.filter { it.route in allowedRoutes }, key = { it.title }) { stat ->
                 StatCard(stat = stat, onClick = { onNavigate(stat.route) })
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionCard(title = "Producción de leche semanal") {
-                    WeeklyProductionChart()
+            if (Routes.MILK_PRODUCTION in allowedRoutes) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionCard(title = "Producción de leche semanal") {
+                        WeeklyProductionChart()
+                    }
                 }
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionCard(title = "Ingresos y gastos") {
-                    FinancialSummary()
+            if (Routes.FINANCE in allowedRoutes) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionCard(title = "Ingresos y gastos") {
+                        FinancialSummary()
+                    }
                 }
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionCard(title = "Crecimiento por lote") {
-                    LotGrowthSummary()
+            if (Routes.LOTS in allowedRoutes) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionCard(title = "Crecimiento por lote") {
+                        LotGrowthSummary()
+                    }
                 }
             }
 
@@ -328,6 +336,7 @@ private fun GrowthRow(label: String, value: String, progress: Float) {
 /** Accesos directos adaptables: dos columnas en teléfono y más en tableta. */
 @Composable
 private fun QuickActions(onNavigate: (String) -> Unit) {
+    val allowedRoutes = LocalAllowedMainRoutes.current
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = if (maxWidth >= 600.dp) 4 else 2
         val actions = listOf(
@@ -335,7 +344,7 @@ private fun QuickActions(onNavigate: (String) -> Unit) {
             Triple("Registrar pesaje", Routes.WEIGHINGS, Icons.Default.Scale),
             Triple("Producción de leche", Routes.MILK_PRODUCTION, Icons.Default.LocalDrink),
             Triple("Registrar gasto", Routes.FINANCE, Icons.Default.Payments)
-        )
+        ).filter { it.second in allowedRoutes }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             actions.chunked(columns).forEach { rowActions ->

@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Groups
@@ -44,7 +45,11 @@ private data class DrawerDestination(
 @Composable
 fun AppDrawerContent(
     selectedRoute: String?,
-    onDestinationClick: (String) -> Unit
+    allowedRoutes: Set<String>,
+    userName: String,
+    roleName: String,
+    onDestinationClick: (String) -> Unit,
+    onLogout: () -> Unit
 ) {
     ModalDrawerSheet {
         // El desplazamiento permite acceder a todas las opciones en pantallas pequeñas.
@@ -69,11 +74,23 @@ fun AppDrawerContent(
             Spacer(modifier = Modifier.height(14.dp))
             // Mantiene visible que la aplicación todavía trabaja con datos simulados.
             DemoModeNotice(compact = true)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = userName,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Text(
+                text = roleName,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
             Spacer(modifier = Modifier.height(18.dp))
             HorizontalDivider()
             Spacer(modifier = Modifier.height(10.dp))
 
-            drawerDestinations.forEach { destination ->
+            drawerDestinations.filter { it.route in allowedRoutes }.forEach { destination ->
                 NavigationDrawerItem(
                     label = { Text(destination.label) },
                     selected = selectedRoute == destination.route,
@@ -83,6 +100,16 @@ fun AppDrawerContent(
                     }
                 )
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+            NavigationDrawerItem(
+                label = { Text("Cerrar sesión") },
+                selected = false,
+                onClick = onLogout,
+                icon = {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                }
+            )
         }
     }
 }

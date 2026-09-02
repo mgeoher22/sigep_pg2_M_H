@@ -1,10 +1,12 @@
 package com.fincahernandez.gestionpecuaria.ui.navigation
 
+import android.content.pm.ApplicationInfo
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,10 +19,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
+import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalRepository
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
+import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
+import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
+import com.fincahernandez.gestionpecuaria.data.repository.UserRepository
+import com.fincahernandez.gestionpecuaria.data.security.SessionManager
+import com.fincahernandez.gestionpecuaria.data.security.permissionsForRole
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
@@ -28,6 +36,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.auth.InitialAdminSetupScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeFormScreen
@@ -76,14 +85,29 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppNavigation() {
     val context = LocalContext.current
+    val isDebuggable = remember(context) {
+        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    }
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
-    val animalRepository = remember(context) {
-        AnimalRepository(GestionPecuariaDatabase.obtenerInstancia(context))
-    }
+    val database = remember(context) { GestionPecuariaDatabase.obtenerInstancia(context) }
+    val animalRepository = remember(database) { AnimalRepository(database) }
+    val userRepository = remember(database) { UserRepository(database) }
+    val sessionManager = remember(context) { SessionManager(context) }
     val storedAnimalsFlow = remember(animalRepository) { animalRepository.observeAnimals() }
     val storedAnimals by storedAnimalsFlow.collectAsState(initial = emptyList())
+    val storedUsersFlow = remember(userRepository) { userRepository.observeUsers() }
+    val storedUsers by storedUsersFlow.collectAsState(initial = emptyList())
+    val users = storedUsers.map { user ->
+        UserUiModel(
+            id = user.id,
+            fullName = user.fullName,
+            username = user.username,
+            roleName = user.roleName,
+            active = user.active
+        )
+    }
     val allAnimalItems = storedAnimals.map { it.toListItem() }
     val animales = storedAnimals
         .filter { it.animal.estado == "ACTIVO" }
@@ -102,7 +126,16 @@ fun AppNavigation() {
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
-    var users by remember { mutableStateOf(initialUsers) }
+    var currentUser by remember { mutableStateOf<AuthenticatedUser?>(null) }
+    var loginIsLoading by remember { mutableStateOf(false) }
+    var loginError by remember { mutableStateOf<String?>(null) }
+    var setupIsSaving by remember { mutableStateOf(false) }
+    var setupError by remember { mutableStateOf<String?>(null) }
+    var userIsSaving by remember { mutableStateOf(false) }
+    var userSaveError by remember { mutableStateOf<String?>(null) }
+
+    val allowedMainRoutes = allowedRoutesForRole(currentUser?.roleName)
+    val allowedReportIds = allowedReportsForRole(currentUser?.roleName)
 
     // Mantiene abierto el perfil con la versión más reciente emitida por Room.
     LaunchedEffect(animales) {
@@ -134,10 +167,12 @@ fun AppNavigation() {
 
     /** Navega entre secciones principales sin acumular copias de la misma pantalla. */
     val navigateMain: (String) -> Unit = { route ->
-        navController.navigate(route) {
-            popUpTo(Routes.DASHBOARD) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+        if (route in allowedMainRoutes) {
+            navController.navigate(route) {
+                popUpTo(Routes.DASHBOARD) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
 
@@ -146,40 +181,147 @@ fun AppNavigation() {
         coroutineScope.launch { drawerState.open() }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = currentRoute in Routes.mainDestinations,
-        drawerContent = {
-            AppDrawerContent(
-                selectedRoute = selectedMainRoute,
-                onDestinationClick = { route ->
-                    coroutineScope.launch { drawerState.close() }
-                    navigateMain(route)
-                }
-            )
-        }
-    ) {
-        NavHost(
-            navController = navController,
-            startDestination = Routes.SPLASH
+    CompositionLocalProvider(LocalAllowedMainRoutes provides allowedMainRoutes) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = currentUser != null && currentRoute in Routes.mainDestinations,
+            drawerContent = {
+                AppDrawerContent(
+                    selectedRoute = selectedMainRoute,
+                    allowedRoutes = allowedMainRoutes,
+                    userName = currentUser?.fullName.orEmpty(),
+                    roleName = currentUser?.roleName.orEmpty(),
+                    onDestinationClick = { route ->
+                        coroutineScope.launch { drawerState.close() }
+                        navigateMain(route)
+                    },
+                    onLogout = {
+                        sessionManager.clear()
+                        currentUser = null
+                        coroutineScope.launch { drawerState.close() }
+                        navController.navigate(Routes.LOGIN) {
+                            popUpTo(Routes.DASHBOARD) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
         ) {
+            NavHost(
+                navController = navController,
+                startDestination = Routes.SPLASH
+            ) {
             composable(Routes.SPLASH) {
                 SplashScreen()
                 LaunchedEffect(Unit) {
-                    delay(1_700)
-                    navController.navigate(Routes.LOGIN) {
+                    val startedAt = System.currentTimeMillis()
+                    val hasUsers = userRepository.hasUsers()
+                    val rememberedUser = sessionManager.rememberedUserId()
+                        ?.let { userRepository.activeUserById(it) }
+                    if (rememberedUser == null) sessionManager.clear()
+                    currentUser = rememberedUser
+
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    delay((1_700L - elapsed).coerceAtLeast(0L))
+                    val destination = when {
+                        !hasUsers -> Routes.SETUP_ADMIN
+                        rememberedUser != null -> Routes.DASHBOARD
+                        else -> Routes.LOGIN
+                    }
+                    navController.navigate(destination) {
                         // La pantalla de carga solo debe mostrarse durante el inicio.
                         popUpTo(Routes.SPLASH) { inclusive = true }
                     }
                 }
             }
 
+            composable(Routes.SETUP_ADMIN) {
+                InitialAdminSetupScreen(
+                    isSaving = setupIsSaving,
+                    errorMessage = setupError,
+                    onClearError = { setupError = null },
+                    onCreateAdmin = { fullName, username, password ->
+                        setupIsSaving = true
+                        setupError = null
+                        coroutineScope.launch {
+                            runCatching {
+                                userRepository.createUser(
+                                    fullName = fullName,
+                                    username = username,
+                                    password = password,
+                                    roleName = "Administrador General"
+                                )
+                            }.onSuccess {
+                                setupIsSaving = false
+                                navController.navigate(Routes.LOGIN) {
+                                    popUpTo(Routes.SETUP_ADMIN) { inclusive = true }
+                                }
+                            }.onFailure { error ->
+                                setupIsSaving = false
+                                setupError = userCreationError(error)
+                            }
+                        }
+                    }
+                )
+            }
+
             composable(Routes.LOGIN) {
                 LoginScreen(
-                    onLogin = { _, _, _ ->
-                        // Autenticación visual de prueba hasta implementar usuarios y permisos.
-                        navController.navigate(Routes.DASHBOARD) {
-                            popUpTo(Routes.LOGIN) { inclusive = true }
+                    isLoading = loginIsLoading,
+                    errorMessage = loginError,
+                    onClearError = { loginError = null },
+                    // La recuperación local solo se muestra en compilaciones de prueba.
+                    // Borra cuentas y sesión, pero conserva los datos productivos.
+                    onResetAccess = if (isDebuggable) {
+                        {
+                            loginIsLoading = true
+                            loginError = null
+                            coroutineScope.launch {
+                                runCatching {
+                                    userRepository.resetLocalAccess()
+                                    sessionManager.clear()
+                                }.onSuccess {
+                                    loginIsLoading = false
+                                    currentUser = null
+                                    navController.navigate(Routes.SETUP_ADMIN) {
+                                        popUpTo(Routes.LOGIN) { inclusive = true }
+                                    }
+                                }.onFailure {
+                                    loginIsLoading = false
+                                    loginError = "No fue posible restablecer el acceso."
+                                }
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                    onLogin = { username, password, rememberSession ->
+                        loginIsLoading = true
+                        loginError = null
+                        coroutineScope.launch {
+                            when (val result = userRepository.authenticate(username, password)) {
+                                is AuthenticationResult.Success -> {
+                                    loginIsLoading = false
+                                    currentUser = result.user
+                                    if (rememberSession) {
+                                        sessionManager.remember(result.user.id)
+                                    } else {
+                                        sessionManager.clear()
+                                    }
+                                    navController.navigate(Routes.DASHBOARD) {
+                                        popUpTo(Routes.LOGIN) { inclusive = true }
+                                    }
+                                }
+                                AuthenticationResult.InvalidCredentials -> {
+                                    loginIsLoading = false
+                                    loginError = "Usuario o contraseña incorrectos."
+                                }
+                                AuthenticationResult.InactiveAccount -> {
+                                    loginIsLoading = false
+                                    loginError =
+                                        "Esta cuenta está inactiva. Consulte al Administrador General."
+                                }
+                            }
                         }
                     }
                 )
@@ -622,6 +764,7 @@ fun AppNavigation() {
                             if (movement.type == "INGRESO") movement.amount else -movement.amount
                         }
                     ),
+                    allowedReportIds = allowedReportIds,
                     onMenuClick = openDrawer,
                     onNavigateMain = navigateMain
                 )
@@ -631,7 +774,10 @@ fun AppNavigation() {
                 UserManagementScreen(
                     users = users,
                     onMenuClick = openDrawer,
-                    onCreateUser = { navController.navigate(Routes.USER_FORM) },
+                    onCreateUser = {
+                        userSaveError = null
+                        navController.navigate(Routes.USER_FORM)
+                    },
                     onViewRolePermissions = {
                         navController.navigate(Routes.ROLE_PERMISSIONS)
                     },
@@ -642,17 +788,32 @@ fun AppNavigation() {
             composable(Routes.USER_FORM) {
                 UserFormScreen(
                     existingUsernames = users.map { it.username }.toSet(),
-                    onBack = { navController.popBackStack() },
-                    onSubmit = { form ->
-                        // La contraseña se validará y cifrará al implementar la persistencia de usuarios.
-                        users = users + UserUiModel(
-                            id = UUID.randomUUID().toString(),
-                            fullName = form.fullName,
-                            username = form.username,
-                            roleName = form.roleName,
-                            active = form.active
-                        )
+                    isSaving = userIsSaving,
+                    saveError = userSaveError,
+                    onBack = {
+                        userSaveError = null
                         navController.popBackStack()
+                    },
+                    onSubmit = { form ->
+                        userIsSaving = true
+                        userSaveError = null
+                        coroutineScope.launch {
+                            runCatching {
+                                userRepository.createUser(
+                                    fullName = form.fullName,
+                                    username = form.username,
+                                    password = form.temporaryPassword,
+                                    roleName = form.roleName,
+                                    active = form.active
+                                )
+                            }.onSuccess {
+                                userIsSaving = false
+                                navController.popBackStack()
+                            }.onFailure { error ->
+                                userIsSaving = false
+                                userSaveError = userCreationError(error)
+                            }
+                        }
                     }
                 )
             }
@@ -662,6 +823,49 @@ fun AppNavigation() {
             }
         }
     }
+}
+}
+
+/** Traduce los permisos RBAC del rol a los destinos que pueden abrirse. */
+private fun allowedRoutesForRole(roleName: String?): Set<String> {
+    val permissions = roleName?.let(::permissionsForRole).orEmpty()
+    return buildSet {
+        if ("dashboard" in permissions) add(Routes.DASHBOARD)
+        if ("animals" in permissions) add(Routes.ANIMAL_LIST)
+        if ("weighings" in permissions) {
+            add(Routes.WEIGHINGS)
+            add(Routes.MILK_PRODUCTION)
+        }
+        if ("lots" in permissions) {
+            add(Routes.LOTS)
+            add(Routes.PARCELS)
+        }
+        if ("finance" in permissions) add(Routes.FINANCE)
+        if ("employees" in permissions) add(Routes.EMPLOYEES)
+        if ("reports" in permissions) add(Routes.REPORTS)
+        if ("users" in permissions) add(Routes.USERS)
+    }
+}
+
+/** Evita que un rol vea dentro de Reportes información que no le corresponde. */
+private fun allowedReportsForRole(roleName: String?): Set<String> = when (roleName) {
+    "Administrador General" -> setOf(
+        "financial", "production", "staff", "animals", "weighings", "lots", "parcels"
+    )
+    "Administrador de Campo" -> setOf(
+        "production", "animals", "weighings", "lots", "parcels"
+    )
+    "Técnico Veterinario" -> setOf("animals")
+    "Auxiliar Contable" -> setOf("financial", "staff")
+    else -> emptySet()
+}
+
+/** Convierte errores técnicos de Room o validación en mensajes comprensibles. */
+private fun userCreationError(error: Throwable): String = when {
+    error.message.orEmpty().contains("UNIQUE", ignoreCase = true) ->
+        "Ese nombre de usuario ya está registrado."
+    error is IllegalArgumentException -> error.message ?: "Revise los datos del usuario."
+    else -> "No fue posible guardar la cuenta. Inténtelo nuevamente."
 }
 
 /**
@@ -909,17 +1113,6 @@ private val initialEmployees = listOf(
         paymentFrequency = "Mensual",
         assignedSector = "General",
         phone = "5555 0202",
-        active = true
-    )
-)
-
-// Cuenta demostrativa para revisar la futura administración de accesos.
-private val initialUsers = listOf(
-    UserUiModel(
-        id = "user-demo-admin",
-        fullName = "Administrador de Finca Hernández",
-        username = "admin",
-        roleName = "Administrador General",
         active = true
     )
 )
