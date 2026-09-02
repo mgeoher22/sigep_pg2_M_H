@@ -24,6 +24,10 @@ object Routes {
     const val FINANCE_FORM = "finance_form"
     const val EMPLOYEES = "employees"
     const val EMPLOYEE_FORM = "employee_form"
+    const val REPORTS = "reports"
+    const val USERS = "users"
+    const val USER_FORM = "user_form"
+    const val ROLE_PERMISSIONS = "role_permissions"
 
     /** Destinos accesibles desde el menú principal. */
     val mainDestinations = setOf(
@@ -34,6 +38,8 @@ object Routes {
         WEIGHINGS,
         MILK_PRODUCTION,
         FINANCE,
-        EMPLOYEES
+        EMPLOYEES,
+        REPORTS,
+        USERS
     )
 }

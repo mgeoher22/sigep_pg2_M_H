@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -93,5 +95,7 @@ private val drawerDestinations = listOf(
     DrawerDestination("Pesajes", Routes.WEIGHINGS, Icons.Default.Scale),
     DrawerDestination("Producción lechera", Routes.MILK_PRODUCTION, Icons.Default.LocalDrink),
     DrawerDestination("Finanzas", Routes.FINANCE, Icons.Default.AccountBalanceWallet),
-    DrawerDestination("Empleados", Routes.EMPLOYEES, Icons.Default.Groups)
+    DrawerDestination("Empleados", Routes.EMPLOYEES, Icons.Default.Groups),
+    DrawerDestination("Centro de reportes", Routes.REPORTS, Icons.Default.Assessment),
+    DrawerDestination("Usuarios y accesos", Routes.USERS, Icons.Default.ManageAccounts)
 )

@@ -49,6 +49,12 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportDashboardData
+import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportsCenterScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.users.RolePermissionsScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.users.UserFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.users.UserManagementScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.users.UserUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.AnimalWeightOption
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
@@ -96,6 +102,7 @@ fun AppNavigation() {
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
+    var users by remember { mutableStateOf(initialUsers) }
 
     // Mantiene abierto el perfil con la versión más reciente emitida por Room.
     LaunchedEffect(animales) {
@@ -120,6 +127,8 @@ fun AppNavigation() {
         Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
         Routes.FINANCE_FORM -> Routes.FINANCE
         Routes.EMPLOYEE_FORM -> Routes.EMPLOYEES
+        Routes.USER_FORM,
+        Routes.ROLE_PERMISSIONS -> Routes.USERS
         else -> currentRoute
     }
 
@@ -599,6 +608,58 @@ fun AppNavigation() {
                     }
                 )
             }
+
+            composable(Routes.REPORTS) {
+                ReportsCenterScreen(
+                    data = ReportDashboardData(
+                        animalCount = animales.size,
+                        lotCount = lots.size,
+                        parcelCount = parcels.size,
+                        weighingCount = weighings.size,
+                        milkLiters = milkProductionRecords.sumOf { it.liters },
+                        employeeCount = employees.count { it.active },
+                        financialBalance = financialMovements.sumOf { movement ->
+                            if (movement.type == "INGRESO") movement.amount else -movement.amount
+                        }
+                    ),
+                    onMenuClick = openDrawer,
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.USERS) {
+                UserManagementScreen(
+                    users = users,
+                    onMenuClick = openDrawer,
+                    onCreateUser = { navController.navigate(Routes.USER_FORM) },
+                    onViewRolePermissions = {
+                        navController.navigate(Routes.ROLE_PERMISSIONS)
+                    },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.USER_FORM) {
+                UserFormScreen(
+                    existingUsernames = users.map { it.username }.toSet(),
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        // La contraseña se validará y cifrará al implementar la persistencia de usuarios.
+                        users = users + UserUiModel(
+                            id = UUID.randomUUID().toString(),
+                            fullName = form.fullName,
+                            username = form.username,
+                            roleName = form.roleName,
+                            active = form.active
+                        )
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(Routes.ROLE_PERMISSIONS) {
+                RolePermissionsScreen(onBack = { navController.popBackStack() })
+            }
         }
     }
 }
@@ -848,6 +909,17 @@ private val initialEmployees = listOf(
         paymentFrequency = "Mensual",
         assignedSector = "General",
         phone = "5555 0202",
+        active = true
+    )
+)
+
+// Cuenta demostrativa para revisar la futura administración de accesos.
+private val initialUsers = listOf(
+    UserUiModel(
+        id = "user-demo-admin",
+        fullName = "Administrador de Finca Hernández",
+        username = "admin",
+        roleName = "Administrador General",
         active = true
     )
 )
