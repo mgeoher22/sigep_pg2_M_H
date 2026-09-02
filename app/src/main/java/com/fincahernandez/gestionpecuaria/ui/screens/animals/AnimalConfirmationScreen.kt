@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,11 +33,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
 /** Pantalla que confirma visualmente la recepción de un nuevo registro. */
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun AnimalConfirmationScreen(
     animal: AnimalListItem,
     onViewProfile: () -> Unit,
@@ -47,6 +50,17 @@ fun AnimalConfirmationScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = {
+                    Text(
+                        "Registro confirmado",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            )
+        },
         bottomBar = {
             AppBottomBar(
                 selectedRoute = Routes.ANIMAL_LIST,
@@ -62,14 +76,6 @@ fun AnimalConfirmationScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            item {
-                Text(
-                    text = "Finca Hernández",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
             item {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,

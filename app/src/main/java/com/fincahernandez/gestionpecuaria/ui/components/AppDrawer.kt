@@ -1,6 +1,7 @@
 package com.fincahernandez.gestionpecuaria.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -27,6 +28,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,18 +61,24 @@ fun AppDrawerContent(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 12.dp, vertical = 20.dp)
         ) {
-            Text(
-                text = "Finca Hernández",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            Text(
-                text = "Sistema de Gestión Pecuaria",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FarmLogo(size = 68.dp)
+                Column(modifier = Modifier.padding(start = 12.dp)) {
+                    Text(
+                        text = "Finca Hernández",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Sistema de Gestión Pecuaria",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(14.dp))
             // Mantiene visible que la aplicación todavía trabaja con datos simulados.
             DemoModeNotice(compact = true)

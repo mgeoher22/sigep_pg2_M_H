@@ -24,10 +24,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -42,7 +40,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,6 +60,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.fincahernandez.gestionpecuaria.ui.components.FarmLogo
 
 /** Pantalla de carga inicial inspirada en el prototipo denominado Screen. */
 @Composable
@@ -87,21 +85,7 @@ fun SplashScreen(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Surface(
-                modifier = Modifier.size(logoSize),
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(26.dp),
-                shadowElevation = 6.dp
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Agriculture,
-                        contentDescription = null,
-                        modifier = Modifier.size(88.dp),
-                        tint = MaterialTheme.colorScheme.primaryContainer
-                    )
-                }
-            }
+            FarmLogo(size = logoSize)
             Text(
                 "Finca Hernández",
                 style = MaterialTheme.typography.headlineLarge,
@@ -182,20 +166,7 @@ fun LoginScreen(
                 }
             }
             item {
-                Surface(
-                    modifier = Modifier.size(96.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(24.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Agriculture,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(58.dp)
-                        )
-                    }
-                }
+                FarmLogo(size = 96.dp)
             }
             item {
                 Text(
@@ -461,20 +432,7 @@ fun InitialAdminSetupScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Surface(
-                    modifier = Modifier.size(88.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.AdminPanelSettings,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(52.dp)
-                        )
-                    }
-                }
+                FarmLogo(size = 88.dp)
             }
             item {
                 Text(

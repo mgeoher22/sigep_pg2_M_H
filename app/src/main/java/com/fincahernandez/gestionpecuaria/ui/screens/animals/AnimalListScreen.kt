@@ -31,7 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -324,7 +324,7 @@ private val statusFilterOptions = listOf(
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun AnimalTopBar(onMenuClick: () -> Unit) {
-    TopAppBar(
+    BrandedTopAppBar(
         title = {
             Text(
                 text = "Gestión de Animales",

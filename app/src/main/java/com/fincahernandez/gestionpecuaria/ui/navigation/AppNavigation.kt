@@ -20,6 +20,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
 import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
+import com.fincahernandez.gestionpecuaria.ui.components.LocalLogoutAction
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalRepository
@@ -181,7 +182,21 @@ fun AppNavigation() {
         coroutineScope.launch { drawerState.open() }
     }
 
-    CompositionLocalProvider(LocalAllowedMainRoutes provides allowedMainRoutes) {
+    /** Cierra la sesión actual y evita que las pantallas protegidas queden en el historial. */
+    val logout: () -> Unit = {
+        sessionManager.clear()
+        currentUser = null
+        coroutineScope.launch { drawerState.close() }
+        navController.navigate(Routes.LOGIN) {
+            popUpTo(Routes.DASHBOARD) { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalAllowedMainRoutes provides allowedMainRoutes,
+        LocalLogoutAction provides logout
+    ) {
         ModalNavigationDrawer(
             drawerState = drawerState,
             gesturesEnabled = currentUser != null && currentRoute in Routes.mainDestinations,
@@ -195,15 +210,7 @@ fun AppNavigation() {
                         coroutineScope.launch { drawerState.close() }
                         navigateMain(route)
                     },
-                    onLogout = {
-                        sessionManager.clear()
-                        currentUser = null
-                        coroutineScope.launch { drawerState.close() }
-                        navController.navigate(Routes.LOGIN) {
-                            popUpTo(Routes.DASHBOARD) { inclusive = true }
-                            launchSingleTop = true
-                        }
-                    }
+                    onLogout = logout
                 )
             }
         ) {
