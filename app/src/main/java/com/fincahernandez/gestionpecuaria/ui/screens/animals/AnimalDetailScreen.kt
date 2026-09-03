@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material3.Button
@@ -59,6 +60,9 @@ fun AnimalDetailScreen(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRegisterWeight: () -> Unit,
+    sanitaryEventCount: Int = 0,
+    canManageHealth: Boolean = false,
+    onOpenSanitaryControl: () -> Unit = {},
     onNavigateMain: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -130,11 +134,29 @@ fun AnimalDetailScreen(
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Los pesajes, eventos sanitarios y movimientos aparecerán aquí cuando se conecten sus módulos.",
+                    Column(
                         modifier = Modifier.padding(20.dp),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            if (sanitaryEventCount == 0) {
+                                "Este animal todavía no tiene eventos sanitarios registrados."
+                            } else {
+                                "$sanitaryEventCount eventos guardados en su ficha clínica individual."
+                            },
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        if (canManageHealth) {
+                            OutlinedButton(
+                                onClick = onOpenSanitaryControl,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.MedicalServices, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Abrir historial sanitario")
+                            }
+                        }
+                    }
                 }
             }
             item {
@@ -271,12 +293,20 @@ private fun AnimalProfileCard(
                     .align(Alignment.BottomStart)
                     .padding(14.dp),
                 shape = RoundedCornerShape(50),
-                color = if (animal.estado == "OBSERVACIÓN") Color(0xFFFFE7A8) else MaterialTheme.colorScheme.primary
+                color = when (animal.estado) {
+                    "CRÍTICO" -> MaterialTheme.colorScheme.errorContainer
+                    "OBSERVACIÓN" -> Color(0xFFFFE7A8)
+                    else -> MaterialTheme.colorScheme.primary
+                }
             ) {
                 Text(
                     animal.estado,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    color = if (animal.estado == "OBSERVACIÓN") Color(0xFF6B4E00) else Color.White,
+                    color = when (animal.estado) {
+                        "CRÍTICO" -> MaterialTheme.colorScheme.onErrorContainer
+                        "OBSERVACIÓN" -> Color(0xFF6B4E00)
+                        else -> Color.White
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )

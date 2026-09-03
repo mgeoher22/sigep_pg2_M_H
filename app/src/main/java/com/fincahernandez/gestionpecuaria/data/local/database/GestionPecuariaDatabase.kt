@@ -7,10 +7,12 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.EventoSanitarioDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
@@ -28,9 +30,10 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         LoteEntity::class,
         LoteAnimalEntity::class,
         PesajeEntity::class,
-        UsuarioEntity::class
+        UsuarioEntity::class,
+        EventoSanitarioEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -42,6 +45,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun pesajeDao(): PesajeDao
 
     abstract fun usuarioDao(): UsuarioDao
+
+    abstract fun eventoSanitarioDao(): EventoSanitarioDao
 
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
@@ -119,6 +124,46 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Crea la ficha clínica individual sin modificar animales existentes. */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `eventos_sanitarios` (
+                        `id` TEXT NOT NULL,
+                        `animalId` TEXT NOT NULL,
+                        `loteIdReferencia` TEXT,
+                        `tipoEvento` TEXT NOT NULL,
+                        `fechaEvento` INTEGER NOT NULL,
+                        `diagnostico` TEXT NOT NULL,
+                        `medicamento` TEXT,
+                        `dosis` TEXT,
+                        `estadoSalud` TEXT NOT NULL,
+                        `proximoControl` INTEGER,
+                        `responsable` TEXT,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`animalId`) REFERENCES `animales`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_eventos_sanitarios_animalId` " +
+                        "ON `eventos_sanitarios` (`animalId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_eventos_sanitarios_fechaEvento` " +
+                        "ON `eventos_sanitarios` (`fechaEvento`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_eventos_sanitarios_loteIdReferencia` " +
+                        "ON `eventos_sanitarios` (`loteIdReferencia`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -135,7 +180,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_2_3,
                     MIGRATION_3_4,
                     MIGRATION_4_5,
-                    MIGRATION_5_6
+                    MIGRATION_5_6,
+                    MIGRATION_6_7
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

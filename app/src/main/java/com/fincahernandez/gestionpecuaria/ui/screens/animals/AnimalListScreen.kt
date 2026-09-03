@@ -315,7 +315,8 @@ private val categoryFilterOptions = listOf(
 private val statusFilterOptions = listOf(
     FILTER_ALL to "Todos",
     "EXCELENTE" to "Excelente",
-    "OBSERVACIÓN" to "Observación"
+    "OBSERVACIÓN" to "Observación",
+    "CRÍTICO" to "Crítico"
 )
 
 /** Barra superior inspirada en el prototipo de Gestión de Animales. */
@@ -459,14 +460,23 @@ private fun AnimalCard(
 @Composable
 private fun StatusBadge(estado: String) {
     val esObservacion = estado.equals("OBSERVACIÓN", ignoreCase = true)
+    val esCritico = estado.equals("CRÍTICO", ignoreCase = true)
     Surface(
-        color = if (esObservacion) Color(0xFFFFE7A8) else MaterialTheme.colorScheme.primaryContainer,
+        color = when {
+            esCritico -> MaterialTheme.colorScheme.errorContainer
+            esObservacion -> Color(0xFFFFE7A8)
+            else -> MaterialTheme.colorScheme.primaryContainer
+        },
         shape = RoundedCornerShape(50)
     ) {
         Text(
             text = estado.lowercase().replaceFirstChar { it.uppercase() },
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            color = if (esObservacion) Color(0xFF6B4E00) else MaterialTheme.colorScheme.onPrimaryContainer,
+            color = when {
+                esCritico -> MaterialTheme.colorScheme.onErrorContainer
+                esObservacion -> Color(0xFF6B4E00)
+                else -> MaterialTheme.colorScheme.onPrimaryContainer
+            },
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold
         )

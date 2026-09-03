@@ -21,6 +21,8 @@ object Routes {
     const val WEIGHING_FORM = "weighing_form"
     const val MILK_PRODUCTION = "milk_production"
     const val MILK_PRODUCTION_FORM = "milk_production_form"
+    const val SANITARY = "sanitary"
+    const val SANITARY_FORM = "sanitary_form"
     const val FINANCE = "finance"
     const val FINANCE_FORM = "finance_form"
     const val EMPLOYEES = "employees"
@@ -38,6 +40,7 @@ object Routes {
         PARCELS,
         WEIGHINGS,
         MILK_PRODUCTION,
+        SANITARY,
         FINANCE,
         EMPLOYEES,
         REPORTS,

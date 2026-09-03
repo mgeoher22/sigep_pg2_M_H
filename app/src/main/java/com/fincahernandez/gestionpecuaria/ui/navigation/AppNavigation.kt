@@ -28,6 +28,8 @@ import com.fincahernandez.gestionpecuaria.data.repository.AnimalRepository
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
+import com.fincahernandez.gestionpecuaria.data.repository.SanitaryRepository
+import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.UserRepository
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
@@ -49,6 +51,11 @@ import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinanceListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryAnimalOption
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryControlScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryLotOption
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryRecordFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryRecordUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalOption
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalSelectionScreen
@@ -97,12 +104,17 @@ fun AppNavigation() {
     val coroutineScope = rememberCoroutineScope()
     val database = remember(context) { GestionPecuariaDatabase.obtenerInstancia(context) }
     val animalRepository = remember(database) { AnimalRepository(database) }
+    val sanitaryRepository = remember(database) { SanitaryRepository(database) }
     val userRepository = remember(database) { UserRepository(database) }
     val sessionManager = remember(context) { SessionManager(context) }
     val storedAnimalsFlow = remember(animalRepository) { animalRepository.observeAnimals() }
     val storedAnimals by storedAnimalsFlow.collectAsState(initial = emptyList())
     val storedUsersFlow = remember(userRepository) { userRepository.observeUsers() }
     val storedUsers by storedUsersFlow.collectAsState(initial = emptyList())
+    val storedSanitaryRecordsFlow = remember(sanitaryRepository) {
+        sanitaryRepository.observeRecords()
+    }
+    val storedSanitaryRecords by storedSanitaryRecordsFlow.collectAsState(initial = emptyList())
     val users = storedUsers.map { user ->
         UserUiModel(
             id = user.id,
@@ -132,6 +144,9 @@ fun AppNavigation() {
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
+    var sanitaryIsSaving by remember { mutableStateOf(false) }
+    var sanitarySaveError by remember { mutableStateOf<String?>(null) }
+    var sanitaryInitialAnimalId by remember { mutableStateOf("") }
     // Estos valores simples sobreviven a una recreación de la actividad, por ejemplo
     // cuando Android cambia la configuración de pantalla de la tableta.
     var currentUserId by rememberSaveable { mutableStateOf("") }
@@ -175,6 +190,48 @@ fun AppNavigation() {
 
     val allowedMainRoutes = allowedRoutesForPermissions(currentUser?.permissionIds.orEmpty())
     val allowedReportIds = allowedReportsForPermissions(currentUser?.permissionIds.orEmpty())
+    val sanitaryLots = lots.map { lot ->
+        SanitaryLotOption(
+            id = lot.id,
+            label = "${lot.code} · ${lot.name}",
+            animalIds = lot.selectedAnimalIds.toSet()
+        )
+    }
+    val sanitaryAnimals = animales.map { animal ->
+        SanitaryAnimalOption(
+            id = animal.id,
+            label = buildString {
+                append(animal.codigoIdentificacion)
+                animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+            },
+            sex = animal.sexo
+        )
+    }
+    val sanitaryRecords = storedSanitaryRecords.map { record ->
+        val animal = allAnimalItems.firstOrNull { it.id == record.animalId }
+        val lot = lots.firstOrNull { it.id == record.referenceLotId }
+        SanitaryRecordUiModel(
+            id = record.id,
+            animalId = record.animalId,
+            animalLabel = animal?.let {
+                buildString {
+                    append(it.codigoIdentificacion)
+                    it.nombre?.takeIf(String::isNotBlank)?.let { name -> append(" · $name") }
+                }
+            } ?: "Animal no disponible",
+            referenceLotId = record.referenceLotId,
+            referenceLotLabel = lot?.let { "${it.code} · ${it.name}" },
+            eventType = record.eventType,
+            eventDate = record.eventDate,
+            diagnosis = record.diagnosis,
+            medication = record.medication,
+            dose = record.dose,
+            healthStatus = record.healthStatus,
+            nextControlDate = record.nextControlDate,
+            responsible = record.responsible,
+            notes = record.notes
+        )
+    }
 
     // Mantiene abierto el perfil con la versión más reciente emitida por Room.
     LaunchedEffect(animales) {
@@ -197,6 +254,7 @@ fun AppNavigation() {
         Routes.PARCEL_DETAIL -> Routes.PARCELS
         Routes.WEIGHING_FORM -> Routes.WEIGHINGS
         Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
+        Routes.SANITARY_FORM -> Routes.SANITARY
         Routes.FINANCE_FORM -> Routes.FINANCE
         Routes.EMPLOYEE_FORM -> Routes.EMPLOYEES
         Routes.USER_FORM,
@@ -264,6 +322,7 @@ fun AppNavigation() {
                     roleName = currentUser?.roleName.orEmpty(),
                     onDestinationClick = { route ->
                         coroutineScope.launch { drawerState.close() }
+                        if (route == Routes.SANITARY) sanitaryInitialAnimalId = ""
                         navigateMain(route)
                     },
                     onLogout = logout
@@ -596,6 +655,12 @@ fun AppNavigation() {
                         }
                     },
                     onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
+                    sanitaryEventCount = sanitaryRecords.count { it.animalId == animal.id },
+                    canManageHealth = "health" in currentUser?.permissionIds.orEmpty(),
+                    onOpenSanitaryControl = {
+                        sanitaryInitialAnimalId = animal.id
+                        navigateMain(Routes.SANITARY)
+                    },
                     onNavigateMain = navigateMain
                 )
             }
@@ -822,6 +887,70 @@ fun AppNavigation() {
                     }
                 )
             }
+
+            composable(Routes.SANITARY) {
+                SanitaryControlScreen(
+                    records = sanitaryRecords,
+                    lots = sanitaryLots,
+                    animals = sanitaryAnimals,
+                    initialAnimalId = sanitaryInitialAnimalId,
+                    onMenuClick = openDrawer,
+                    onCreateRecord = {
+                        sanitarySaveError = null
+                        navController.navigate(Routes.SANITARY_FORM)
+                    },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.SANITARY_FORM) {
+                SanitaryRecordFormScreen(
+                    lots = sanitaryLots,
+                    animals = sanitaryAnimals,
+                    initialAnimalId = sanitaryInitialAnimalId,
+                    isSaving = sanitaryIsSaving,
+                    saveError = sanitarySaveError,
+                    onBack = {
+                        sanitarySaveError = null
+                        navController.popBackStack()
+                    },
+                    onSubmit = { form ->
+                        sanitaryIsSaving = true
+                        sanitarySaveError = null
+                        coroutineScope.launch {
+                            runCatching {
+                                sanitaryRepository.register(
+                                    SanitaryStoredRecord(
+                                        id = UUID.randomUUID().toString(),
+                                        animalId = form.animalId,
+                                        referenceLotId = form.referenceLotId,
+                                        eventType = form.eventType,
+                                        eventDate = checkNotNull(parseDate(form.eventDate)),
+                                        diagnosis = form.diagnosis,
+                                        medication = form.medication.ifBlank { null },
+                                        dose = form.dose.ifBlank { null },
+                                        healthStatus = form.healthStatus,
+                                        nextControlDate = parseDate(form.nextControlDate),
+                                        responsible = form.responsible.ifBlank { null },
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                sanitaryIsSaving = false
+                                sanitaryInitialAnimalId = ""
+                                if (!navController.popBackStack(Routes.SANITARY, false)) {
+                                    navigateMain(Routes.SANITARY)
+                                }
+                            }.onFailure {
+                                sanitaryIsSaving = false
+                                sanitarySaveError =
+                                    "No fue posible guardar el evento sanitario. Inténtelo nuevamente."
+                            }
+                        }
+                    }
+                )
+            }
+
             composable(Routes.FINANCE) {
                 FinanceListScreen(
                     movements = financialMovements,
@@ -971,6 +1100,7 @@ private fun allowedRoutesForPermissions(permissions: Set<String>): Set<String> {
             add(Routes.LOTS)
             add(Routes.PARCELS)
         }
+        if ("health" in permissions) add(Routes.SANITARY)
         if ("finance" in permissions) add(Routes.FINANCE)
         if ("employees" in permissions) add(Routes.EMPLOYEES)
         if ("reports" in permissions) add(Routes.REPORTS)
