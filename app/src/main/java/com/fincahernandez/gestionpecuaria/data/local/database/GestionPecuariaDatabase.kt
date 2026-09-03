@@ -30,7 +30,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         PesajeEntity::class,
         UsuarioEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -107,6 +107,18 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Permite partir de un rol preestablecido y guardar excepciones para cada cuenta.
+         * Los usuarios existentes reciben NULL y conservan exactamente su acceso actual.
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE usuarios ADD COLUMN permisosPersonalizados TEXT"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -122,7 +134,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_1_2,
                     MIGRATION_2_3,
                     MIGRATION_3_4,
-                    MIGRATION_4_5
+                    MIGRATION_4_5,
+                    MIGRATION_5_6
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

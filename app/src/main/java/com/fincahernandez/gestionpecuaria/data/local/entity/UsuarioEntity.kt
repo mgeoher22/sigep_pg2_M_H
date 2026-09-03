@@ -23,5 +23,7 @@ data class UsuarioEntity(
     val passwordIterations: Int,
     val rol: String,
     val activo: Boolean,
-    val creadoEn: Long
+    val creadoEn: Long,
+    /** Nulo usa la plantilla del rol; cualquier valor contiene excepciones por usuario. */
+    val permisosPersonalizados: String?
 )

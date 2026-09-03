@@ -4,6 +4,10 @@ import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDat
 import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 import com.fincahernandez.gestionpecuaria.data.security.PasswordHasher
 import com.fincahernandez.gestionpecuaria.data.security.definedRoles
+import com.fincahernandez.gestionpecuaria.data.security.permissionsForRole
+import com.fincahernandez.gestionpecuaria.data.security.permissionsForUser
+import com.fincahernandez.gestionpecuaria.data.security.rolePermissions
+import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -16,14 +20,17 @@ data class StoredUser(
     val fullName: String,
     val username: String,
     val roleName: String,
-    val active: Boolean
+    val active: Boolean,
+    val permissionIds: Set<String>,
+    val hasCustomPermissions: Boolean
 )
 
 data class AuthenticatedUser(
     val id: String,
     val fullName: String,
     val username: String,
-    val roleName: String
+    val roleName: String,
+    val permissionIds: Set<String>
 )
 
 sealed interface AuthenticationResult {
@@ -47,12 +54,25 @@ class UserRepository(database: GestionPecuariaDatabase) {
         username: String,
         password: String,
         roleName: String,
-        active: Boolean = true
+        active: Boolean = true,
+        permissionIds: Set<String>? = null
     ): AuthenticatedUser = withContext(Dispatchers.Default) {
         require(fullName.isNotBlank()) { "El nombre es obligatorio." }
         val normalizedUsername = normalizeUsername(username)
         require(normalizedUsername.isNotBlank()) { "El usuario es obligatorio." }
         require(definedRoles.any { it.name == roleName }) { "El rol no es válido." }
+        val validPermissionIds = rolePermissions.mapTo(mutableSetOf()) { it.id }
+        val effectivePermissions = permissionIds ?: permissionsForRole(roleName)
+        require(effectivePermissions.all { it in validPermissionIds }) {
+            "La selección contiene un permiso no válido."
+        }
+        require("dashboard" in effectivePermissions) {
+            "El acceso al panel principal es obligatorio."
+        }
+        // Si coincide con el rol se guarda NULL para que siga heredando su plantilla.
+        val customizedPermissions = effectivePermissions
+            .takeIf { it != permissionsForRole(roleName) }
+            ?.let(::serializePermissions)
         val protectedPassword = PasswordHasher.protect(password)
         val entity = UsuarioEntity(
             id = UUID.randomUUID().toString(),
@@ -65,7 +85,8 @@ class UserRepository(database: GestionPecuariaDatabase) {
             passwordIterations = protectedPassword.iterations,
             rol = roleName,
             activo = active,
-            creadoEn = System.currentTimeMillis()
+            creadoEn = System.currentTimeMillis(),
+            permisosPersonalizados = customizedPermissions
         )
         userDao.insertar(entity)
         entity.toAuthenticatedUser()
@@ -106,12 +127,15 @@ private fun UsuarioEntity.toStoredUser() = StoredUser(
     fullName = nombreCompleto,
     username = usuario,
     roleName = rol,
-    active = activo
+    active = activo,
+    permissionIds = permissionsForUser(rol, permisosPersonalizados),
+    hasCustomPermissions = permisosPersonalizados != null
 )
 
 private fun UsuarioEntity.toAuthenticatedUser() = AuthenticatedUser(
     id = id,
     fullName = nombreCompleto,
     username = usuario,
-    roleName = rol
+    roleName = rol,
+    permissionIds = permissionsForUser(rol, permisosPersonalizados)
 )

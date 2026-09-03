@@ -68,7 +68,9 @@ data class UserUiModel(
     val fullName: String,
     val username: String,
     val roleName: String,
-    val active: Boolean
+    val active: Boolean,
+    val permissionCount: Int,
+    val hasCustomPermissions: Boolean
 )
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
@@ -77,7 +79,8 @@ data class UserFormData(
     val username: String,
     val temporaryPassword: String,
     val roleName: String,
-    val active: Boolean
+    val active: Boolean,
+    val permissionIds: Set<String>
 )
 
 /** Listado administrativo desde el cual se crean cuentas y se revisa el RBAC. */
@@ -163,7 +166,8 @@ fun UserManagementScreen(
                             Text("Control de acceso por roles", fontWeight = FontWeight.Bold)
                         }
                         Text(
-                            "Cada usuario recibe automáticamente los permisos del rol seleccionado."
+                            "Cada rol funciona como plantilla. Al crear una cuenta puede agregar o " +
+                                "retirar permisos solamente para ese usuario."
                         )
                         OutlinedButton(onClick = onViewRolePermissions) {
                             Icon(Icons.Default.Key, contentDescription = null)
@@ -209,6 +213,19 @@ fun UserManagementScreen(
                                 Text(user.fullName, fontWeight = FontWeight.Bold)
                                 Text("@${user.username}", style = MaterialTheme.typography.bodySmall)
                                 Text(user.roleName, color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    if (user.hasCustomPermissions) {
+                                        "${user.permissionCount} permisos · PERSONALIZADO"
+                                    } else {
+                                        "${user.permissionCount} permisos · SEGÚN EL ROL"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (user.hasCustomPermissions) {
+                                        MaterialTheme.colorScheme.tertiary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
                             }
                             Text(
                                 if (user.active) "ACTIVO" else "INACTIVO",
@@ -244,12 +261,19 @@ fun UserFormScreen(
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var selectedRoleName by rememberSaveable { mutableStateOf(definedRoles.first().name) }
+    // Se serializa como texto para que la selección sobreviva al giro de la tableta.
+    var selectedPermissionsValue by rememberSaveable {
+        mutableStateOf(definedRoles.first().permissionIds.sorted().joinToString(","))
+    }
     var active by rememberSaveable { mutableStateOf(true) }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     val normalizedUsername = username.trim().lowercase()
     val usernameExists = normalizedUsername in existingUsernames.map { it.lowercase() }
     val selectedRole = definedRoles.first { it.name == selectedRoleName }
+    val selectedPermissionIds = selectedPermissionsValue
+        .split(',')
+        .filterTo(linkedSetOf()) { it.isNotBlank() }
     val usernameValid = normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
     val formValid = fullName.isNotBlank() && usernameValid &&
         !usernameExists && password.length >= 8
@@ -334,7 +358,15 @@ fun UserFormScreen(
             item {
                 RoleDropdown(
                     value = selectedRoleName,
-                    onSelected = { selectedRoleName = it }
+                    onSelected = { roleName ->
+                        selectedRoleName = roleName
+                        // Elegir otro rol vuelve a cargar su plantilla antes de personalizarla.
+                        selectedPermissionsValue = definedRoles
+                            .first { it.name == roleName }
+                            .permissionIds
+                            .sorted()
+                            .joinToString(",")
+                    }
                 )
             }
             item {
@@ -349,20 +381,82 @@ fun UserFormScreen(
                     ) {
                         Text(selectedRole.name, fontWeight = FontWeight.Bold)
                         Text(selectedRole.description)
-                        Text("Permisos concedidos:", fontWeight = FontWeight.SemiBold)
-                        rolePermissions
-                            .filter { it.id in selectedRole.permissionIds }
-                            .forEach { permission ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(permission.label)
-                                }
+                        Text(
+                            "Esta es la plantilla base. Los cambios siguientes solo afectarán " +
+                                "a esta nueva cuenta."
+                        )
+                    }
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Personalizar permisos",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Active permisos adicionales o retire los que no necesite.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            selectedPermissionsValue = selectedRole.permissionIds
+                                .sorted()
+                                .joinToString(",")
+                        }
+                    ) {
+                        Text("Restablecer rol")
+                    }
+                }
+            }
+            items(rolePermissions, key = { "user-permission-${it.id}" }) { permission ->
+                val checked = permission.id in selectedPermissionIds
+                val includedByRole = permission.id in selectedRole.permissionIds
+                val isRequired = permission.id == "dashboard"
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (checked) Icons.Default.CheckCircle else Icons.Default.Block,
+                            contentDescription = null,
+                            tint = if (checked) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
                             }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(permission.label, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                when {
+                                    isRequired -> "Obligatorio para ingresar a la aplicación"
+                                    checked && !includedByRole -> "Permiso adicional al rol"
+                                    !checked && includedByRole -> "Retirado para este usuario"
+                                    includedByRole -> "Incluido por el rol"
+                                    else -> "No incluido por el rol"
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(
+                            checked = checked,
+                            enabled = !isRequired,
+                            onCheckedChange = { grant ->
+                                val updated = selectedPermissionIds.toMutableSet().apply {
+                                    if (grant) add(permission.id) else remove(permission.id)
+                                }
+                                selectedPermissionsValue = updated.sorted().joinToString(",")
+                            }
+                        )
                     }
                 }
             }
@@ -397,7 +491,8 @@ fun UserFormScreen(
                                     username = normalizedUsername,
                                     temporaryPassword = password,
                                     roleName = selectedRoleName,
-                                    active = active
+                                    active = active,
+                                    permissionIds = selectedPermissionIds
                                 )
                             )
                         }
@@ -457,7 +552,8 @@ fun RolePermissionsScreen(
         ) {
             item {
                 Text(
-                    "Los permisos están agrupados por los cinco actores definidos en el ERS.",
+                    "Estos son los permisos preestablecidos de cada rol. Al crear una cuenta " +
+                        "pueden personalizarse sin cambiar esta plantilla ni afectar a otros usuarios.",
                     style = MaterialTheme.typography.bodyLarge
                 )
             }

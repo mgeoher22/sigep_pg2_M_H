@@ -1,7 +1,10 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.animals
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
@@ -87,8 +90,52 @@ private suspend fun loadAnimalImagePreview(
         }
 
         val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        // Algunos formatos no contienen metadatos EXIF. En ese caso se conserva
+        // la orientación normal y la fotografía continúa mostrándose.
+        val orientation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+            }
+        }.getOrNull() ?: ExifInterface.ORIENTATION_NORMAL
+
         context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+            BitmapFactory.decodeStream(stream, null, options)
+                ?.correctExifOrientation(orientation)
+                ?.asImageBitmap()
         }
     }.getOrNull()
+}
+
+/**
+ * Aplica la rotación o reflejo guardado por la cámara en los metadatos EXIF.
+ * BitmapFactory ignora esa información y por eso algunas fotos aparecían de lado.
+ */
+private fun Bitmap.correctExifOrientation(orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+            matrix.setRotate(180f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.setRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.setRotate(-90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+        else -> return this
+    }
+
+    val corrected = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
+    if (corrected !== this) recycle()
+    return corrected
 }

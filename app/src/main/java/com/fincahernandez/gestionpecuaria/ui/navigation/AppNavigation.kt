@@ -30,7 +30,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
 import com.fincahernandez.gestionpecuaria.data.repository.UserRepository
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
-import com.fincahernandez.gestionpecuaria.data.security.permissionsForRole
+import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
@@ -109,7 +109,9 @@ fun AppNavigation() {
             fullName = user.fullName,
             username = user.username,
             roleName = user.roleName,
-            active = user.active
+            active = user.active,
+            permissionCount = user.permissionIds.size,
+            hasCustomPermissions = user.hasCustomPermissions
         )
     }
     val allAnimalItems = storedAnimals.map { it.toListItem() }
@@ -136,6 +138,7 @@ fun AppNavigation() {
     var currentUserFullName by rememberSaveable { mutableStateOf("") }
     var currentUsername by rememberSaveable { mutableStateOf("") }
     var currentUserRole by rememberSaveable { mutableStateOf("") }
+    var currentUserPermissions by rememberSaveable { mutableStateOf("") }
     var loginIsLoading by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf<String?>(null) }
     var setupIsSaving by remember { mutableStateOf(false) }
@@ -148,7 +151,10 @@ fun AppNavigation() {
             id = it,
             fullName = currentUserFullName,
             username = currentUsername,
-            roleName = currentUserRole
+            roleName = currentUserRole,
+            permissionIds = currentUserPermissions
+                .split(',')
+                .filterTo(linkedSetOf()) { permission -> permission.isNotBlank() }
         )
     }
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
@@ -157,16 +163,18 @@ fun AppNavigation() {
             currentUserFullName = ""
             currentUsername = ""
             currentUserRole = ""
+            currentUserPermissions = ""
         } else {
             currentUserFullName = user.fullName
             currentUsername = user.username
             currentUserRole = user.roleName
+            currentUserPermissions = serializePermissions(user.permissionIds)
             currentUserId = user.id
         }
     }
 
-    val allowedMainRoutes = allowedRoutesForRole(currentUser?.roleName)
-    val allowedReportIds = allowedReportsForRole(currentUser?.roleName)
+    val allowedMainRoutes = allowedRoutesForPermissions(currentUser?.permissionIds.orEmpty())
+    val allowedReportIds = allowedReportsForPermissions(currentUser?.permissionIds.orEmpty())
 
     // Mantiene abierto el perfil con la versión más reciente emitida por Room.
     LaunchedEffect(animales) {
@@ -927,7 +935,8 @@ fun AppNavigation() {
                                     username = form.username,
                                     password = form.temporaryPassword,
                                     roleName = form.roleName,
-                                    active = form.active
+                                    active = form.active,
+                                    permissionIds = form.permissionIds
                                 )
                             }.onSuccess {
                                 userIsSaving = false
@@ -949,9 +958,8 @@ fun AppNavigation() {
 }
 }
 
-/** Traduce los permisos RBAC del rol a los destinos que pueden abrirse. */
-private fun allowedRoutesForRole(roleName: String?): Set<String> {
-    val permissions = roleName?.let(::permissionsForRole).orEmpty()
+/** Traduce los permisos efectivos del usuario a los destinos que puede abrir. */
+private fun allowedRoutesForPermissions(permissions: Set<String>): Set<String> {
     return buildSet {
         if ("dashboard" in permissions) add(Routes.DASHBOARD)
         if ("animals" in permissions) add(Routes.ANIMAL_LIST)
@@ -970,17 +978,22 @@ private fun allowedRoutesForRole(roleName: String?): Set<String> {
     }
 }
 
-/** Evita que un rol vea dentro de Reportes información que no le corresponde. */
-private fun allowedReportsForRole(roleName: String?): Set<String> = when (roleName) {
-    "Administrador General" -> setOf(
-        "financial", "production", "staff", "animals", "weighings", "lots", "parcels"
-    )
-    "Administrador de Campo" -> setOf(
-        "production", "animals", "weighings", "lots", "parcels"
-    )
-    "Técnico Veterinario" -> setOf("animals")
-    "Auxiliar Contable" -> setOf("financial", "staff")
-    else -> emptySet()
+/**
+ * Los reportes también respetan las excepciones de la cuenta. Por ejemplo, añadir
+ * Finanzas habilita su reporte aunque la plantilla del rol normalmente no lo incluya.
+ */
+private fun allowedReportsForPermissions(permissions: Set<String>): Set<String> = buildSet {
+    if ("finance" in permissions) add("financial")
+    if ("weighings" in permissions) {
+        add("production")
+        add("weighings")
+    }
+    if ("employees" in permissions) add("staff")
+    if ("animals" in permissions) add("animals")
+    if ("lots" in permissions) {
+        add("lots")
+        add("parcels")
+    }
 }
 
 /** Convierte errores técnicos de Room o validación en mensajes comprensibles. */

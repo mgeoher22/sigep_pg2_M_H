@@ -55,3 +55,21 @@ val definedRoles = listOf(
 
 fun permissionsForRole(roleName: String): Set<String> =
     definedRoles.firstOrNull { it.name == roleName }?.permissionIds.orEmpty()
+
+/**
+ * Obtiene los permisos efectivos de una cuenta.
+ * Un valor nulo conserva la plantilla del rol; incluso una cadena vacía representa
+ * una personalización explícita, por lo que ambos casos no deben confundirse.
+ */
+fun permissionsForUser(roleName: String, customizedPermissions: String?): Set<String> {
+    if (customizedPermissions == null) return permissionsForRole(roleName)
+    val validIds = rolePermissions.mapTo(mutableSetOf()) { it.id }
+    return customizedPermissions
+        .split(',')
+        .map(String::trim)
+        .filterTo(linkedSetOf()) { it.isNotEmpty() && it in validIds }
+}
+
+/** Guarda una selección estable y legible dentro de una sola columna de Room. */
+fun serializePermissions(permissionIds: Set<String>): String =
+    permissionIds.sorted().joinToString(",")
