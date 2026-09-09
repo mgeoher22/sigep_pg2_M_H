@@ -286,7 +286,8 @@ private fun AnimalProfileCard(
                 photoUri = animal.fotoUri,
                 modifier = Modifier.fillMaxSize(),
                 placeholderIcon = Icons.Default.Pets,
-                placeholderText = "Sin fotografía registrada"
+                placeholderText = "Sin fotografía registrada",
+                maxDecodeDimensionPx = 900
             )
             Surface(
                 modifier = Modifier

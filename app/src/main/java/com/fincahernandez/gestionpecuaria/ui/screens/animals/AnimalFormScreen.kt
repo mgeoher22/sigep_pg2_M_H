@@ -2,6 +2,7 @@ package com.fincahernandez.gestionpecuaria.ui.screens.animals
 
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,7 +122,7 @@ fun AnimalFormScreen(
     var intentoGuardar by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { selectedUri ->
         selectedUri?.let { uri ->
             // Conserva el permiso para que la imagen siga disponible al volver a abrir la app.
@@ -197,7 +198,13 @@ fun AnimalFormScreen(
             item {
                 AnimalPhotoSelector(
                     photoUri = fotoUri,
-                    onSelectPhoto = { photoPicker.launch(arrayOf("image/*")) },
+                    onSelectPhoto = {
+                        // El selector del sistema concede acceso solamente a la foto elegida;
+                        // la aplicación nunca obtiene permiso para recorrer toda la galería.
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
                     onRemovePhoto = { fotoUri = "" }
                 )
             }
@@ -441,7 +448,8 @@ private fun AnimalPhotoSelector(
                     "Aún no se ha seleccionado una foto"
                 } else {
                     "No fue posible mostrar la foto seleccionada"
-                }
+                },
+                maxDecodeDimensionPx = 900
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -457,7 +465,8 @@ private fun AnimalPhotoSelector(
             }
         }
         Text(
-            "Seleccione una imagen guardada en la tableta. La foto es opcional.",
+            "La foto es opcional. Por seguridad, la aplicación solo podrá leer la imagen " +
+                "que usted seleccione en el panel protegido de Android.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

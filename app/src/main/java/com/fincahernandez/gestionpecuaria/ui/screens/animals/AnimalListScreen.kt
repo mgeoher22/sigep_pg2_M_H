@@ -35,6 +35,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -96,21 +97,29 @@ fun AnimalListScreen(
     var estadoSeleccionado by rememberSaveable { mutableStateOf(FILTER_ALL) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
 
-    val activeFilterCount = listOf(categoriaSeleccionada, estadoSeleccionado)
-        .count { it != FILTER_ALL }
+    val activeFilterCount = remember(categoriaSeleccionada, estadoSeleccionado) {
+        listOf(categoriaSeleccionada, estadoSeleccionado).count { it != FILTER_ALL }
+    }
 
     // Combina la búsqueda de texto con categoría y estado de salud.
-    val animalesFiltrados = animales.filter { animal ->
-        val coincideBusqueda = busqueda.isBlank() ||
-            animal.codigoIdentificacion.contains(busqueda, ignoreCase = true) ||
-            animal.nombre.orEmpty().contains(busqueda, ignoreCase = true) ||
-            animal.categoria.contains(busqueda, ignoreCase = true)
-        val coincideCategoria = categoriaSeleccionada == FILTER_ALL ||
-            animal.categoria.equals(categoriaSeleccionada, ignoreCase = true)
-        val coincideEstado = estadoSeleccionado == FILTER_ALL ||
-            animal.estado.equals(estadoSeleccionado, ignoreCase = true)
+    val animalesFiltrados = remember(
+        animales,
+        busqueda,
+        categoriaSeleccionada,
+        estadoSeleccionado
+    ) {
+        animales.filter { animal ->
+            val coincideBusqueda = busqueda.isBlank() ||
+                animal.codigoIdentificacion.contains(busqueda, ignoreCase = true) ||
+                animal.nombre.orEmpty().contains(busqueda, ignoreCase = true) ||
+                animal.categoria.contains(busqueda, ignoreCase = true)
+            val coincideCategoria = categoriaSeleccionada == FILTER_ALL ||
+                animal.categoria.equals(categoriaSeleccionada, ignoreCase = true)
+            val coincideEstado = estadoSeleccionado == FILTER_ALL ||
+                animal.estado.equals(estadoSeleccionado, ignoreCase = true)
 
-        coincideBusqueda && coincideCategoria && coincideEstado
+            coincideBusqueda && coincideCategoria && coincideEstado
+        }
     }
 
     if (showFilters) {
@@ -207,7 +216,8 @@ fun AnimalListScreen(
             } else {
                 items(
                     items = animalesFiltrados,
-                    key = { it.id }
+                    key = { it.id },
+                    contentType = { "animal_card" }
                 ) { animal ->
                     AnimalCard(
                         animal = animal,
@@ -408,7 +418,8 @@ private fun AnimalCard(
                     .height(132.dp)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 placeholderIcon = Icons.Default.Pets,
-                placeholderText = "Sin fotografía"
+                placeholderText = "Sin fotografía",
+                maxDecodeDimensionPx = 480
             )
 
             Column(

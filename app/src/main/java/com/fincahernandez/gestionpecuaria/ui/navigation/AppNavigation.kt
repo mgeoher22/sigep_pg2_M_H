@@ -7,7 +7,6 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +14,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -22,15 +23,11 @@ import androidx.navigation.compose.rememberNavController
 import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
 import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.ui.components.LocalLogoutAction
-import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
-import com.fincahernandez.gestionpecuaria.data.repository.AnimalRepository
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
-import com.fincahernandez.gestionpecuaria.data.repository.SanitaryRepository
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
-import com.fincahernandez.gestionpecuaria.data.repository.UserRepository
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
@@ -79,6 +76,9 @@ import com.fincahernandez.gestionpecuaria.ui.screens.weighings.AnimalWeightOptio
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.AnimalViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.SanitaryViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.UserViewModel
 import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -102,34 +102,34 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
-    val database = remember(context) { GestionPecuariaDatabase.obtenerInstancia(context) }
-    val animalRepository = remember(database) { AnimalRepository(database) }
-    val sanitaryRepository = remember(database) { SanitaryRepository(database) }
-    val userRepository = remember(database) { UserRepository(database) }
+    val animalViewModel: AnimalViewModel = viewModel()
+    val sanitaryViewModel: SanitaryViewModel = viewModel()
+    val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
-    val storedAnimalsFlow = remember(animalRepository) { animalRepository.observeAnimals() }
-    val storedAnimals by storedAnimalsFlow.collectAsState(initial = emptyList())
-    val storedUsersFlow = remember(userRepository) { userRepository.observeUsers() }
-    val storedUsers by storedUsersFlow.collectAsState(initial = emptyList())
-    val storedSanitaryRecordsFlow = remember(sanitaryRepository) {
-        sanitaryRepository.observeRecords()
+    val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
+    val storedUsers by userViewModel.users.collectAsStateWithLifecycle()
+    val storedSanitaryRecords by sanitaryViewModel.records.collectAsStateWithLifecycle()
+
+    // Estas conversiones solo se repiten cuando Room emite datos nuevos. Cambiar de
+    // pantalla ya no reconstruye todas las listas de la aplicación innecesariamente.
+    val users = remember(storedUsers) {
+        storedUsers.map { user ->
+            UserUiModel(
+                id = user.id,
+                fullName = user.fullName,
+                username = user.username,
+                roleName = user.roleName,
+                active = user.active,
+                permissionCount = user.permissionIds.size,
+                hasCustomPermissions = user.hasCustomPermissions
+            )
+        }
     }
-    val storedSanitaryRecords by storedSanitaryRecordsFlow.collectAsState(initial = emptyList())
-    val users = storedUsers.map { user ->
-        UserUiModel(
-            id = user.id,
-            fullName = user.fullName,
-            username = user.username,
-            roleName = user.roleName,
-            active = user.active,
-            permissionCount = user.permissionIds.size,
-            hasCustomPermissions = user.hasCustomPermissions
-        )
+    val animalItemCollections = remember(storedAnimals) {
+        buildAnimalItemCollections(storedAnimals)
     }
-    val allAnimalItems = storedAnimals.map { it.toListItem() }
-    val animales = storedAnimals
-        .filter { it.animal.estado == "ACTIVO" }
-        .map { it.toListItem() }
+    val allAnimalItems = animalItemCollections.all
+    val animales = animalItemCollections.active
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
@@ -161,16 +161,27 @@ fun AppNavigation() {
     var userIsSaving by remember { mutableStateOf(false) }
     var userSaveError by remember { mutableStateOf<String?>(null) }
 
-    val currentUser = currentUserId.takeIf { it.isNotBlank() }?.let {
-        AuthenticatedUser(
-            id = it,
-            fullName = currentUserFullName,
-            username = currentUsername,
-            roleName = currentUserRole,
-            permissionIds = currentUserPermissions
-                .split(',')
-                .filterTo(linkedSetOf()) { permission -> permission.isNotBlank() }
-        )
+    val currentPermissionIds = remember(currentUserPermissions) {
+        currentUserPermissions
+            .split(',')
+            .filterTo(linkedSetOf()) { permission -> permission.isNotBlank() }
+    }
+    val currentUser = remember(
+        currentUserId,
+        currentUserFullName,
+        currentUsername,
+        currentUserRole,
+        currentPermissionIds
+    ) {
+        currentUserId.takeIf { it.isNotBlank() }?.let {
+            AuthenticatedUser(
+                id = it,
+                fullName = currentUserFullName,
+                username = currentUsername,
+                roleName = currentUserRole,
+                permissionIds = currentPermissionIds
+            )
+        }
     }
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
@@ -188,49 +199,61 @@ fun AppNavigation() {
         }
     }
 
-    val allowedMainRoutes = allowedRoutesForPermissions(currentUser?.permissionIds.orEmpty())
-    val allowedReportIds = allowedReportsForPermissions(currentUser?.permissionIds.orEmpty())
-    val sanitaryLots = lots.map { lot ->
-        SanitaryLotOption(
-            id = lot.id,
-            label = "${lot.code} · ${lot.name}",
-            animalIds = lot.selectedAnimalIds.toSet()
-        )
+    val allowedMainRoutes = remember(currentPermissionIds) {
+        allowedRoutesForPermissions(currentPermissionIds)
     }
-    val sanitaryAnimals = animales.map { animal ->
-        SanitaryAnimalOption(
-            id = animal.id,
-            label = buildString {
-                append(animal.codigoIdentificacion)
-                animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-            },
-            sex = animal.sexo
-        )
+    val allowedReportIds = remember(currentPermissionIds) {
+        allowedReportsForPermissions(currentPermissionIds)
     }
-    val sanitaryRecords = storedSanitaryRecords.map { record ->
-        val animal = allAnimalItems.firstOrNull { it.id == record.animalId }
-        val lot = lots.firstOrNull { it.id == record.referenceLotId }
-        SanitaryRecordUiModel(
-            id = record.id,
-            animalId = record.animalId,
-            animalLabel = animal?.let {
-                buildString {
-                    append(it.codigoIdentificacion)
-                    it.nombre?.takeIf(String::isNotBlank)?.let { name -> append(" · $name") }
-                }
-            } ?: "Animal no disponible",
-            referenceLotId = record.referenceLotId,
-            referenceLotLabel = lot?.let { "${it.code} · ${it.name}" },
-            eventType = record.eventType,
-            eventDate = record.eventDate,
-            diagnosis = record.diagnosis,
-            medication = record.medication,
-            dose = record.dose,
-            healthStatus = record.healthStatus,
-            nextControlDate = record.nextControlDate,
-            responsible = record.responsible,
-            notes = record.notes
-        )
+    val sanitaryLots = remember(lots) {
+        lots.map { lot ->
+            SanitaryLotOption(
+                id = lot.id,
+                label = "${lot.code} · ${lot.name}",
+                animalIds = lot.selectedAnimalIds.toSet()
+            )
+        }
+    }
+    val sanitaryAnimals = remember(animales) {
+        animales.map { animal ->
+            SanitaryAnimalOption(
+                id = animal.id,
+                label = buildString {
+                    append(animal.codigoIdentificacion)
+                    animal.nombre?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                },
+                sex = animal.sexo
+            )
+        }
+    }
+    val animalItemsById = remember(allAnimalItems) { allAnimalItems.associateBy { it.id } }
+    val lotsById = remember(lots) { lots.associateBy { it.id } }
+    val sanitaryRecords = remember(storedSanitaryRecords, animalItemsById, lotsById) {
+        storedSanitaryRecords.map { record ->
+            val animal = animalItemsById[record.animalId]
+            val lot = lotsById[record.referenceLotId]
+            SanitaryRecordUiModel(
+                id = record.id,
+                animalId = record.animalId,
+                animalLabel = animal?.let {
+                    buildString {
+                        append(it.codigoIdentificacion)
+                        it.nombre?.takeIf(String::isNotBlank)?.let { name -> append(" · $name") }
+                    }
+                } ?: "Animal no disponible",
+                referenceLotId = record.referenceLotId,
+                referenceLotLabel = lot?.let { "${it.code} · ${it.name}" },
+                eventType = record.eventType,
+                eventDate = record.eventDate,
+                diagnosis = record.diagnosis,
+                medication = record.medication,
+                dose = record.dose,
+                healthStatus = record.healthStatus,
+                nextControlDate = record.nextControlDate,
+                responsible = record.responsible,
+                notes = record.notes
+            )
+        }
     }
 
     // Mantiene abierto el perfil con la versión más reciente emitida por Room.
@@ -337,9 +360,9 @@ fun AppNavigation() {
                 SplashScreen()
                 LaunchedEffect(Unit) {
                     val startedAt = System.currentTimeMillis()
-                    val hasUsers = userRepository.hasUsers()
+                    val hasUsers = userViewModel.hasUsers()
                     val rememberedUser = sessionManager.rememberedUserId()
-                        ?.let { userRepository.activeUserById(it) }
+                        ?.let { userViewModel.activeUserById(it) }
                     if (rememberedUser == null) sessionManager.clear()
                     updateCurrentUser(rememberedUser)
 
@@ -367,7 +390,7 @@ fun AppNavigation() {
                         setupError = null
                         coroutineScope.launch {
                             runCatching {
-                                userRepository.createUser(
+                                userViewModel.createUser(
                                     fullName = fullName,
                                     username = username,
                                     password = password,
@@ -400,7 +423,7 @@ fun AppNavigation() {
                             loginError = null
                             coroutineScope.launch {
                                 runCatching {
-                                    userRepository.resetLocalAccess()
+                                    userViewModel.resetLocalAccess()
                                     sessionManager.clear()
                                 }.onSuccess {
                                     loginIsLoading = false
@@ -421,7 +444,7 @@ fun AppNavigation() {
                         loginIsLoading = true
                         loginError = null
                         coroutineScope.launch {
-                            when (val result = userRepository.authenticate(username, password)) {
+                            when (val result = userViewModel.authenticate(username, password)) {
                                 is AuthenticationResult.Success -> {
                                     loginIsLoading = false
                                     updateCurrentUser(result.user)
@@ -561,7 +584,7 @@ fun AppNavigation() {
 
                         coroutineScope.launch {
                             runCatching {
-                                animalRepository.saveAnimal(
+                                animalViewModel.saveAnimal(
                                     animal = formulario.toEntity(animalGuardado.id),
                                     weightPounds = formulario.pesoInicial.toDoubleOrNull()
                                 )
@@ -644,7 +667,7 @@ fun AppNavigation() {
                     },
                     onDelete = {
                         coroutineScope.launch {
-                            runCatching { animalRepository.removeAnimal(animal.id) }
+                            runCatching { animalViewModel.removeAnimal(animal.id) }
                                 .onSuccess {
                                     animalSeleccionado = null
                                     if (ultimoRegistro?.id == animal.id) ultimoRegistro = null
@@ -841,7 +864,7 @@ fun AppNavigation() {
 
                         coroutineScope.launch {
                             runCatching {
-                                animalRepository.registerWeight(
+                                animalViewModel.registerWeight(
                                     animalId = selectedAnimal.id,
                                     weightPounds = newWeight,
                                     weighingDate = parseDate(form.date) ?: System.currentTimeMillis(),
@@ -919,7 +942,7 @@ fun AppNavigation() {
                         sanitarySaveError = null
                         coroutineScope.launch {
                             runCatching {
-                                sanitaryRepository.register(
+                                sanitaryViewModel.register(
                                     SanitaryStoredRecord(
                                         id = UUID.randomUUID().toString(),
                                         animalId = form.animalId,
@@ -1059,7 +1082,7 @@ fun AppNavigation() {
                         userSaveError = null
                         coroutineScope.launch {
                             runCatching {
-                                userRepository.createUser(
+                                userViewModel.createUser(
                                     fullName = form.fullName,
                                     username = form.username,
                                     password = form.temporaryPassword,
@@ -1208,6 +1231,29 @@ private fun AnimalStoredRecord.toListItem() = AnimalListItem(
     observaciones = animal.observaciones.orEmpty(),
     fotoUri = animal.fotoUri.orEmpty()
 )
+
+/** Resultado preparado una sola vez para el inventario completo y el inventario activo. */
+internal data class AnimalItemCollections(
+    val all: List<AnimalListItem>,
+    val active: List<AnimalListItem>
+)
+
+/**
+ * Separa animales activos antes de convertirlos al modelo visual. En AnimalListItem,
+ * `estado` contiene el estado de salud; el estado ACTIVO/INACTIVO vive en la entidad Room.
+ */
+internal fun buildAnimalItemCollections(
+    storedAnimals: List<AnimalStoredRecord>
+): AnimalItemCollections {
+    val allItems = ArrayList<AnimalListItem>(storedAnimals.size)
+    val activeItems = ArrayList<AnimalListItem>(storedAnimals.size)
+    storedAnimals.forEach { storedRecord ->
+        val item = storedRecord.toListItem()
+        allItems += item
+        if (storedRecord.animal.estado == "ACTIVO") activeItems += item
+    }
+    return AnimalItemCollections(all = allItems, active = activeItems)
+}
 
 /** Recupera los datos del animal para precargar el formulario de edición. */
 private fun AnimalListItem.toFormData() = AnimalFormData(
