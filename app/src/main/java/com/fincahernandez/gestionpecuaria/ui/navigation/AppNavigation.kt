@@ -77,6 +77,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScree
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.AnimalViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.BulkDataImportViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.SanitaryViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.UserViewModel
 import java.util.Calendar
@@ -103,10 +104,12 @@ fun AppNavigation() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
     val animalViewModel: AnimalViewModel = viewModel()
+    val bulkDataImportViewModel: BulkDataImportViewModel = viewModel()
     val sanitaryViewModel: SanitaryViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
     val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
+    val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
     val storedUsers by userViewModel.users.collectAsStateWithLifecycle()
     val storedSanitaryRecords by sanitaryViewModel.records.collectAsStateWithLifecycle()
 
@@ -130,6 +133,25 @@ fun AppNavigation() {
     }
     val allAnimalItems = animalItemCollections.all
     val animales = animalItemCollections.active
+    val animalItemsById = remember(allAnimalItems) { allAnimalItems.associateBy { it.id } }
+    val weighings = remember(storedWeighings, animalItemsById) {
+        storedWeighings.map { weighing ->
+            val animal = animalItemsById[weighing.animalId]
+            WeighingUiModel(
+                id = weighing.id,
+                animalId = weighing.animalId,
+                animalLabel = animal?.let {
+                    buildString {
+                        append(it.codigoIdentificacion)
+                        it.nombre?.takeIf(String::isNotBlank)?.let { name -> append(" • $name") }
+                    }
+                } ?: "Animal no disponible",
+                weightLibras = weighing.pesoLibras,
+                date = formatDate(weighing.fechaPesaje),
+                notes = weighing.observaciones.orEmpty()
+            )
+        }
+    }
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
@@ -140,7 +162,6 @@ fun AppNavigation() {
     var lotDraftAnimalIds by remember { mutableStateOf(emptyList<String>()) }
     var parcels by remember { mutableStateOf(initialParcels) }
     var selectedParcel by remember { mutableStateOf(initialParcels.first()) }
-    var weighings by remember { mutableStateOf(initialWeighings) }
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
@@ -226,7 +247,6 @@ fun AppNavigation() {
             )
         }
     }
-    val animalItemsById = remember(allAnimalItems) { allAnimalItems.associateBy { it.id } }
     val lotsById = remember(lots) { lots.associateBy { it.id } }
     val sanitaryRecords = remember(storedSanitaryRecords, animalItemsById, lotsById) {
         storedSanitaryRecords.map { record ->
@@ -850,17 +870,6 @@ fun AppNavigation() {
                     onSubmit = { form ->
                         val selectedAnimal = animales.first { it.id == form.animalId }
                         val newWeight = form.weightLibras.toDouble()
-                        val record = WeighingUiModel(
-                            id = UUID.randomUUID().toString(),
-                            animalId = selectedAnimal.id,
-                            animalLabel = buildString {
-                                append(selectedAnimal.codigoIdentificacion)
-                                selectedAnimal.nombre?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
-                            },
-                            weightLibras = newWeight,
-                            date = form.date,
-                            notes = form.notes
-                        )
 
                         coroutineScope.launch {
                             runCatching {
@@ -871,7 +880,6 @@ fun AppNavigation() {
                                     notes = form.notes.ifBlank { null }
                                 )
                             }.onSuccess {
-                                weighings = weighings + record
                                 if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
                                     navigateMain(Routes.WEIGHINGS)
                                 }
@@ -1048,6 +1056,25 @@ fun AppNavigation() {
                         }
                     ),
                     allowedReportIds = allowedReportIds,
+                    isGeneralAdministrator = currentUser?.roleName == "Administrador General",
+                    onBulkExport = { uri, modules ->
+                        check(currentUser?.roleName == "Administrador General") {
+                            "Solo el Administrador General puede exportar datos operativos."
+                        }
+                        bulkDataImportViewModel.export(uri, modules)
+                    },
+                    onInspectBulkImport = { uri, modules ->
+                        check(currentUser?.roleName == "Administrador General") {
+                            "Solo el Administrador General puede importar datos."
+                        }
+                        bulkDataImportViewModel.inspect(uri, modules)
+                    },
+                    onBulkImport = { uri, modules ->
+                        check(currentUser?.roleName == "Administrador General") {
+                            "Solo el Administrador General puede importar datos."
+                        }
+                        bulkDataImportViewModel.import(uri, modules)
+                    },
                     onMenuClick = openDrawer,
                     onNavigateMain = navigateMain
                 )
@@ -1350,25 +1377,6 @@ private val initialParcels = listOf(
         capacity = 28,
         currentLot = "",
         productivityPercent = 45
-    )
-)
-
-private val initialWeighings = listOf(
-    WeighingUiModel(
-        id = "weight-demo-1",
-        animalId = "demo-1",
-        animalLabel = "FH-2024-88 • Luna",
-        weightLibras = 450.0,
-        date = "28/08/2026",
-        notes = "Condición corporal estable"
-    ),
-    WeighingUiModel(
-        id = "weight-demo-2",
-        animalId = "demo-2",
-        animalLabel = "FH-2023-102 • Brahman 102",
-        weightLibras = 612.0,
-        date = "29/08/2026",
-        notes = "Seguimiento de engorde"
     )
 )
 

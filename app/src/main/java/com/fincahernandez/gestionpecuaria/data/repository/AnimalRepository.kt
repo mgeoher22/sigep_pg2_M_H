@@ -41,6 +41,9 @@ class AnimalRepository(
         }
     }
 
+    /** Expone el historial persistente para listados, reportes e importaciones masivas. */
+    fun observeWeighings(): Flow<List<PesajeEntity>> = weighingDao.observarTodos()
+
     /** Inserta o actualiza el animal y registra un pesaje solo cuando cambió. */
     suspend fun saveAnimal(animal: AnimalEntity, weightPounds: Double?) {
         database.withTransaction {

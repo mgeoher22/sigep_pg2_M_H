@@ -22,6 +22,10 @@ interface PesajeDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(pesaje: PesajeEntity)
 
+    /** Hace idempotente la importación de una misma fila desde un archivo CSV. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertarImportado(pesaje: PesajeEntity)
+
     /** Corrige o actualiza un pesaje existente. */
     @Update
     suspend fun actualizar(pesaje: PesajeEntity)

@@ -22,6 +22,13 @@ class AnimalViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = emptyList()
     )
 
+    /** Mantiene la lista de pesajes sincronizada con Room, incluidos los importados. */
+    val weighings = repository.observeWeighings().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList()
+    )
+
     suspend fun saveAnimal(animal: AnimalEntity, weightPounds: Double?) =
         repository.saveAnimal(animal, weightPounds)
 

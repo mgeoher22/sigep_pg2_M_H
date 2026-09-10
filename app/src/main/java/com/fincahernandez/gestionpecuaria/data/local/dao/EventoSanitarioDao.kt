@@ -14,6 +14,10 @@ interface EventoSanitarioDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(evento: EventoSanitarioEntity)
 
+    /** Reimportar el mismo evento no crea duplicados porque conserva un id determinista. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertarImportado(evento: EventoSanitarioEntity)
+
     /** El historial más reciente se muestra primero. */
     @Query("SELECT * FROM eventos_sanitarios ORDER BY fechaEvento DESC, creadoEn DESC")
     fun observarTodos(): Flow<List<EventoSanitarioEntity>>
