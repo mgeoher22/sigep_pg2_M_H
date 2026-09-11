@@ -48,26 +48,31 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Locale
 
-/** Registro temporal de la producción total obtenida durante un día. */
+/** Registro diario persistente con el precio histórico aplicado. */
 data class MilkProductionUiModel(
     val id: String,
+    val dateMillis: Long,
     val date: String,
     val liters: Double,
+    val pricePerLiter: Double,
     val notes: String
-)
+) {
+    /** Ingreso bruto; los costos de producción se tratarán en el módulo financiero. */
+    val grossIncome: Double get() = liters * pricePerLiter
+}
 
 /** Datos capturados por el formulario de producción. */
 data class MilkProductionFormData(
     val date: String,
     val liters: String,
+    val pricePerLiter: String,
     val notes: String
 )
 
-/** Panel operativo de producción lechera sin cálculos financieros. */
+/** Panel de producción, precio histórico e ingreso bruto con datos de Room. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MilkProductionListScreen(
@@ -78,7 +83,10 @@ fun MilkProductionListScreen(
     modifier: Modifier = Modifier
 ) {
     val totalLiters = records.sumOf { it.liters }
+    val totalGrossIncome = records.sumOf { it.grossIncome }
     val averageLiters = records.map { it.liters }.average().takeUnless { it.isNaN() }
+    val weightedAveragePrice = if (totalLiters > 0.0) totalGrossIncome / totalLiters else null
+    val latestPrice = records.maxByOrNull { it.dateMillis }?.pricePerLiter
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -119,7 +127,6 @@ fun MilkProductionListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -129,27 +136,44 @@ fun MilkProductionListScreen(
                         modifier = Modifier.padding(22.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("PRODUCCIÓN REGISTRADA", color = Color.White.copy(alpha = 0.8f))
+                        Text("INGRESO BRUTO REGISTRADO", color = Color.White.copy(alpha = 0.8f))
                         Text(
-                            "${oneDecimal(totalLiters)} L",
+                            money(totalGrossIncome),
                             color = Color.White,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        Text("Datos temporales de HU-05", color = Color.White)
+                        Text(
+                            "Litros × precio histórico; todavía no descuenta costos.",
+                            color = Color.White
+                        )
                     }
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     MilkSummaryCard(
-                        title = "PROMEDIO",
-                        value = averageLiters?.let { "${oneDecimal(it)} L" } ?: "Sin datos",
+                        title = "LITROS",
+                        value = "${oneDecimal(totalLiters)} L",
                         modifier = Modifier.weight(1f)
                     )
                     MilkSummaryCard(
-                        title = "REGISTROS",
-                        value = records.size.toString(),
+                        title = "PROM. DIARIO",
+                        value = averageLiters?.let { "${oneDecimal(it)} L" } ?: "Sin datos",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MilkSummaryCard(
+                        title = "PRECIO ACTUAL",
+                        value = latestPrice?.let { "${money(it)}/L" } ?: "Sin datos",
+                        modifier = Modifier.weight(1f)
+                    )
+                    MilkSummaryCard(
+                        title = "PRECIO PROM.",
+                        value = weightedAveragePrice?.let { "${money(it)}/L" } ?: "Sin datos",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -199,39 +223,48 @@ private fun MilkSummaryCard(title: String, value: String, modifier: Modifier) {
     }
 }
 
-/** Barras construidas con los últimos siete registros de producción. */
+/** Barras con valores y fechas reales de los últimos siete días registrados. */
 @Composable
 private fun MilkWeeklyChart(records: List<MilkProductionUiModel>) {
-    val values = records.takeLast(7).map { it.liters }
-    val maximum = values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val visibleRecords = records.sortedBy { it.dateMillis }.takeLast(7)
+    val maximum = visibleRecords.maxOfOrNull { it.liters }?.coerceAtLeast(1.0) ?: 1.0
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Rendimiento reciente", fontWeight = FontWeight.Bold)
-            if (values.isEmpty()) {
+            Text("Producción diaria real", fontWeight = FontWeight.Bold)
+            Text(
+                "Últimos ${visibleRecords.size} días registrados.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (visibleRecords.isEmpty()) {
                 Text("El gráfico aparecerá después del primer registro.")
             } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(140.dp),
+                        .height(180.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    values.forEach { value ->
-                        val height = (value / maximum * 115).toInt().coerceAtLeast(20)
-                        Box(
-                            modifier = Modifier
-                                .width(30.dp)
-                                .height(height.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp)
-                                )
-                        )
+                    visibleRecords.forEach { record ->
+                        val height = (record.liters / maximum * 115).toInt().coerceAtLeast(12)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(oneDecimal(record.liters), style = MaterialTheme.typography.labelSmall)
+                            Box(
+                                modifier = Modifier
+                                    .width(30.dp)
+                                    .height(height.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp)
+                                    )
+                            )
+                            Text(record.date.take(5), style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }
@@ -254,7 +287,11 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(record.date, fontWeight = FontWeight.Bold)
-                Text("Producción total del día")
+                Text("${money(record.pricePerLiter)} por litro")
+                Text(
+                    "Ingreso bruto: ${money(record.grossIncome)}",
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (record.notes.isNotBlank()) {
                     Text(record.notes, style = MaterialTheme.typography.bodySmall)
                 }
@@ -274,16 +311,24 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
 fun MilkProductionFormScreen(
     onBack: () -> Unit,
     onSubmit: (MilkProductionFormData) -> Unit,
+    initialPricePerLiter: Double? = null,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var date by rememberSaveable { mutableStateOf("") }
     var liters by rememberSaveable { mutableStateOf("") }
+    var pricePerLiter by rememberSaveable(initialPricePerLiter) {
+        mutableStateOf(initialPricePerLiter?.let(::twoDecimals).orEmpty())
+    }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
-    val litersValue = liters.toDoubleOrNull()
+    val litersValue = liters.replace(',', '.').toDoubleOrNull()
+    val priceValue = pricePerLiter.replace(',', '.').toDoubleOrNull()
     val litersInvalid = liters.isBlank() || litersValue == null || litersValue <= 0
-    val formValid = date.isNotBlank() && !litersInvalid
+    val priceInvalid = pricePerLiter.isBlank() || priceValue == null || priceValue < 0
+    val formValid = date.isNotBlank() && !litersInvalid && !priceInvalid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -336,6 +381,44 @@ fun MilkProductionFormScreen(
             }
             item {
                 OutlinedTextField(
+                    value = pricePerLiter,
+                    onValueChange = { pricePerLiter = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Precio por litro *") },
+                    prefix = { Text("Q ") },
+                    suffix = { Text("/L") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = attemptedSave && priceInvalid,
+                    supportingText = if (attemptedSave && priceInvalid) {
+                        { Text("Ingrese un precio válido; puede ser cero.") }
+                    } else {
+                        { Text("Se conserva como precio histórico de la fecha seleccionada.") }
+                    },
+                    singleLine = true
+                )
+            }
+            if (litersValue != null && litersValue > 0 && priceValue != null && priceValue >= 0) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Ingreso bruto calculado", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                money(litersValue * priceValue),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("No incluye costos ni gastos de producción.")
+                        }
+                    }
+                }
+            }
+            item {
+                OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -343,6 +426,11 @@ fun MilkProductionFormScreen(
                     placeholder = { Text("Calidad, salud, mastitis u otra observación") },
                     minLines = 4
                 )
+            }
+            item {
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
             }
             item {
                 Button(
@@ -353,18 +441,20 @@ fun MilkProductionFormScreen(
                                 MilkProductionFormData(
                                     date = date,
                                     liters = liters,
+                                    pricePerLiter = pricePerLiter,
                                     notes = notes.trim()
                                 )
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar registro", fontWeight = FontWeight.Bold)
+                    Text(if (isSaving) "Guardando…" else "Guardar registro", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -372,3 +462,7 @@ fun MilkProductionFormScreen(
 }
 
 private fun oneDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+private fun twoDecimals(value: Double): String = String.format(Locale.US, "%.2f", value)
+
+private fun money(value: Double): String = "Q ${twoDecimals(value)}"

@@ -1,5 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.employees
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,22 +54,34 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
 import java.util.Locale
 
-/** Empleado temporal utilizado por las vistas de HU-06. */
+/** Empleado persistente presentado por las vistas de HU-12. */
 data class EmployeeUiModel(
     val id: String,
     val fullName: String,
     val role: String,
+    val hireDateMillis: Long,
     val hireDate: String,
     val salary: Double,
     val paymentFrequency: String,
     val assignedSector: String,
     val phone: String,
     val active: Boolean
+)
+
+/** Pago persistente mostrado dentro del historial de un empleado. */
+data class EmployeePaymentUiModel(
+    val id: String,
+    val employeeId: String,
+    val employeeName: String,
+    val paymentDateMillis: Long,
+    val paymentDate: String,
+    val amount: Double,
+    val period: String,
+    val notes: String
 )
 
 /** Datos capturados y validados por el formulario de empleados. */
@@ -83,13 +96,23 @@ data class EmployeeFormData(
     val active: Boolean
 )
 
+/** Datos que captura el formulario de pago individual. */
+data class EmployeePaymentFormData(
+    val paymentDate: String,
+    val amount: String,
+    val period: String,
+    val notes: String
+)
+
 /** Listado de personal con búsqueda e indicadores administrativos básicos. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmployeeListScreen(
     employees: List<EmployeeUiModel>,
+    payments: List<EmployeePaymentUiModel>,
     onMenuClick: () -> Unit,
     onCreateEmployee: () -> Unit,
+    onEmployeeClick: (String) -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -101,6 +124,7 @@ fun EmployeeListScreen(
     }
     val activeCount = employees.count { it.active }
     val totalPayroll = employees.filter { it.active }.sumOf { it.salary }
+    val totalPaid = payments.sumOf { it.amount }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -141,7 +165,6 @@ fun EmployeeListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     EmployeeSummaryCard(
@@ -150,11 +173,18 @@ fun EmployeeListScreen(
                         Modifier.weight(1f)
                     )
                     EmployeeSummaryCard(
-                        "NÓMINA ESTIMADA",
+                        "SALARIOS BASE",
                         formatQuetzales(totalPayroll),
                         Modifier.weight(1f)
                     )
                 }
+            }
+            item {
+                EmployeeSummaryCard(
+                    "PAGOS REGISTRADOS",
+                    formatQuetzales(totalPaid),
+                    Modifier.fillMaxWidth()
+                )
             }
             item {
                 OutlinedTextField(
@@ -202,7 +232,7 @@ fun EmployeeListScreen(
                 }
             } else {
                 items(filteredEmployees, key = { it.id }) { employee ->
-                    EmployeeCard(employee)
+                    EmployeeCard(employee, onClick = { onEmployeeClick(employee.id) })
                 }
             }
             item { Spacer(modifier = Modifier.height(76.dp)) }
@@ -229,8 +259,11 @@ private fun EmployeeSummaryCard(title: String, value: String, modifier: Modifier
 
 /** Tarjeta compacta con los datos necesarios para identificar al empleado. */
 @Composable
-private fun EmployeeCard(employee: EmployeeUiModel) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+private fun EmployeeCard(employee: EmployeeUiModel, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp)
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -283,6 +316,8 @@ fun EmployeeFormScreen(
     sectorOptions: List<String>,
     onBack: () -> Unit,
     onSubmit: (EmployeeFormData) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var fullName by rememberSaveable { mutableStateOf("") }
@@ -295,7 +330,7 @@ fun EmployeeFormScreen(
     var active by rememberSaveable { mutableStateOf(true) }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
-    val salaryValue = salary.toDoubleOrNull()
+    val salaryValue = salary.replace(',', '.').toDoubleOrNull()
     val salaryInvalid = salary.isBlank() || salaryValue == null || salaryValue <= 0
     val formValid = fullName.isNotBlank() && role.isNotBlank() &&
         hireDate.isNotBlank() && !salaryInvalid
@@ -422,6 +457,11 @@ fun EmployeeFormScreen(
                 }
             }
             item {
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         attemptedSave = true
@@ -440,13 +480,244 @@ fun EmployeeFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar empleado", fontWeight = FontWeight.Bold)
+                    Text(if (isSaving) "Guardando…" else "Guardar empleado", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/** Perfil laboral con historial de pagos reales y acceso al nuevo pago. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmployeeDetailScreen(
+    employee: EmployeeUiModel,
+    payments: List<EmployeePaymentUiModel>,
+    onBack: () -> Unit,
+    onRegisterPayment: () -> Unit,
+    onNavigateMain: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val orderedPayments = payments.sortedByDescending { it.paymentDateMillis }
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Detalle del empleado", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            AppBottomBar(selectedRoute = Routes.EMPLOYEES, onNavigate = onNavigateMain)
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onRegisterPayment,
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Registrar pago") }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(employee.fullName, style = MaterialTheme.typography.headlineSmall)
+                        Text(employee.role, fontWeight = FontWeight.Bold)
+                        Text("Salario base: ${formatQuetzales(employee.salary)}")
+                        Text("Frecuencia: ${employee.paymentFrequency}")
+                        Text("Ingreso: ${employee.hireDate}")
+                        Text("Sector: ${employee.assignedSector.ifBlank { "Sin asignar" }}")
+                        employee.phone.takeIf(String::isNotBlank)?.let { Text("Teléfono: $it") }
+                        EmployeeStatusBadge(employee.active)
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    EmployeeSummaryCard(
+                        "PAGOS",
+                        orderedPayments.size.toString(),
+                        Modifier.weight(1f)
+                    )
+                    EmployeeSummaryCard(
+                        "TOTAL PAGADO",
+                        formatQuetzales(orderedPayments.sumOf { it.amount }),
+                        Modifier.weight(1f)
+                    )
+                }
+            }
+            item {
+                Text("Historial de pagos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            if (orderedPayments.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text("Aún no hay pagos registrados para este empleado.", Modifier.padding(18.dp))
+                    }
+                }
+            } else {
+                items(orderedPayments, key = { it.id }) { payment ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(payment.period, fontWeight = FontWeight.Bold)
+                                Text(formatQuetzales(payment.amount), color = MaterialTheme.colorScheme.primary)
+                            }
+                            Text(payment.paymentDate, style = MaterialTheme.typography.bodySmall)
+                            if (payment.notes.isNotBlank()) Text(payment.notes)
+                        }
+                    }
+                }
+            }
+            item { Spacer(modifier = Modifier.height(76.dp)) }
+        }
+    }
+}
+
+/** Captura un pago que también aparecerá automáticamente como egreso financiero. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmployeePaymentFormScreen(
+    employee: EmployeeUiModel,
+    onBack: () -> Unit,
+    onSubmit: (EmployeePaymentFormData) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
+    modifier: Modifier = Modifier
+) {
+    var paymentDate by rememberSaveable { mutableStateOf("") }
+    var amount by rememberSaveable(employee.id) { mutableStateOf(employee.salary.toString()) }
+    var period by rememberSaveable { mutableStateOf("") }
+    var notes by rememberSaveable { mutableStateOf("") }
+    var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val amountValue = amount.replace(',', '.').toDoubleOrNull()
+    val amountInvalid = amount.isBlank() || amountValue == null || amountValue <= 0.0
+    val formValid = paymentDate.isNotBlank() && period.isNotBlank() && !amountInvalid
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Registrar pago", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(employee.fullName, fontWeight = FontWeight.Bold)
+                        Text("${employee.role} · ${employee.paymentFrequency}")
+                    }
+                }
+            }
+            item {
+                CompactDateSelector(
+                    label = "Fecha de pago *",
+                    value = paymentDate,
+                    onDateSelected = { paymentDate = it },
+                    showError = attemptedSave && paymentDate.isBlank()
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Monto pagado *") },
+                    prefix = { Text("Q ") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = attemptedSave && amountInvalid,
+                    supportingText = if (attemptedSave && amountInvalid) {
+                        { Text("Ingrese un monto mayor que cero.") }
+                    } else null,
+                    singleLine = true
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = period,
+                    onValueChange = { period = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Período pagado *") },
+                    placeholder = { Text("Ej. Septiembre 2026 o Semana 36") },
+                    isError = attemptedSave && period.isBlank(),
+                    supportingText = if (attemptedSave && period.isBlank()) {
+                        { Text("Indique a qué período corresponde el pago.") }
+                    } else null,
+                    singleLine = true
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Observaciones") },
+                    minLines = 3
+                )
+            }
+            item {
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+            item {
+                Button(
+                    onClick = {
+                        attemptedSave = true
+                        if (formValid) {
+                            onSubmit(EmployeePaymentFormData(paymentDate, amount, period.trim(), notes.trim()))
+                        }
+                    },
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isSaving) "Guardando…" else "Guardar pago", fontWeight = FontWeight.Bold)
                 }
             }
         }

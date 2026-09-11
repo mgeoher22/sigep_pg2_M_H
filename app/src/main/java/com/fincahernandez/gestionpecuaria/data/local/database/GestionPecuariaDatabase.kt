@@ -8,16 +8,23 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EventoSanitarioDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.EmpleadoDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.ParcelaDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.ProduccionLecheraDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.MovimientoFinancieroDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.EmpleadoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.ParcelaEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.ProduccionLecheraEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.MovimientoFinancieroEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.PagoEmpleadoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 
 /**
@@ -34,9 +41,13 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         PesajeEntity::class,
         UsuarioEntity::class,
         EventoSanitarioEntity::class,
-        ParcelaEntity::class
+        ParcelaEntity::class,
+        ProduccionLecheraEntity::class,
+        MovimientoFinancieroEntity::class,
+        EmpleadoEntity::class,
+        PagoEmpleadoEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -52,6 +63,12 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun usuarioDao(): UsuarioDao
 
     abstract fun eventoSanitarioDao(): EventoSanitarioDao
+
+    abstract fun produccionLecheraDao(): ProduccionLecheraDao
+
+    abstract fun movimientoFinancieroDao(): MovimientoFinancieroDao
+
+    abstract fun empleadoDao(): EmpleadoDao
 
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
@@ -209,6 +226,110 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Activa la persistencia de HU-11 sin modificar las tablas ya existentes.
+         * El precio queda en cada fecha para conservar su valor histórico.
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `produccion_lechera` (
+                        `id` TEXT NOT NULL,
+                        `fecha` INTEGER NOT NULL,
+                        `litros` REAL NOT NULL,
+                        `precioPorLitro` REAL NOT NULL,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_produccion_lechera_fecha` " +
+                        "ON `produccion_lechera` (`fecha`)"
+                )
+            }
+        }
+
+        /** Incorpora los movimientos, empleados y pagos persistentes de HU-12. */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `movimientos_financieros` (
+                        `id` TEXT NOT NULL,
+                        `tipo` TEXT NOT NULL,
+                        `categoria` TEXT NOT NULL,
+                        `monto` REAL NOT NULL,
+                        `fecha` INTEGER NOT NULL,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_financieros_fecha` " +
+                        "ON `movimientos_financieros` (`fecha`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_financieros_tipo` " +
+                        "ON `movimientos_financieros` (`tipo`)"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `empleados` (
+                        `id` TEXT NOT NULL,
+                        `nombreCompleto` TEXT NOT NULL,
+                        `cargo` TEXT NOT NULL,
+                        `fechaIngreso` INTEGER NOT NULL,
+                        `salarioBase` REAL NOT NULL,
+                        `frecuenciaPago` TEXT NOT NULL,
+                        `sectorAsignado` TEXT,
+                        `telefono` TEXT,
+                        `activo` INTEGER NOT NULL,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_empleados_nombreCompleto` " +
+                        "ON `empleados` (`nombreCompleto`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_empleados_activo` ON `empleados` (`activo`)"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pagos_empleados` (
+                        `id` TEXT NOT NULL,
+                        `empleadoId` TEXT NOT NULL,
+                        `fechaPago` INTEGER NOT NULL,
+                        `monto` REAL NOT NULL,
+                        `periodo` TEXT NOT NULL,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`empleadoId`) REFERENCES `empleados`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pagos_empleados_empleadoId` " +
+                        "ON `pagos_empleados` (`empleadoId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pagos_empleados_fechaPago` " +
+                        "ON `pagos_empleados` (`fechaPago`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -228,7 +349,9 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
-                    MIGRATION_8_9
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                    MIGRATION_10_11
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

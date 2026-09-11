@@ -51,19 +51,21 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
 import java.util.Locale
 
-/** Movimiento financiero temporal utilizado para revisar las vistas de HU-06. */
+/** Movimiento persistente o derivado de otro módulo con su fuente visible. */
 data class FinancialMovementUiModel(
     val id: String,
     val type: String,
     val category: String,
     val amount: Double,
+    val dateMillis: Long,
     val date: String,
-    val notes: String
+    val notes: String,
+    val sourceLabel: String = "Registro manual",
+    val automatic: Boolean = false
 )
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
@@ -75,7 +77,7 @@ data class FinancialMovementFormData(
     val notes: String
 )
 
-/** Panel financiero con totales y movimientos recientes de prueba. */
+/** Panel financiero alimentado por Room y por registros trazables de otros módulos. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FinanceListScreen(
@@ -128,7 +130,6 @@ fun FinanceListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -188,7 +189,7 @@ fun FinanceListScreen(
                     }
                 }
             } else {
-                items(movements.asReversed(), key = { it.id }) { movement ->
+                items(movements.sortedByDescending { it.dateMillis }, key = { it.id }) { movement ->
                     FinancialMovementCard(movement)
                 }
             }
@@ -227,6 +228,11 @@ private fun FinancialMovementCard(movement: FinancialMovementUiModel) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(movement.category, fontWeight = FontWeight.Bold)
                 Text(movement.date, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    movement.sourceLabel,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelSmall
+                )
                 if (movement.notes.isNotBlank()) {
                     Text(movement.notes, style = MaterialTheme.typography.bodySmall)
                 }
@@ -246,6 +252,8 @@ private fun FinancialMovementCard(movement: FinancialMovementUiModel) {
 fun FinancialMovementFormScreen(
     onBack: () -> Unit,
     onSubmit: (FinancialMovementFormData) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var type by rememberSaveable { mutableStateOf("INGRESO") }
@@ -256,11 +264,13 @@ fun FinancialMovementFormScreen(
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     val categories = if (type == "INGRESO") {
-        listOf("Venta de ganado", "Venta de leche", "Otros ingresos")
+        // La venta diaria de leche entra automáticamente desde Producción Lechera.
+        listOf("Venta de ganado", "Otros ingresos")
     } else {
-        listOf("Alimentación", "Salud animal", "Personal", "Insumos", "Mantenimiento", "Otros egresos")
+        // Los salarios pagados entran automáticamente desde el historial del empleado.
+        listOf("Alimentación", "Salud animal", "Otros gastos de personal", "Insumos", "Mantenimiento", "Otros egresos")
     }
-    val amountValue = amount.toDoubleOrNull()
+    val amountValue = amount.replace(',', '.').toDoubleOrNull()
     val amountInvalid = amount.isBlank() || amountValue == null || amountValue <= 0
     val formValid = category.isNotBlank() && !amountInvalid && date.isNotBlank()
 
@@ -349,6 +359,11 @@ fun FinancialMovementFormScreen(
                 )
             }
             item {
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         attemptedSave = true
@@ -364,13 +379,14 @@ fun FinancialMovementFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar movimiento", fontWeight = FontWeight.Bold)
+                    Text(if (isSaving) "Guardando…" else "Guardar movimiento", fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -28,7 +28,11 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
+import com.fincahernandez.gestionpecuaria.data.repository.EmployeeDraft
+import com.fincahernandez.gestionpecuaria.data.repository.EmployeePaymentDraft
+import com.fincahernandez.gestionpecuaria.data.repository.FinancialMovementDraft
 import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
+import com.fincahernandez.gestionpecuaria.data.repository.MilkProductionDraft
 import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
@@ -46,7 +50,10 @@ import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardRecentItem
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardUiData
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeePaymentFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeePaymentUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinanceListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementFormScreen
@@ -86,7 +93,10 @@ import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScree
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.AnimalViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.BulkDataImportViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.EmployeeViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.FinanceViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.LotViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.MilkProductionViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.ParcelViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.SanitaryViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.UserViewModel
@@ -101,8 +111,8 @@ import kotlinx.coroutines.launch
 /**
  * Conecta los destinos principales y las pantallas internas de animales.
  *
- * Animales, pesajes, lotes, sanidad y usuarios se obtienen de Room. Los demás
- * módulos conservan estado temporal hasta que sus historias se implementen.
+ * Los módulos operativos, financieros, personal, sanidad y usuarios se obtienen
+ * de Room; la navegación solo transforma esos registros para presentarlos.
  */
 @Composable
 fun AppNavigation() {
@@ -115,7 +125,10 @@ fun AppNavigation() {
     val coroutineScope = rememberCoroutineScope()
     val animalViewModel: AnimalViewModel = viewModel()
     val bulkDataImportViewModel: BulkDataImportViewModel = viewModel()
+    val employeeViewModel: EmployeeViewModel = viewModel()
+    val financeViewModel: FinanceViewModel = viewModel()
     val lotViewModel: LotViewModel = viewModel()
+    val milkProductionViewModel: MilkProductionViewModel = viewModel()
     val parcelViewModel: ParcelViewModel = viewModel()
     val sanitaryViewModel: SanitaryViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
@@ -123,6 +136,10 @@ fun AppNavigation() {
     val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
     val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
     val storedLots by lotViewModel.lots.collectAsStateWithLifecycle()
+    val storedMilkProduction by milkProductionViewModel.records.collectAsStateWithLifecycle()
+    val storedEmployees by employeeViewModel.employees.collectAsStateWithLifecycle()
+    val storedEmployeePayments by employeeViewModel.payments.collectAsStateWithLifecycle()
+    val storedFinancialMovements by financeViewModel.movements.collectAsStateWithLifecycle()
     val storedParcels by parcelViewModel.parcels.collectAsStateWithLifecycle()
     val storedUsers by userViewModel.users.collectAsStateWithLifecycle()
     val storedSanitaryRecords by sanitaryViewModel.records.collectAsStateWithLifecycle()
@@ -231,6 +248,91 @@ fun AppNavigation() {
             )
         }
     }
+    val milkProductionRecords = remember(storedMilkProduction) {
+        storedMilkProduction.map { record ->
+            MilkProductionUiModel(
+                id = record.id,
+                dateMillis = record.fecha,
+                date = formatDate(record.fecha),
+                liters = record.litros,
+                pricePerLiter = record.precioPorLitro,
+                notes = record.observaciones.orEmpty()
+            )
+        }
+    }
+    val employees = remember(storedEmployees) {
+        storedEmployees.map { employee ->
+            EmployeeUiModel(
+                id = employee.id,
+                fullName = employee.nombreCompleto,
+                role = employee.cargo,
+                hireDateMillis = employee.fechaIngreso,
+                hireDate = formatDate(employee.fechaIngreso),
+                salary = employee.salarioBase,
+                paymentFrequency = employee.frecuenciaPago,
+                assignedSector = employee.sectorAsignado.orEmpty(),
+                phone = employee.telefono.orEmpty(),
+                active = employee.activo
+            )
+        }
+    }
+    val employeeNamesById = remember(employees) { employees.associate { it.id to it.fullName } }
+    val employeePayments = remember(storedEmployeePayments, employeeNamesById) {
+        storedEmployeePayments.map { payment ->
+            EmployeePaymentUiModel(
+                id = payment.id,
+                employeeId = payment.empleadoId,
+                employeeName = employeeNamesById[payment.empleadoId] ?: "Empleado no disponible",
+                paymentDateMillis = payment.fechaPago,
+                paymentDate = formatDate(payment.fechaPago),
+                amount = payment.monto,
+                period = payment.periodo,
+                notes = payment.observaciones.orEmpty()
+            )
+        }
+    }
+    // Finanzas reúne fuentes persistentes distintas sin copiar ni duplicar registros.
+    val financialMovements = remember(
+        storedFinancialMovements,
+        milkProductionRecords,
+        employeePayments
+    ) {
+        storedFinancialMovements.map { movement ->
+            FinancialMovementUiModel(
+                id = "manual-${movement.id}",
+                type = movement.tipo,
+                category = movement.categoria,
+                amount = movement.monto,
+                dateMillis = movement.fecha,
+                date = formatDate(movement.fecha),
+                notes = movement.observaciones.orEmpty()
+            )
+        } + milkProductionRecords.map { production ->
+            FinancialMovementUiModel(
+                id = "milk-${production.id}",
+                type = "INGRESO",
+                category = "Producción de leche",
+                amount = production.grossIncome,
+                dateMillis = production.dateMillis,
+                date = production.date,
+                notes = "${production.liters} L × Q ${production.pricePerLiter}",
+                sourceLabel = "Generado desde Producción Lechera",
+                automatic = true
+            )
+        } + employeePayments.map { payment ->
+            FinancialMovementUiModel(
+                id = "payment-${payment.id}",
+                type = "EGRESO",
+                category = "Pago de personal",
+                amount = payment.amount,
+                dateMillis = payment.paymentDateMillis,
+                date = payment.paymentDate,
+                notes = "${payment.employeeName} · ${payment.period}",
+                sourceLabel = "Generado desde el historial de pagos",
+                automatic = true
+            )
+        }
+    }
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
@@ -250,9 +352,15 @@ fun AppNavigation() {
     var weighingInitialLotId by rememberSaveable { mutableStateOf("") }
     var weighingIsSaving by remember { mutableStateOf(false) }
     var weighingSaveError by remember { mutableStateOf<String?>(null) }
-    var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
-    var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
-    var employees by remember { mutableStateOf(initialEmployees) }
+    var milkProductionIsSaving by remember { mutableStateOf(false) }
+    var milkProductionSaveError by remember { mutableStateOf<String?>(null) }
+    var financeIsSaving by remember { mutableStateOf(false) }
+    var financeSaveError by remember { mutableStateOf<String?>(null) }
+    var selectedEmployeeId by rememberSaveable { mutableStateOf("") }
+    var employeeIsSaving by remember { mutableStateOf(false) }
+    var employeeSaveError by remember { mutableStateOf<String?>(null) }
+    var paymentIsSaving by remember { mutableStateOf(false) }
+    var paymentSaveError by remember { mutableStateOf<String?>(null) }
     var sanitaryIsSaving by remember { mutableStateOf(false) }
     var sanitarySaveError by remember { mutableStateOf<String?>(null) }
     var sanitaryInitialAnimalId by remember { mutableStateOf("") }
@@ -275,6 +383,9 @@ fun AppNavigation() {
     }
     val selectedParcel = remember(parcels, selectedParcelId) {
         parcels.firstOrNull { it.id == selectedParcelId }
+    }
+    val selectedEmployee = remember(employees, selectedEmployeeId) {
+        employees.firstOrNull { it.id == selectedEmployeeId }
     }
 
     val currentPermissionIds = remember(currentUserPermissions) {
@@ -395,7 +506,9 @@ fun AppNavigation() {
         Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
         Routes.SANITARY_FORM -> Routes.SANITARY
         Routes.FINANCE_FORM -> Routes.FINANCE
-        Routes.EMPLOYEE_FORM -> Routes.EMPLOYEES
+        Routes.EMPLOYEE_FORM,
+        Routes.EMPLOYEE_DETAIL,
+        Routes.EMPLOYEE_PAYMENT_FORM -> Routes.EMPLOYEES
         Routes.USER_FORM,
         Routes.ROLE_PERMISSIONS -> Routes.USERS
         else -> currentRoute
@@ -430,6 +543,12 @@ fun AppNavigation() {
                 weighingInitialAnimalId = ""
                 weighingInitialLotId = ""
                 weighingSaveError = null
+            }
+            if (destination == Routes.MILK_PRODUCTION_FORM) {
+                milkProductionSaveError = null
+            }
+            if (destination == Routes.FINANCE_FORM) {
+                financeSaveError = null
             }
             navController.navigate(destination) { launchSingleTop = true }
         }
@@ -594,7 +713,7 @@ fun AppNavigation() {
             }
 
             composable(Routes.DASHBOARD) {
-                val latestMilk = milkProductionRecords.lastOrNull()
+                val latestMilk = milkProductionRecords.maxByOrNull { it.dateMillis }
                 val dashboardRecentItems = buildList {
                     allAnimalItems.lastOrNull()?.let { animal ->
                         add(
@@ -624,7 +743,7 @@ fun AppNavigation() {
                             )
                         )
                     }
-                    financialMovements.lastOrNull()?.let { movement ->
+                    financialMovements.maxByOrNull { it.dateMillis }?.let { movement ->
                         add(
                             DashboardRecentItem(
                                 title = movement.category,
@@ -1170,27 +1289,47 @@ fun AppNavigation() {
                 MilkProductionListScreen(
                     records = milkProductionRecords,
                     onMenuClick = openDrawer,
-                    onCreateRecord = { navController.navigate(Routes.MILK_PRODUCTION_FORM) },
+                    onCreateRecord = {
+                        milkProductionSaveError = null
+                        navController.navigate(Routes.MILK_PRODUCTION_FORM)
+                    },
                     onNavigateMain = navigateMain
                 )
             }
 
             composable(Routes.MILK_PRODUCTION_FORM) {
                 MilkProductionFormScreen(
+                    initialPricePerLiter = milkProductionRecords
+                        .maxByOrNull { it.dateMillis }
+                        ?.pricePerLiter,
+                    isSaving = milkProductionIsSaving,
+                    saveError = milkProductionSaveError,
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        val dailyRecord = MilkProductionUiModel(
-                            id = UUID.randomUUID().toString(),
-                            date = form.date,
-                            liters = form.liters.toDouble(),
-                            notes = form.notes
-                        )
-
-                        // Solo existe un total por día; registrar la misma fecha corrige el valor anterior.
-                        milkProductionRecords = milkProductionRecords
-                            .filterNot { it.date == form.date } + dailyRecord
-                        if (!navController.popBackStack(Routes.MILK_PRODUCTION, false)) {
-                            navigateMain(Routes.MILK_PRODUCTION)
+                        coroutineScope.launch {
+                            milkProductionIsSaving = true
+                            milkProductionSaveError = null
+                            runCatching {
+                                milkProductionViewModel.saveDailyProduction(
+                                    MilkProductionDraft(
+                                        date = parseDate(form.date)
+                                            ?: error("La fecha seleccionada no es válida."),
+                                        liters = form.liters.replace(',', '.').toDouble(),
+                                        pricePerLiter = form.pricePerLiter
+                                            .replace(',', '.')
+                                            .toDouble(),
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                if (!navController.popBackStack(Routes.MILK_PRODUCTION, false)) {
+                                    navigateMain(Routes.MILK_PRODUCTION)
+                                }
+                            }.onFailure { error ->
+                                milkProductionSaveError = error.message
+                                    ?: "No se pudo guardar la producción."
+                            }
+                            milkProductionIsSaving = false
                         }
                     }
                 )
@@ -1263,25 +1402,42 @@ fun AppNavigation() {
                 FinanceListScreen(
                     movements = financialMovements,
                     onMenuClick = openDrawer,
-                    onCreateMovement = { navController.navigate(Routes.FINANCE_FORM) },
+                    onCreateMovement = {
+                        financeSaveError = null
+                        navController.navigate(Routes.FINANCE_FORM)
+                    },
                     onNavigateMain = navigateMain
                 )
             }
 
             composable(Routes.FINANCE_FORM) {
                 FinancialMovementFormScreen(
+                    isSaving = financeIsSaving,
+                    saveError = financeSaveError,
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        financialMovements = financialMovements + FinancialMovementUiModel(
-                            id = UUID.randomUUID().toString(),
-                            type = form.type,
-                            category = form.category,
-                            amount = form.amount.toDouble(),
-                            date = form.date,
-                            notes = form.notes
-                        )
-                        if (!navController.popBackStack(Routes.FINANCE, false)) {
-                            navigateMain(Routes.FINANCE)
+                        coroutineScope.launch {
+                            financeIsSaving = true
+                            financeSaveError = null
+                            runCatching {
+                                financeViewModel.saveMovement(
+                                    FinancialMovementDraft(
+                                        type = form.type,
+                                        category = form.category,
+                                        amount = form.amount.replace(',', '.').toDouble(),
+                                        date = parseDate(form.date)
+                                            ?: error("La fecha seleccionada no es válida."),
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                if (!navController.popBackStack(Routes.FINANCE, false)) {
+                                    navigateMain(Routes.FINANCE)
+                                }
+                            }.onFailure { error ->
+                                financeSaveError = error.message ?: "No se pudo guardar el movimiento."
+                            }
+                            financeIsSaving = false
                         }
                     }
                 )
@@ -1290,8 +1446,16 @@ fun AppNavigation() {
             composable(Routes.EMPLOYEES) {
                 EmployeeListScreen(
                     employees = employees,
+                    payments = employeePayments,
                     onMenuClick = openDrawer,
-                    onCreateEmployee = { navController.navigate(Routes.EMPLOYEE_FORM) },
+                    onCreateEmployee = {
+                        employeeSaveError = null
+                        navController.navigate(Routes.EMPLOYEE_FORM)
+                    },
+                    onEmployeeClick = { employeeId ->
+                        selectedEmployeeId = employeeId
+                        navController.navigate(Routes.EMPLOYEE_DETAIL)
+                    },
                     onNavigateMain = navigateMain
                 )
             }
@@ -1299,21 +1463,91 @@ fun AppNavigation() {
             composable(Routes.EMPLOYEE_FORM) {
                 EmployeeFormScreen(
                     sectorOptions = parcels.filter { it.status != "INACTIVA" }.map { it.name },
+                    isSaving = employeeIsSaving,
+                    saveError = employeeSaveError,
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        employees = employees + EmployeeUiModel(
-                            id = UUID.randomUUID().toString(),
-                            fullName = form.fullName,
-                            role = form.role,
-                            hireDate = form.hireDate,
-                            salary = form.salary.toDouble(),
-                            paymentFrequency = form.paymentFrequency,
-                            assignedSector = form.assignedSector,
-                            phone = form.phone,
-                            active = form.active
-                        )
-                        if (!navController.popBackStack(Routes.EMPLOYEES, false)) {
-                            navigateMain(Routes.EMPLOYEES)
+                        coroutineScope.launch {
+                            employeeIsSaving = true
+                            employeeSaveError = null
+                            runCatching {
+                                employeeViewModel.saveEmployee(
+                                    EmployeeDraft(
+                                        fullName = form.fullName,
+                                        role = form.role,
+                                        hireDate = parseDate(form.hireDate)
+                                            ?: error("La fecha de ingreso no es válida."),
+                                        salary = form.salary.replace(',', '.').toDouble(),
+                                        paymentFrequency = form.paymentFrequency,
+                                        assignedSector = form.assignedSector.ifBlank { null },
+                                        phone = form.phone.ifBlank { null },
+                                        active = form.active
+                                    )
+                                )
+                            }.onSuccess { employeeId ->
+                                selectedEmployeeId = employeeId
+                                if (!navController.popBackStack(Routes.EMPLOYEES, false)) {
+                                    navigateMain(Routes.EMPLOYEES)
+                                }
+                            }.onFailure { error ->
+                                employeeSaveError = error.message ?: "No se pudo guardar el empleado."
+                            }
+                            employeeIsSaving = false
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.EMPLOYEE_DETAIL) {
+                val employee = selectedEmployee
+                if (employee == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.EMPLOYEES) }
+                    return@composable
+                }
+                EmployeeDetailScreen(
+                    employee = employee,
+                    payments = employeePayments.filter { it.employeeId == employee.id },
+                    onBack = { navController.popBackStack() },
+                    onRegisterPayment = {
+                        paymentSaveError = null
+                        navController.navigate(Routes.EMPLOYEE_PAYMENT_FORM)
+                    },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.EMPLOYEE_PAYMENT_FORM) {
+                val employee = selectedEmployee
+                if (employee == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.EMPLOYEES) }
+                    return@composable
+                }
+                EmployeePaymentFormScreen(
+                    employee = employee,
+                    isSaving = paymentIsSaving,
+                    saveError = paymentSaveError,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        coroutineScope.launch {
+                            paymentIsSaving = true
+                            paymentSaveError = null
+                            runCatching {
+                                employeeViewModel.savePayment(
+                                    EmployeePaymentDraft(
+                                        employeeId = employee.id,
+                                        paymentDate = parseDate(form.paymentDate)
+                                            ?: error("La fecha de pago no es válida."),
+                                        amount = form.amount.replace(',', '.').toDouble(),
+                                        period = form.period,
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                navController.popBackStack()
+                            }.onFailure { error ->
+                                paymentSaveError = error.message ?: "No se pudo guardar el pago."
+                            }
+                            paymentIsSaving = false
                         }
                     }
                 )
@@ -1642,64 +1876,3 @@ private fun parseDate(value: String): Long? = runCatching {
 private fun formatDate(value: Long?): String = value?.let {
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(it))
 }.orEmpty()
-
-private val initialMilkProductionRecords = listOf(
-    MilkProductionUiModel(
-        id = "milk-demo-1",
-        date = "28/08/2026",
-        liters = 24.5,
-        notes = "Producción normal"
-    ),
-    MilkProductionUiModel(
-        id = "milk-demo-2",
-        date = "29/08/2026",
-        liters = 118.0,
-        notes = "Sin observaciones"
-    )
-)
-
-// Movimientos ficticios para revisar el panel financiero antes de conectar Room.
-private val initialFinancialMovements = listOf(
-    FinancialMovementUiModel(
-        id = "finance-demo-1",
-        type = "INGRESO",
-        category = "Venta de leche",
-        amount = 4250.0,
-        date = "28/08/2026",
-        notes = "Registro de prueba"
-    ),
-    FinancialMovementUiModel(
-        id = "finance-demo-2",
-        type = "EGRESO",
-        category = "Alimentación",
-        amount = 1850.0,
-        date = "29/08/2026",
-        notes = "Compra de concentrado"
-    )
-)
-
-// Personal ficticio para validar visualmente el listado de HU-06.
-private val initialEmployees = listOf(
-    EmployeeUiModel(
-        id = "employee-demo-1",
-        fullName = "Ricardo Hernández",
-        role = "Vaquero",
-        hireDate = "10/01/2025",
-        salary = 3200.0,
-        paymentFrequency = "Mensual",
-        assignedSector = "Potrero Norte",
-        phone = "5555 0101",
-        active = true
-    ),
-    EmployeeUiModel(
-        id = "employee-demo-2",
-        fullName = "María García",
-        role = "Veterinario",
-        hireDate = "15/03/2025",
-        salary = 4500.0,
-        paymentFrequency = "Mensual",
-        assignedSector = "General",
-        phone = "5555 0202",
-        active = true
-    )
-)

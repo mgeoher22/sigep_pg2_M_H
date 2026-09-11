@@ -28,6 +28,8 @@ object Routes {
     const val FINANCE_FORM = "finance_form"
     const val EMPLOYEES = "employees"
     const val EMPLOYEE_FORM = "employee_form"
+    const val EMPLOYEE_DETAIL = "employee_detail"
+    const val EMPLOYEE_PAYMENT_FORM = "employee_payment_form"
     const val REPORTS = "reports"
     const val USERS = "users"
     const val USER_FORM = "user_form"
