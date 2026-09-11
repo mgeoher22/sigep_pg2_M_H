@@ -36,6 +36,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.MilkProductionDraft
 import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
+import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
@@ -410,6 +411,9 @@ fun AppNavigation() {
             )
         }
     }
+    // Los permisos personalizados permiten entrar a módulos, pero no convierten
+    // otro rol en Administrador General para modificar registros existentes.
+    val canEditRecords = canEditExistingRecords(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
             currentUserId = ""
@@ -824,6 +828,9 @@ fun AppNavigation() {
 
                         coroutineScope.launch {
                             runCatching {
+                                check(animalEnEdicion == null || canEditRecords) {
+                                    "Solo el Administrador General puede editar animales."
+                                }
                                 animalViewModel.saveAnimal(
                                     animal = formulario.toEntity(animalGuardado.id),
                                     weightPounds = formulario.pesoInicial.toDoubleOrNull()
@@ -899,15 +906,23 @@ fun AppNavigation() {
                 }
                 AnimalDetailScreen(
                     animal = animal,
+                    canEditRecords = canEditRecords,
                     onBack = { navController.popBackStack() },
                     onEdit = {
-                        animalEnEdicionId = animal.id
-                        animalSaveError = null
-                        navController.navigate(Routes.ANIMAL_FORM)
+                        if (canEditRecords) {
+                            animalEnEdicionId = animal.id
+                            animalSaveError = null
+                            navController.navigate(Routes.ANIMAL_FORM)
+                        }
                     },
                     onDelete = {
                         coroutineScope.launch {
-                            runCatching { animalViewModel.removeAnimal(animal.id) }
+                            runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede retirar animales."
+                                }
+                                animalViewModel.removeAnimal(animal.id)
+                            }
                                 .onSuccess {
                                     animalSeleccionado = null
                                     if (ultimoRegistro?.id == animal.id) ultimoRegistro = null
@@ -991,6 +1006,9 @@ fun AppNavigation() {
                                 if (lotEditingId.isBlank()) {
                                     lotViewModel.createLot(form.toLotDraft())
                                 } else {
+                                    check(canEditRecords) {
+                                        "Solo el Administrador General puede editar lotes."
+                                    }
                                     lotViewModel.updateLot(lotEditingId, form.toLotDraft())
                                     lotEditingId
                                 }
@@ -1046,6 +1064,7 @@ fun AppNavigation() {
                 }
                 LotDetailScreen(
                     lot = lot,
+                    canEditRecords = canEditRecords,
                     selectedAnimalLabels = allAnimalItems
                         .filter { it.id in lot.selectedAnimalIds }
                         .map { it.nombre ?: it.codigoIdentificacion },
@@ -1061,16 +1080,23 @@ fun AppNavigation() {
                         },
                     onBack = { navController.popBackStack() },
                     onEdit = {
-                        lotEditingId = lot.id
-                        lotDraftAnimalIds = lot.selectedAnimalIds
-                        lotSaveError = null
-                        navController.navigate(Routes.LOT_FORM)
+                        if (canEditRecords) {
+                            lotEditingId = lot.id
+                            lotDraftAnimalIds = lot.selectedAnimalIds
+                            lotSaveError = null
+                            navController.navigate(Routes.LOT_FORM)
+                        }
                     },
                     onDeactivate = {
                         coroutineScope.launch {
                             lotIsSaving = true
                             lotSaveError = null
-                            runCatching { lotViewModel.deactivateLot(lot.id) }
+                            runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede cerrar lotes."
+                                }
+                                lotViewModel.deactivateLot(lot.id)
+                            }
                                 .onFailure { error ->
                                     lotSaveError = error.message ?: "No se pudo cerrar el lote."
                                 }
@@ -1121,6 +1147,9 @@ fun AppNavigation() {
                                 if (parcelEditingId.isBlank()) {
                                     parcelViewModel.createParcel(form.toParcelDraft())
                                 } else {
+                                    check(canEditRecords) {
+                                        "Solo el Administrador General puede editar parcelas."
+                                    }
                                     parcelViewModel.updateParcel(parcelEditingId, form.toParcelDraft())
                                     parcelEditingId
                                 }
@@ -1152,17 +1181,25 @@ fun AppNavigation() {
                 }
                 ParcelDetailScreen(
                     parcel = parcel,
+                    canEditRecords = canEditRecords,
                     onBack = { navController.popBackStack() },
                     onEdit = {
-                        parcelEditingId = parcel.id
-                        parcelSaveError = null
-                        navController.navigate(Routes.PARCEL_FORM)
+                        if (canEditRecords) {
+                            parcelEditingId = parcel.id
+                            parcelSaveError = null
+                            navController.navigate(Routes.PARCEL_FORM)
+                        }
                     },
                     onSetResting = { resting ->
                         coroutineScope.launch {
                             parcelIsSaving = true
                             parcelSaveError = null
-                            runCatching { parcelViewModel.setResting(parcel.id, resting) }
+                            runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede cambiar una parcela."
+                                }
+                                parcelViewModel.setResting(parcel.id, resting)
+                            }
                                 .onFailure { error ->
                                     parcelSaveError = error.message
                                         ?: "No se pudo cambiar el estado de la parcela."
@@ -1174,7 +1211,12 @@ fun AppNavigation() {
                         coroutineScope.launch {
                             parcelIsSaving = true
                             parcelSaveError = null
-                            runCatching { parcelViewModel.deactivateParcel(parcel.id) }
+                            runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede desactivar parcelas."
+                                }
+                                parcelViewModel.deactivateParcel(parcel.id)
+                            }
                                 .onFailure { error ->
                                     parcelSaveError = error.message
                                         ?: "No se pudo desactivar la parcela."
@@ -1310,10 +1352,17 @@ fun AppNavigation() {
                             milkProductionIsSaving = true
                             milkProductionSaveError = null
                             runCatching {
+                                val productionDate = parseDate(form.date)
+                                    ?: error("La fecha seleccionada no es válida.")
+                                val replacesExistingRecord = milkProductionRecords.any {
+                                    it.dateMillis == productionDate
+                                }
+                                check(!replacesExistingRecord || canEditRecords) {
+                                    "Solo el Administrador General puede corregir una producción existente."
+                                }
                                 milkProductionViewModel.saveDailyProduction(
                                     MilkProductionDraft(
-                                        date = parseDate(form.date)
-                                            ?: error("La fecha seleccionada no es válida."),
+                                        date = productionDate,
                                         liters = form.liters.replace(',', '.').toDouble(),
                                         pricePerLiter = form.pricePerLiter
                                             .replace(',', '.')

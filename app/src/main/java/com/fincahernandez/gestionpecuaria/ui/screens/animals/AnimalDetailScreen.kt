@@ -60,6 +60,7 @@ fun AnimalDetailScreen(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onRegisterWeight: () -> Unit,
+    canEditRecords: Boolean = false,
     sanitaryEventCount: Int = 0,
     canManageHealth: Boolean = false,
     onOpenSanitaryControl: () -> Unit = {},
@@ -103,7 +104,7 @@ fun AnimalDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { AnimalProfileCard(animal, onEdit, onRegisterWeight) }
+            item { AnimalProfileCard(animal, onEdit, onRegisterWeight, canEditRecords) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard(
@@ -159,20 +160,22 @@ fun AnimalDetailScreen(
                     }
                 }
             }
-            item {
-                OutlinedButton(
-                    onClick = { showDeleteConfirmation = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Eliminar del inventario")
+            if (canEditRecords) {
+                item {
+                    OutlinedButton(
+                        onClick = { showDeleteConfirmation = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Eliminar del inventario")
+                    }
                 }
             }
         }
     }
 
-    if (showDeleteConfirmation) {
+    if (showDeleteConfirmation && canEditRecords) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text("Eliminar animal") },
@@ -268,7 +271,8 @@ private fun AnimalInformationRow(
 private fun AnimalProfileCard(
     animal: AnimalListItem,
     onEdit: () -> Unit,
-    onRegisterWeight: () -> Unit
+    onRegisterWeight: () -> Unit,
+    canEditRecords: Boolean
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -327,10 +331,12 @@ private fun AnimalProfileCard(
                     )
                     Text(animal.codigoIdentificacion)
                 }
-                OutlinedButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Editar")
+                if (canEditRecords) {
+                    OutlinedButton(onClick = onEdit) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Editar")
+                    }
                 }
             }
             Button(

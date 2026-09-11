@@ -540,6 +540,7 @@ fun ParcelDetailScreen(
     onSetResting: (Boolean) -> Unit,
     onDeactivate: () -> Unit,
     onNavigateMain: (String) -> Unit,
+    canEditRecords: Boolean = false,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
@@ -659,7 +660,7 @@ fun ParcelDetailScreen(
                 }
             }
             item { saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
-            if (parcel.status != "INACTIVA") {
+            if (parcel.status != "INACTIVA" && canEditRecords) {
                 item {
                     Button(
                         onClick = onEdit,

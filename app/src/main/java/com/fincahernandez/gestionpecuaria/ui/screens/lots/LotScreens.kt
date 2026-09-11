@@ -657,6 +657,7 @@ fun LotDetailScreen(
     onDeactivate: () -> Unit,
     onRegisterWeight: () -> Unit,
     onNavigateMain: (String) -> Unit,
+    canEditRecords: Boolean = false,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
@@ -824,17 +825,19 @@ fun LotDetailScreen(
                 }
             }
             if (lot.status == "ACTIVO") {
-                item {
-                    Button(
-                        onClick = onEdit,
-                        enabled = !isSaving,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Editar lote")
+                if (canEditRecords) {
+                    item {
+                        Button(
+                            onClick = onEdit,
+                            enabled = !isSaving,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Editar lote")
+                        }
                     }
                 }
                 item {
@@ -850,17 +853,19 @@ fun LotDetailScreen(
                         Text("Registrar pesaje")
                     }
                 }
-                item {
-                    OutlinedButton(
-                        onClick = { confirmDeactivate = true },
-                        enabled = !isSaving,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                    ) {
-                        Icon(Icons.Default.StopCircle, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isSaving) "Cerrando…" else "Cerrar lote")
+                if (canEditRecords) {
+                    item {
+                        OutlinedButton(
+                            onClick = { confirmDeactivate = true },
+                            enabled = !isSaving,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                        ) {
+                            Icon(Icons.Default.StopCircle, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (isSaving) "Cerrando…" else "Cerrar lote")
+                        }
                     }
                 }
             }

@@ -11,6 +11,8 @@ data class DefinedRole(
     val permissionIds: Set<String>
 )
 
+const val GENERAL_ADMIN_ROLE = "Administrador General"
+
 /** Permisos que resumen las funciones descritas por los actores del ERS. */
 val rolePermissions = listOf(
     RolePermission("dashboard", "Consultar el panel principal"),
@@ -27,7 +29,7 @@ val rolePermissions = listOf(
 /** Las cuentas reciben una plantilla fija de permisos según su rol. */
 val definedRoles = listOf(
     DefinedRole(
-        name = "Administrador General",
+        name = GENERAL_ADMIN_ROLE,
         description = "Toma decisiones estratégicas y financieras.",
         permissionIds = rolePermissions.map { it.id }.toSet()
     ),
@@ -73,3 +75,9 @@ fun permissionsForUser(roleName: String, customizedPermissions: String?): Set<St
 /** Guarda una selección estable y legible dentro de una sola columna de Room. */
 fun serializePermissions(permissionIds: Set<String>): String =
     permissionIds.sorted().joinToString(",")
+
+/**
+ * Editar, desactivar o retirar registros es una facultad del rol, no un permiso
+ * adicional que pueda otorgarse a otra plantilla de usuario.
+ */
+fun canEditExistingRecords(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE
