@@ -27,5 +27,9 @@ data class LoteEntity(
     val fechaCierre: Long? = null,
     val estado: String = "ACTIVO",
     val creadoEn: Long = System.currentTimeMillis(),
-    val actualizadoEn: Long = System.currentTimeMillis()
+    val actualizadoEn: Long = System.currentTimeMillis(),
+    // Estos datos eran temporales en el prototipo; desde Sprint 2 forman parte del lote persistido.
+    val parcelaNombre: String? = null,
+    val pesoObjetivoLibras: Double? = null,
+    val fechaSalidaEstimada: Long? = null
 )

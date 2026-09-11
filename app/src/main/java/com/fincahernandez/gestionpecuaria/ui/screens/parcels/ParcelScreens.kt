@@ -20,11 +20,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.Landscape
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,9 +37,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -43,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -57,10 +62,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 
-/** Modelo temporal utilizado por el listado y detalle de parcelas. */
+/** Modelo visual generado a partir del inventario persistente de parcelas. */
 data class ParcelUiModel(
     val id: String,
     val code: String,
@@ -69,8 +73,7 @@ data class ParcelUiModel(
     val pastureType: String,
     val status: String,
     val capacity: Int?,
-    val currentLot: String,
-    val productivityPercent: Int
+    val currentLot: String
 )
 
 /** Valores capturados al registrar una parcela. */
@@ -92,8 +95,17 @@ fun ParcelListScreen(
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val totalArea = parcels.sumOf { it.areaHectares }
-    val restingCount = parcels.count { it.status == "DESCANSO" }
+    var statusFilter by rememberSaveable { mutableStateOf("ACTIVAS") }
+    val activeParcels = parcels.filter { it.status != "INACTIVA" }
+    val visibleParcels = parcels.filter { parcel ->
+        when (statusFilter) {
+            "ACTIVAS" -> parcel.status != "INACTIVA"
+            "INACTIVAS" -> parcel.status == "INACTIVA"
+            else -> true
+        }
+    }
+    val totalArea = activeParcels.sumOf { it.areaHectares }
+    val restingCount = activeParcels.count { it.status == "DESCANSO" }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -134,7 +146,6 @@ fun ParcelListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ParcelSummaryCard(
@@ -149,31 +160,52 @@ fun ParcelListScreen(
                     )
                 }
             }
-            item { ParcelMap(parcels) }
+            item { ParcelMap(activeParcels) }
             item {
-                Text(
-                    "Detalle de parcelas",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Parcelas registradas",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("ACTIVAS", "INACTIVAS", "TODAS").forEach { option ->
+                            FilterChip(
+                                selected = statusFilter == option,
+                                onClick = { statusFilter = option },
+                                label = {
+                                    Text(option.lowercase().replaceFirstChar { it.uppercase() })
+                                }
+                            )
+                        }
+                    }
+                }
             }
-            if (parcels.isEmpty()) {
+            if (visibleParcels.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(22.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Aún no hay parcelas", fontWeight = FontWeight.Bold)
-                            Text("Registra el primer terreno productivo de la finca.")
-                            OutlinedButton(onClick = onCreateParcel) {
-                                Text("Registrar primera parcela")
+                            Text("No hay parcelas en esta categoría", fontWeight = FontWeight.Bold)
+                            Text(
+                                if (parcels.isEmpty()) {
+                                    "Registra el primer terreno productivo de la finca."
+                                } else {
+                                    "Cambia el filtro para consultar las demás parcelas."
+                                }
+                            )
+                            if (parcels.isEmpty()) {
+                                OutlinedButton(onClick = onCreateParcel) {
+                                    Text("Registrar primera parcela")
+                                }
                             }
                         }
                     }
                 }
             } else {
-                items(parcels, key = { it.id }) { parcel ->
+                items(visibleParcels, key = { it.id }) { parcel ->
                     ParcelCard(parcel = parcel, onClick = { onParcelClick(parcel.id) })
                 }
             }
@@ -278,11 +310,6 @@ private fun ParcelCard(parcel: ParcelUiModel, onClick: () -> Unit) {
             }
             Text("Pastura: ${parcel.pastureType}")
             Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
-            LinearProgressIndicator(
-                progress = { parcel.productivityPercent.coerceIn(0, 100) / 100f },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text("Productividad: ${parcel.productivityPercent}%")
         }
     }
 }
@@ -305,12 +332,12 @@ private fun ParcelStatusBadge(status: String) {
 
 private fun parcelStatusColor(status: String): Color = when (status) {
     "OCUPADA" -> Color(0xFF64B5F6)
-    "DESCANSO" -> Color(0xFFD7D7D7)
+    "DESCANSO", "INACTIVA" -> Color(0xFFD7D7D7)
     else -> Color(0xFF1B6E2A)
 }
 
 private fun parcelStatusContentColor(status: String): Color = when (status) {
-    "DESCANSO" -> Color(0xFF303030)
+    "DESCANSO", "INACTIVA" -> Color(0xFF303030)
     else -> Color.White
 }
 
@@ -320,24 +347,39 @@ private fun parcelStatusContentColor(status: String): Color = when (status) {
 fun ParcelFormScreen(
     onBack: () -> Unit,
     onSubmit: (ParcelFormData) -> Unit,
+    initialData: ParcelFormData? = null,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var name by rememberSaveable { mutableStateOf("") }
-    var area by rememberSaveable { mutableStateOf("") }
-    var pastureType by rememberSaveable { mutableStateOf("") }
-    var capacity by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable(initialData?.name) { mutableStateOf(initialData?.name.orEmpty()) }
+    var area by rememberSaveable(initialData?.areaHectares) {
+        mutableStateOf(initialData?.areaHectares.orEmpty())
+    }
+    var pastureType by rememberSaveable(initialData?.pastureType) {
+        mutableStateOf(initialData?.pastureType.orEmpty())
+    }
+    var capacity by rememberSaveable(initialData?.capacity) {
+        mutableStateOf(initialData?.capacity.orEmpty())
+    }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
-    val areaValue = area.toDoubleOrNull()
+    val areaValue = area.replace(',', '.').toDoubleOrNull()
     val areaInvalid = area.isBlank() || areaValue == null || areaValue <= 0
-    val capacityInvalid = capacity.isNotBlank() && capacity.toIntOrNull() == null
+    val capacityValue = capacity.toIntOrNull()
+    val capacityInvalid = capacity.isNotBlank() && (capacityValue == null || capacityValue <= 0)
     val formValid = name.isNotBlank() && !areaInvalid && pastureType.isNotBlank() && !capacityInvalid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             BrandedTopAppBar(
-                title = { Text("Registrar nueva parcela", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (initialData == null) "Registrar nueva parcela" else "Editar parcela",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
@@ -404,31 +446,12 @@ fun ParcelFormScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = attemptedSave && capacityInvalid,
                     supportingText = if (attemptedSave && capacityInvalid) {
-                        { Text("Ingrese una cantidad entera válida.") }
+                        { Text("Ingrese una cantidad entera mayor que cero.") }
                     } else null,
                     singleLine = true
                 )
             }
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(170.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.LocationOn, contentDescription = null)
-                        Text("Ubicación o mapa de referencia")
-                        Text("Se conectará en la implementación funcional", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            item { saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {
                 Button(
                     onClick = {
@@ -444,13 +467,14 @@ fun ParcelFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar parcela", fontWeight = FontWeight.Bold)
+                    Text(if (isSaving) "Guardando…" else "Guardar parcela", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -512,9 +536,36 @@ private fun PastureDropdown(
 fun ParcelDetailScreen(
     parcel: ParcelUiModel,
     onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onSetResting: (Boolean) -> Unit,
+    onDeactivate: () -> Unit,
     onNavigateMain: (String) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
+    var confirmDeactivate by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmDeactivate) {
+        AlertDialog(
+            onDismissRequest = { if (!isSaving) confirmDeactivate = false },
+            title = { Text("Desactivar parcela") },
+            text = { Text("La parcela quedará inactiva, pero su información no se eliminará.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = {
+                        confirmDeactivate = false
+                        onDeactivate()
+                    }
+                ) { Text("Desactivar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeactivate = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -576,11 +627,6 @@ fun ParcelDetailScreen(
                         Text("Información productiva", fontWeight = FontWeight.Bold)
                         Text("Tipo de pastura: ${parcel.pastureType}")
                         Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
-                        Text("Productividad estimada: ${parcel.productivityPercent}%")
-                        LinearProgressIndicator(
-                            progress = { parcel.productivityPercent.coerceIn(0, 100) / 100f },
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
             }
@@ -608,6 +654,57 @@ fun ParcelDetailScreen(
                             "Representación de ${parcel.code}",
                             color = parcelStatusContentColor(parcel.status),
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            item { saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (parcel.status != "INACTIVA") {
+                item {
+                    Button(
+                        onClick = onEdit,
+                        enabled = !isSaving,
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Editar parcela")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { onSetResting(parcel.status != "DESCANSO") },
+                        enabled = !isSaving && parcel.status != "OCUPADA",
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    ) {
+                        Icon(
+                            if (parcel.status == "DESCANSO") Icons.Default.PlayCircle
+                            else Icons.Default.PauseCircle,
+                            contentDescription = null
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (parcel.status == "DESCANSO") "Marcar disponible"
+                            else "Poner en descanso"
+                        )
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { confirmDeactivate = true },
+                        enabled = !isSaving && parcel.status != "OCUPADA",
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    ) {
+                        Icon(Icons.Default.StopCircle, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Desactivar parcela")
+                    }
+                }
+                if (parcel.status == "OCUPADA") {
+                    item {
+                        Text(
+                            "Cierre o cambie el lote activo antes de poner la parcela en descanso o desactivarla.",
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }

@@ -10,12 +10,14 @@ import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EventoSanitarioDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.ParcelaDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.ParcelaEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 
 /**
@@ -31,9 +33,10 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         LoteAnimalEntity::class,
         PesajeEntity::class,
         UsuarioEntity::class,
-        EventoSanitarioEntity::class
+        EventoSanitarioEntity::class,
+        ParcelaEntity::class
     ],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -43,6 +46,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun loteDao(): LoteDao
 
     abstract fun pesajeDao(): PesajeDao
+
+    abstract fun parcelaDao(): ParcelaDao
 
     abstract fun usuarioDao(): UsuarioDao
 
@@ -164,6 +169,46 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Persiste los campos que el prototipo de lotes mantenía solamente en memoria.
+         * Son anulables para conservar sin alteraciones cualquier lote creado previamente.
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE lotes ADD COLUMN parcelaNombre TEXT")
+                database.execSQL("ALTER TABLE lotes ADD COLUMN pesoObjetivoLibras REAL")
+                database.execSQL("ALTER TABLE lotes ADD COLUMN fechaSalidaEstimada INTEGER")
+            }
+        }
+
+        /** Añade el inventario persistente de parcelas sin alterar los demás módulos. */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `parcelas` (
+                        `id` TEXT NOT NULL,
+                        `codigo` TEXT NOT NULL,
+                        `nombre` TEXT NOT NULL,
+                        `areaHectareas` REAL NOT NULL,
+                        `tipoPastura` TEXT NOT NULL,
+                        `capacidadAnimales` INTEGER,
+                        `estado` TEXT NOT NULL,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_parcelas_codigo` ON `parcelas` (`codigo`)"
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_parcelas_nombre` ON `parcelas` (`nombre`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -181,7 +226,9 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
-                    MIGRATION_6_7
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

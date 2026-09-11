@@ -28,6 +28,8 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
+import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
+import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
@@ -57,6 +59,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryRecordUiMode
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalOption
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalSelectionScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
@@ -64,6 +67,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScre
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
@@ -79,6 +83,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScree
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.AnimalViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.BulkDataImportViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.LotViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.ParcelViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.SanitaryViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.UserViewModel
 import java.util.Calendar
@@ -92,8 +98,8 @@ import kotlinx.coroutines.launch
 /**
  * Conecta los destinos principales y las pantallas internas de animales.
  *
- * Los animales y sus pesajes se obtienen de Room. Los demás módulos conservan
- * estado temporal hasta que sus historias funcionales se implementen.
+ * Animales, pesajes, lotes, sanidad y usuarios se obtienen de Room. Los demás
+ * módulos conservan estado temporal hasta que sus historias se implementen.
  */
 @Composable
 fun AppNavigation() {
@@ -106,11 +112,15 @@ fun AppNavigation() {
     val coroutineScope = rememberCoroutineScope()
     val animalViewModel: AnimalViewModel = viewModel()
     val bulkDataImportViewModel: BulkDataImportViewModel = viewModel()
+    val lotViewModel: LotViewModel = viewModel()
+    val parcelViewModel: ParcelViewModel = viewModel()
     val sanitaryViewModel: SanitaryViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
     val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
     val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
+    val storedLots by lotViewModel.lots.collectAsStateWithLifecycle()
+    val storedParcels by parcelViewModel.parcels.collectAsStateWithLifecycle()
     val storedUsers by userViewModel.users.collectAsStateWithLifecycle()
     val storedSanitaryRecords by sanitaryViewModel.records.collectAsStateWithLifecycle()
 
@@ -157,16 +167,63 @@ fun AppNavigation() {
             )
         }
     }
+    val lots = remember(storedLots) {
+        storedLots.map { record ->
+            val lot = record.lot
+            LotUiModel(
+                id = lot.id,
+                code = lot.codigo,
+                name = lot.nombre,
+                type = lot.tipo,
+                status = lot.estado,
+                parcelName = lot.parcelaNombre.orEmpty(),
+                initialAverageWeight = record.averageWeightPounds,
+                targetWeight = lot.pesoObjetivoLibras,
+                estimatedExitDate = formatDate(lot.fechaSalidaEstimada),
+                selectedAnimalIds = if (lot.estado == "ACTIVO") {
+                    record.activeAnimalIds
+                } else {
+                    record.historicalAnimalIds
+                }
+            )
+        }
+    }
+    val activeLotByAnimalId = remember(storedLots) {
+        buildMap {
+            storedLots.filter { it.lot.estado == "ACTIVO" }.forEach { record ->
+                record.activeAnimalIds.forEach { animalId -> put(animalId, record.lot.id) }
+            }
+        }
+    }
+    val parcels = remember(storedParcels) {
+        storedParcels.map { record ->
+            val parcel = record.parcel
+            ParcelUiModel(
+                id = parcel.id,
+                code = parcel.codigo,
+                name = parcel.nombre,
+                areaHectares = parcel.areaHectareas,
+                pastureType = parcel.tipoPastura,
+                status = if (record.currentLotName == null) parcel.estado else "OCUPADA",
+                capacity = parcel.capacidadAnimales,
+                currentLot = record.currentLotName.orEmpty()
+            )
+        }
+    }
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
     var ultimoRegistro by remember { mutableStateOf<AnimalListItem?>(null) }
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
     var animalSaveError by remember { mutableStateOf<String?>(null) }
     var animalIsSaving by remember { mutableStateOf(false) }
-    var lots by remember { mutableStateOf(initialLots) }
-    var selectedLot by remember { mutableStateOf(initialLots.first()) }
+    var selectedLotId by rememberSaveable { mutableStateOf("") }
+    var lotEditingId by rememberSaveable { mutableStateOf("") }
     var lotDraftAnimalIds by remember { mutableStateOf(emptyList<String>()) }
-    var parcels by remember { mutableStateOf(initialParcels) }
-    var selectedParcel by remember { mutableStateOf(initialParcels.first()) }
+    var lotIsSaving by remember { mutableStateOf(false) }
+    var lotSaveError by remember { mutableStateOf<String?>(null) }
+    var selectedParcelId by rememberSaveable { mutableStateOf("") }
+    var parcelEditingId by rememberSaveable { mutableStateOf("") }
+    var parcelIsSaving by remember { mutableStateOf(false) }
+    var parcelSaveError by remember { mutableStateOf<String?>(null) }
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
@@ -186,6 +243,13 @@ fun AppNavigation() {
     var setupError by remember { mutableStateOf<String?>(null) }
     var userIsSaving by remember { mutableStateOf(false) }
     var userSaveError by remember { mutableStateOf<String?>(null) }
+
+    val selectedLot = remember(lots, selectedLotId) {
+        lots.firstOrNull { it.id == selectedLotId }
+    }
+    val selectedParcel = remember(parcels, selectedParcelId) {
+        parcels.firstOrNull { it.id == selectedParcelId }
+    }
 
     val currentPermissionIds = remember(currentUserPermissions) {
         currentUserPermissions
@@ -232,7 +296,7 @@ fun AppNavigation() {
         allowedReportsForPermissions(currentPermissionIds)
     }
     val sanitaryLots = remember(lots) {
-        lots.map { lot ->
+        lots.filter { it.status == "ACTIVO" }.map { lot ->
             SanitaryLotOption(
                 id = lot.id,
                 label = "${lot.code} · ${lot.name}",
@@ -718,13 +782,16 @@ fun AppNavigation() {
                     lots = lots,
                     onMenuClick = openDrawer,
                     onCreateLot = {
-                        // Cada lote nuevo comienza sin conservar selecciones de un formulario anterior.
+                        // Cada lote nuevo comienza sin datos de una edición anterior.
+                        lotEditingId = ""
                         lotDraftAnimalIds = emptyList()
+                        lotSaveError = null
                         navController.navigate(Routes.LOT_FORM)
                     },
                     onLotClick = { lotId ->
-                        lots.firstOrNull { it.id == lotId }?.let { lot ->
-                            selectedLot = lot
+                        lots.firstOrNull { it.id == lotId }?.let {
+                            selectedLotId = lotId
+                            lotSaveError = null
                             navController.navigate(Routes.LOT_DETAIL)
                         }
                     },
@@ -733,9 +800,20 @@ fun AppNavigation() {
             }
 
             composable(Routes.LOT_FORM) {
+                val editingLot = lots.firstOrNull { it.id == lotEditingId }
+                val availableAnimals = animales.filter { animal ->
+                    val assignedLotId = activeLotByAnimalId[animal.id]
+                    assignedLotId == null || assignedLotId == lotEditingId
+                }
                 LotFormScreen(
-                    parcelNames = parcels.map { it.name },
-                    animalOptions = animales.map { animal ->
+                    parcelNames = (
+                        parcels.filter { parcel ->
+                            parcel.status == "DISPONIBLE" || parcel.currentLot == editingLot?.name
+                        }.map { it.name } + editingLot?.parcelName.orEmpty()
+                    )
+                        .filter(String::isNotBlank)
+                        .distinct(),
+                    animalOptions = availableAnimals.map { animal ->
                         LotAnimalOption(
                             id = animal.id,
                             code = animal.codigoIdentificacion,
@@ -750,30 +828,41 @@ fun AppNavigation() {
                     },
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        val newLot = LotUiModel(
-                            id = UUID.randomUUID().toString(),
-                            code = generateLotCode(lots),
-                            name = form.name,
-                            type = form.type,
-                            status = "ACTIVO",
-                            parcelName = form.parcelName,
-                            initialAverageWeight = form.initialAverageWeight.toDoubleOrNull(),
-                            targetWeight = form.targetWeight.toDoubleOrNull(),
-                            estimatedExitDate = form.estimatedExitDate,
-                            selectedAnimalIds = form.selectedAnimalIds
-                        )
-                        lots = lots + newLot
-                        selectedLot = newLot
-                        navController.navigate(Routes.LOT_DETAIL) {
-                            popUpTo(Routes.LOT_FORM) { inclusive = true }
+                        coroutineScope.launch {
+                            lotIsSaving = true
+                            lotSaveError = null
+                            runCatching {
+                                if (lotEditingId.isBlank()) {
+                                    lotViewModel.createLot(form.toLotDraft())
+                                } else {
+                                    lotViewModel.updateLot(lotEditingId, form.toLotDraft())
+                                    lotEditingId
+                                }
+                            }.onSuccess { savedLotId ->
+                                selectedLotId = savedLotId
+                                lotEditingId = ""
+                                lotDraftAnimalIds = emptyList()
+                                navController.navigate(Routes.LOT_DETAIL) {
+                                    popUpTo(Routes.LOT_FORM) { inclusive = true }
+                                }
+                            }.onFailure { error ->
+                                lotSaveError = error.message ?: "No se pudo guardar el lote."
+                            }
+                            lotIsSaving = false
                         }
-                    }
+                    },
+                    initialData = editingLot?.toFormData(),
+                    isSaving = lotIsSaving,
+                    saveError = lotSaveError
                 )
             }
 
             composable(Routes.LOT_ANIMAL_SELECTION) {
                 LotAnimalSelectionScreen(
-                    animals = animales.map { animal ->
+                    animals = animales.filter { animal ->
+                        val assignedLotId = activeLotByAnimalId[animal.id]
+                        assignedLotId == null || assignedLotId == lotEditingId
+                    }.map { animal ->
                         LotAnimalOption(
                             id = animal.id,
                             code = animal.codigoIdentificacion,
@@ -792,14 +881,40 @@ fun AppNavigation() {
             }
 
             composable(Routes.LOT_DETAIL) {
+                val lot = selectedLot
+                if (lot == null) {
+                    if (selectedLotId.isBlank()) {
+                        LaunchedEffect(Unit) { navigateMain(Routes.LOTS) }
+                    }
+                    return@composable
+                }
                 LotDetailScreen(
-                    lot = selectedLot,
-                    selectedAnimalLabels = animales
-                        .filter { it.id in selectedLot.selectedAnimalIds }
+                    lot = lot,
+                    selectedAnimalLabels = allAnimalItems
+                        .filter { it.id in lot.selectedAnimalIds }
                         .map { it.nombre ?: it.codigoIdentificacion },
                     onBack = { navController.popBackStack() },
+                    onEdit = {
+                        lotEditingId = lot.id
+                        lotDraftAnimalIds = lot.selectedAnimalIds
+                        lotSaveError = null
+                        navController.navigate(Routes.LOT_FORM)
+                    },
+                    onDeactivate = {
+                        coroutineScope.launch {
+                            lotIsSaving = true
+                            lotSaveError = null
+                            runCatching { lotViewModel.deactivateLot(lot.id) }
+                                .onFailure { error ->
+                                    lotSaveError = error.message ?: "No se pudo cerrar el lote."
+                                }
+                            lotIsSaving = false
+                        }
+                    },
                     onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
-                    onNavigateMain = navigateMain
+                    onNavigateMain = navigateMain,
+                    isSaving = lotIsSaving,
+                    saveError = lotSaveError
                 )
             }
 
@@ -807,10 +922,15 @@ fun AppNavigation() {
                 ParcelListScreen(
                     parcels = parcels,
                     onMenuClick = openDrawer,
-                    onCreateParcel = { navController.navigate(Routes.PARCEL_FORM) },
+                    onCreateParcel = {
+                        parcelEditingId = ""
+                        parcelSaveError = null
+                        navController.navigate(Routes.PARCEL_FORM)
+                    },
                     onParcelClick = { parcelId ->
-                        parcels.firstOrNull { it.id == parcelId }?.let { parcel ->
-                            selectedParcel = parcel
+                        parcels.firstOrNull { it.id == parcelId }?.let {
+                            selectedParcelId = parcelId
+                            parcelSaveError = null
                             navController.navigate(Routes.PARCEL_DETAIL)
                         }
                     },
@@ -819,34 +939,81 @@ fun AppNavigation() {
             }
 
             composable(Routes.PARCEL_FORM) {
+                val editingParcel = parcels.firstOrNull { it.id == parcelEditingId }
                 ParcelFormScreen(
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
-                        val newParcel = ParcelUiModel(
-                            id = UUID.randomUUID().toString(),
-                            code = generateParcelCode(parcels),
-                            name = form.name,
-                            areaHectares = form.areaHectares.toDoubleOrNull() ?: 0.0,
-                            pastureType = form.pastureType,
-                            status = "DISPONIBLE",
-                            capacity = form.capacity.toIntOrNull(),
-                            currentLot = "",
-                            productivityPercent = 100
-                        )
-                        parcels = parcels + newParcel
-                        selectedParcel = newParcel
-                        navController.navigate(Routes.PARCEL_DETAIL) {
-                            popUpTo(Routes.PARCEL_FORM) { inclusive = true }
+                        coroutineScope.launch {
+                            parcelIsSaving = true
+                            parcelSaveError = null
+                            runCatching {
+                                if (parcelEditingId.isBlank()) {
+                                    parcelViewModel.createParcel(form.toParcelDraft())
+                                } else {
+                                    parcelViewModel.updateParcel(parcelEditingId, form.toParcelDraft())
+                                    parcelEditingId
+                                }
+                            }.onSuccess { savedParcelId ->
+                                selectedParcelId = savedParcelId
+                                parcelEditingId = ""
+                                navController.navigate(Routes.PARCEL_DETAIL) {
+                                    popUpTo(Routes.PARCEL_FORM) { inclusive = true }
+                                }
+                            }.onFailure { error ->
+                                parcelSaveError = error.message ?: "No se pudo guardar la parcela."
+                            }
+                            parcelIsSaving = false
                         }
-                    }
+                    },
+                    initialData = editingParcel?.toFormData(),
+                    isSaving = parcelIsSaving,
+                    saveError = parcelSaveError
                 )
             }
 
             composable(Routes.PARCEL_DETAIL) {
+                val parcel = selectedParcel
+                if (parcel == null) {
+                    if (selectedParcelId.isBlank()) {
+                        LaunchedEffect(Unit) { navigateMain(Routes.PARCELS) }
+                    }
+                    return@composable
+                }
                 ParcelDetailScreen(
-                    parcel = selectedParcel,
+                    parcel = parcel,
                     onBack = { navController.popBackStack() },
-                    onNavigateMain = navigateMain
+                    onEdit = {
+                        parcelEditingId = parcel.id
+                        parcelSaveError = null
+                        navController.navigate(Routes.PARCEL_FORM)
+                    },
+                    onSetResting = { resting ->
+                        coroutineScope.launch {
+                            parcelIsSaving = true
+                            parcelSaveError = null
+                            runCatching { parcelViewModel.setResting(parcel.id, resting) }
+                                .onFailure { error ->
+                                    parcelSaveError = error.message
+                                        ?: "No se pudo cambiar el estado de la parcela."
+                                }
+                            parcelIsSaving = false
+                        }
+                    },
+                    onDeactivate = {
+                        coroutineScope.launch {
+                            parcelIsSaving = true
+                            parcelSaveError = null
+                            runCatching { parcelViewModel.deactivateParcel(parcel.id) }
+                                .onFailure { error ->
+                                    parcelSaveError = error.message
+                                        ?: "No se pudo desactivar la parcela."
+                                }
+                            parcelIsSaving = false
+                        }
+                    },
+                    onNavigateMain = navigateMain,
+                    isSaving = parcelIsSaving,
+                    saveError = parcelSaveError
                 )
             }
             composable(Routes.WEIGHINGS) {
@@ -1026,7 +1193,7 @@ fun AppNavigation() {
 
             composable(Routes.EMPLOYEE_FORM) {
                 EmployeeFormScreen(
-                    sectorOptions = parcels.map { it.name },
+                    sectorOptions = parcels.filter { it.status != "INACTIVA" }.map { it.name },
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
                         employees = employees + EmployeeUiModel(
@@ -1326,12 +1493,40 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     fotoUri = fotoUri
 )
 
-/** Genera identificadores consecutivos mientras HU-04 trabaja con datos temporales. */
-private fun generateLotCode(lots: List<LotUiModel>): String =
-    "LOT-${(lots.size + 1).toString().padStart(3, '0')}"
+/** Convierte los datos visuales del formulario al modelo validado del repositorio. */
+private fun LotFormData.toLotDraft() = LotDraft(
+    name = name,
+    type = type,
+    parcelName = parcelName.takeIf(String::isNotBlank),
+    targetWeightPounds = targetWeight.replace(',', '.').toDoubleOrNull(),
+    estimatedExitDate = parseDate(estimatedExitDate),
+    selectedAnimalIds = selectedAnimalIds
+)
 
-private fun generateParcelCode(parcels: List<ParcelUiModel>): String =
-    "PR-${(parcels.size + 1).toString().padStart(3, '0')}"
+/** Precarga los datos persistidos cuando se corrige un lote activo. */
+private fun LotUiModel.toFormData() = LotFormData(
+    name = name,
+    type = type,
+    parcelName = parcelName,
+    initialAverageWeight = initialAverageWeight?.toString().orEmpty(),
+    targetWeight = targetWeight?.toString().orEmpty(),
+    estimatedExitDate = estimatedExitDate,
+    selectedAnimalIds = selectedAnimalIds
+)
+
+private fun ParcelFormData.toParcelDraft() = ParcelDraft(
+    name = name,
+    areaHectares = areaHectares.replace(',', '.').toDoubleOrNull() ?: 0.0,
+    pastureType = pastureType,
+    capacity = capacity.toIntOrNull()
+)
+
+private fun ParcelUiModel.toFormData() = ParcelFormData(
+    name = name,
+    areaHectares = areaHectares.toString(),
+    pastureType = pastureType,
+    capacity = capacity?.toString().orEmpty()
+)
 
 private fun parseDate(value: String): Long? = runCatching {
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
@@ -1342,70 +1537,6 @@ private fun parseDate(value: String): Long? = runCatching {
 private fun formatDate(value: Long?): String = value?.let {
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(it))
 }.orEmpty()
-
-// Datos demostrativos para validar visualmente HU-04 antes de conectar Room.
-private val initialLots = listOf(
-    LotUiModel(
-        id = "lot-demo-1",
-        code = "LOT-001",
-        name = "Lote Alpha-2024",
-        type = "ENGORDE",
-        status = "ACTIVO",
-        parcelName = "Potrero Norte",
-        initialAverageWeight = 420.0,
-        targetWeight = 520.0,
-        estimatedExitDate = "15/12/2026",
-        selectedAnimalIds = emptyList()
-    ),
-    LotUiModel(
-        id = "lot-demo-2",
-        code = "LOT-002",
-        name = "Lote Lechero A-2",
-        type = "LECHERO",
-        status = "ACTIVO",
-        parcelName = "Loma del Sol",
-        initialAverageWeight = 450.0,
-        targetWeight = 480.0,
-        estimatedExitDate = "",
-        selectedAnimalIds = emptyList()
-    )
-)
-
-private val initialParcels = listOf(
-    ParcelUiModel(
-        id = "parcel-demo-1",
-        code = "PR-001",
-        name = "Potrero Norte",
-        areaHectares = 15.4,
-        pastureType = "Brachiaria",
-        status = "OCUPADA",
-        capacity = 45,
-        currentLot = "Lote Alpha-2024",
-        productivityPercent = 88
-    ),
-    ParcelUiModel(
-        id = "parcel-demo-2",
-        code = "PR-002",
-        name = "Loma del Sol",
-        areaHectares = 22.1,
-        pastureType = "Mombasa",
-        status = "DISPONIBLE",
-        capacity = 60,
-        currentLot = "",
-        productivityPercent = 95
-    ),
-    ParcelUiModel(
-        id = "parcel-demo-3",
-        code = "PR-003",
-        name = "Bajo Húmedo",
-        areaHectares = 10.2,
-        pastureType = "Pasto mixto",
-        status = "DESCANSO",
-        capacity = 28,
-        currentLot = "",
-        productivityPercent = 45
-    )
-)
 
 private val initialMilkProductionRecords = listOf(
     MilkProductionUiModel(

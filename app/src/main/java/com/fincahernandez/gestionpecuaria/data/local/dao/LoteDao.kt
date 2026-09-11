@@ -29,6 +29,10 @@ interface LoteDao {
     @Query("SELECT * FROM lotes ORDER BY nombre")
     fun observarTodos(): Flow<List<LoteEntity>>
 
+    /** Obtiene una fotografía de los lotes para generar el siguiente código consecutivo. */
+    @Query("SELECT * FROM lotes ORDER BY codigo")
+    suspend fun obtenerTodos(): List<LoteEntity>
+
     /** Observa solamente los lotes que continúan abiertos. */
     @Query("SELECT * FROM lotes WHERE estado = 'ACTIVO' ORDER BY nombre")
     fun observarActivos(): Flow<List<LoteEntity>>
@@ -40,6 +44,35 @@ interface LoteDao {
     /** Busca un lote mediante el código utilizado por la finca. */
     @Query("SELECT * FROM lotes WHERE codigo = :codigo LIMIT 1")
     suspend fun buscarPorCodigo(codigo: String): LoteEntity?
+
+    /** Comprueba si una parcela está siendo utilizada por otro lote activo. */
+    @Query(
+        """
+        SELECT * FROM lotes
+        WHERE estado = 'ACTIVO'
+            AND parcelaNombre = :parcelaNombre COLLATE NOCASE
+            AND id != :loteExcluidoId
+        LIMIT 1
+        """
+    )
+    suspend fun buscarActivoPorParcela(
+        parcelaNombre: String,
+        loteExcluidoId: String = ""
+    ): LoteEntity?
+
+    /** Mantiene la referencia textual de los lotes cuando se renombra una parcela. */
+    @Query(
+        """
+        UPDATE lotes
+        SET parcelaNombre = :nombreNuevo, actualizadoEn = :actualizadoEn
+        WHERE parcelaNombre = :nombreAnterior COLLATE NOCASE
+        """
+    )
+    suspend fun actualizarNombreParcelaReferenciada(
+        nombreAnterior: String,
+        nombreNuevo: String,
+        actualizadoEn: Long = System.currentTimeMillis()
+    ): Int
 
     /** Inserta directamente un registro en el historial de asignaciones. */
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -66,6 +99,16 @@ interface LoteDao {
         """
     )
     suspend fun buscarAsignacionActiva(animalId: String): LoteAnimalEntity?
+
+    /** Emite las asignaciones actuales e históricas para actualizar listados y detalles. */
+    @Query("SELECT * FROM lote_animales ORDER BY fechaIngreso DESC")
+    fun observarAsignaciones(): Flow<List<LoteAnimalEntity>>
+
+    /** Recupera las asignaciones abiertas de un lote durante una edición transaccional. */
+    @Query(
+        "SELECT * FROM lote_animales WHERE loteId = :loteId AND fechaSalida IS NULL"
+    )
+    suspend fun obtenerAsignacionesActivasDelLote(loteId: String): List<LoteAnimalEntity>
 
     /** Observa los animales activos que actualmente pertenecen a un lote. */
     @Query(
@@ -107,6 +150,23 @@ interface LoteDao {
     )
     suspend fun finalizarAsignacionActiva(
         animalId: String,
+        fechaSalida: Long,
+        motivoSalida: String,
+        fechaActualizacion: Long = System.currentTimeMillis()
+    ): Int
+
+    /** Finaliza todas las pertenencias abiertas cuando se desactiva un lote. */
+    @Query(
+        """
+        UPDATE lote_animales
+        SET fechaSalida = :fechaSalida,
+            motivoSalida = :motivoSalida,
+            actualizadoEn = :fechaActualizacion
+        WHERE loteId = :loteId AND fechaSalida IS NULL
+        """
+    )
+    suspend fun finalizarAsignacionesDelLote(
+        loteId: String,
         fechaSalida: Long,
         motivoSalida: String,
         fechaActualizacion: Long = System.currentTimeMillis()

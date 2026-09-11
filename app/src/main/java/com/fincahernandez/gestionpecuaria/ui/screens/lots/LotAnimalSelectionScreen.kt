@@ -52,7 +52,9 @@ fun LotAnimalSelectionScreen(
     modifier: Modifier = Modifier
 ) {
     var search by rememberSaveable { mutableStateOf("") }
-    var selectedIds by rememberSaveable { mutableStateOf(initiallySelectedIds) }
+    var selectedIds by rememberSaveable(initiallySelectedIds) {
+        mutableStateOf(initiallySelectedIds)
+    }
 
     val filteredAnimals = animals.filter { animal ->
         search.isBlank() ||

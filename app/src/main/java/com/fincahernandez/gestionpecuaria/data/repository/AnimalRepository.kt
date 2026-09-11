@@ -95,8 +95,18 @@ class AnimalRepository(
      * Esta baja lógica evita violar las relaciones de trazabilidad de Room.
      */
     suspend fun removeAnimal(id: String) {
-        check(animalDao.desactivar(id) == 1) {
-            "No se encontró el animal que se desea eliminar"
+        database.withTransaction {
+            val now = System.currentTimeMillis()
+            check(animalDao.desactivar(id, now) == 1) {
+                "No se encontró el animal que se desea eliminar"
+            }
+            // Un animal inactivo no debe seguir ocupando un cupo dentro de un lote activo.
+            database.loteDao().finalizarAsignacionActiva(
+                animalId = id,
+                fechaSalida = now,
+                motivoSalida = "Animal retirado del inventario activo",
+                fechaActualizacion = now
+            )
         }
     }
 }

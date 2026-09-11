@@ -1,8 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.lots
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,10 +20,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Scale
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,12 +64,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Locale
 
-/** Modelo temporal utilizado por las vistas de lotes de HU-04. */
+/** Modelo presentado por las vistas a partir de los registros persistentes de Room. */
 data class LotUiModel(
     val id: String,
     val code: String,
@@ -113,6 +113,15 @@ fun LotListScreen(
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var statusFilter by rememberSaveable { mutableStateOf("ACTIVOS") }
+    val visibleLots = lots.filter { lot ->
+        when (statusFilter) {
+            "ACTIVOS" -> lot.status == "ACTIVO"
+            "CERRADOS" -> lot.status != "ACTIVO"
+            else -> true
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -152,31 +161,50 @@ fun LotListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
-            item { LotFinancialSummary() }
-            item { LotGrowthChart() }
+            item { LotOperationalSummary(lots) }
             item {
-                Text(
-                    "Lotes activos",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Lotes registrados",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("ACTIVOS", "CERRADOS", "TODOS").forEach { option ->
+                            FilterChip(
+                                selected = statusFilter == option,
+                                onClick = { statusFilter = option },
+                                label = {
+                                    Text(option.lowercase().replaceFirstChar { it.uppercase() })
+                                }
+                            )
+                        }
+                    }
+                }
             }
-            if (lots.isEmpty()) {
+            if (visibleLots.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(22.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("Aún no hay lotes", fontWeight = FontWeight.Bold)
-                            Text("Crea el primer lote para agrupar los animales de la finca.")
-                            OutlinedButton(onClick = onCreateLot) { Text("Crear primer lote") }
+                            Text("No hay lotes en esta categoría", fontWeight = FontWeight.Bold)
+                            Text(
+                                if (lots.isEmpty()) {
+                                    "Crea el primer lote para agrupar los animales de la finca."
+                                } else {
+                                    "Cambia el filtro para consultar los demás lotes."
+                                }
+                            )
+                            if (lots.isEmpty()) {
+                                OutlinedButton(onClick = onCreateLot) { Text("Crear primer lote") }
+                            }
                         }
                     }
                 }
             } else {
-                items(lots, key = { it.id }) { lot ->
+                items(visibleLots, key = { it.id }) { lot ->
                     LotCard(lot = lot, onClick = { onLotClick(lot.id) })
                 }
             }
@@ -185,29 +213,24 @@ fun LotListScreen(
     }
 }
 
-/** Indicadores financieros demostrativos tomados de la estructura del prototipo. */
+/** Resumen calculado únicamente con los lotes guardados en Room. */
 @Composable
-private fun LotFinancialSummary() {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Text("RENDIMIENTO FINANCIERO", color = Color.White.copy(alpha = 0.8f))
-                Text(
-                    "24.8 % ROI",
-                    color = Color.White,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text("+2.3 % este mes", color = Color.White)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SummaryValueCard("COSTOS TOTALES", "Q 142,500", Modifier.weight(1f))
-            SummaryValueCard("GANANCIA EST.", "Q 187,200", Modifier.weight(1f))
-        }
+private fun LotOperationalSummary(lots: List<LotUiModel>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SummaryValueCard(
+            "LOTES ACTIVOS",
+            lots.count { it.status == "ACTIVO" }.toString(),
+            Modifier.weight(1f)
+        )
+        SummaryValueCard(
+            "ANIMALES ASIGNADOS",
+            lots.filter { it.status == "ACTIVO" }
+                .flatMap { it.selectedAnimalIds }
+                .distinct()
+                .size
+                .toString(),
+            Modifier.weight(1f)
+        )
     }
 }
 
@@ -217,44 +240,6 @@ private fun SummaryValueCard(title: String, value: String, modifier: Modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.labelSmall)
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-/** Gráfico visual simple que no necesita dependencias externas. */
-@Composable
-private fun LotGrowthChart() {
-    val values = listOf(32, 42, 58, 76, 98, 118, 138)
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Crecimiento de peso comparativo", fontWeight = FontWeight.Bold)
-            Text("Evolución demostrativa del peso promedio", style = MaterialTheme.typography.bodySmall)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                values.forEachIndexed { index, height ->
-                    Box(
-                        modifier = Modifier
-                            .width(28.dp)
-                            .height(height.dp)
-                            .background(
-                                if (index == values.lastIndex) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f + index * 0.07f)
-                                },
-                                RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)
-                            )
-                    )
-                }
-            }
         }
     }
 }
@@ -297,7 +282,7 @@ private fun LotCard(lot: LotUiModel, onClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Peso promedio: ${lot.initialAverageWeight?.let { "$it lb" } ?: "Sin dato"}")
+                Text("Peso promedio: ${formatLotWeight(lot.initialAverageWeight)}")
                 Text(lot.parcelName.ifBlank { "Sin parcela" })
             }
         }
@@ -328,27 +313,45 @@ fun LotFormScreen(
     onOpenAnimalSelector: () -> Unit,
     onBack: () -> Unit,
     onSubmit: (LotFormData) -> Unit,
+    initialData: LotFormData? = null,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var name by rememberSaveable { mutableStateOf("") }
-    var type by rememberSaveable { mutableStateOf("ENGORDE") }
-    var parcelName by rememberSaveable { mutableStateOf("") }
-    var targetWeight by rememberSaveable { mutableStateOf("") }
-    var exitDate by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable(initialData?.name) { mutableStateOf(initialData?.name.orEmpty()) }
+    var type by rememberSaveable(initialData?.type) {
+        mutableStateOf(initialData?.type ?: "ENGORDE")
+    }
+    var parcelName by rememberSaveable(initialData?.parcelName) {
+        mutableStateOf(initialData?.parcelName.orEmpty())
+    }
+    var targetWeight by rememberSaveable(initialData?.targetWeight) {
+        mutableStateOf(initialData?.targetWeight.orEmpty())
+    }
+    var exitDate by rememberSaveable(initialData?.estimatedExitDate) {
+        mutableStateOf(initialData?.estimatedExitDate.orEmpty())
+    }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     // El promedio se obtiene únicamente de los animales seleccionados que tienen un peso registrado.
     val selectedAnimals = animalOptions.filter { it.id in selectedAnimalIds }
     val selectedWeights = selectedAnimals.mapNotNull { it.weightLibras }
     val initialAverageWeight = selectedWeights.takeIf { it.isNotEmpty() }?.average()
-    val targetWeightInvalid = targetWeight.isNotBlank() && targetWeight.toDoubleOrNull() == null
+    val parsedTargetWeight = targetWeight.replace(',', '.').toDoubleOrNull()
+    val targetWeightInvalid = targetWeight.isNotBlank() &&
+        (parsedTargetWeight == null || parsedTargetWeight <= 0.0)
     val formValid = name.isNotBlank() && !targetWeightInvalid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             BrandedTopAppBar(
-                title = { Text("Crear nuevo lote", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (initialData == null) "Crear nuevo lote" else "Editar lote",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
@@ -476,6 +479,11 @@ fun LotFormScreen(
                 )
             }
             item {
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         attemptedSave = true
@@ -493,13 +501,17 @@ fun LotFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar lote", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (isSaving) "Guardando…" else "Guardar lote",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -520,7 +532,7 @@ private fun NumericLotField(
         label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         isError = showError,
-        supportingText = if (showError) ({ Text("Ingrese un valor numérico válido.") }) else null,
+        supportingText = if (showError) ({ Text("Ingrese un valor mayor que cero.") }) else null,
         singleLine = true
     )
 }
@@ -549,6 +561,13 @@ private fun ParcelDropdown(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Sin asignar") },
+                onClick = {
+                    onSelected("")
+                    expanded = false
+                }
+            )
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option) },
@@ -622,10 +641,44 @@ fun LotDetailScreen(
     lot: LotUiModel,
     selectedAnimalLabels: List<String>,
     onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onDeactivate: () -> Unit,
     onRegisterWeight: () -> Unit,
     onNavigateMain: (String) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
+    var confirmDeactivate by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmDeactivate) {
+        AlertDialog(
+            onDismissRequest = { if (!isSaving) confirmDeactivate = false },
+            title = { Text("Cerrar lote") },
+            text = {
+                Text(
+                    "El lote quedará cerrado y se finalizarán sus asignaciones actuales. " +
+                        "El historial no se eliminará."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = {
+                        confirmDeactivate = false
+                        onDeactivate()
+                    }
+                ) { Text("Cerrar lote") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = { confirmDeactivate = false }
+                ) { Text("Cancelar") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -673,7 +726,7 @@ fun LotDetailScreen(
                     )
                     SummaryValueCard(
                         "PESO PROM.",
-                        lot.initialAverageWeight?.let { "$it lb" } ?: "Sin dato",
+                        formatLotWeight(lot.initialAverageWeight),
                         Modifier.weight(1f)
                     )
                 }
@@ -698,7 +751,10 @@ fun LotDetailScreen(
                         modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Animales seleccionados", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (lot.status == "ACTIVO") "Animales asignados" else "Historial de animales",
+                            fontWeight = FontWeight.Bold
+                        )
                         if (selectedAnimalLabels.isEmpty()) {
                             Text("Este lote todavía no tiene animales asignados.")
                         } else {
@@ -708,17 +764,54 @@ fun LotDetailScreen(
                 }
             }
             item {
-                Button(
-                    onClick = onRegisterWeight,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                ) {
-                    Icon(Icons.Default.Scale, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Registrar pesaje")
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            if (lot.status == "ACTIVO") {
+                item {
+                    Button(
+                        onClick = onEdit,
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Editar lote")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = onRegisterWeight,
+                        enabled = !isSaving && lot.selectedAnimalIds.isNotEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                    ) {
+                        Icon(Icons.Default.Scale, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Registrar pesaje")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { confirmDeactivate = true },
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                    ) {
+                        Icon(Icons.Default.StopCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (isSaving) "Cerrando…" else "Cerrar lote")
+                    }
                 }
             }
         }
     }
 }
+
+private fun formatLotWeight(weight: Double?): String =
+    weight?.let { "${String.format(Locale.getDefault(), "%.1f", it)} lb" } ?: "Sin dato"
