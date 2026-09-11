@@ -63,6 +63,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotWeightRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
@@ -79,6 +80,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.users.UserManagementScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.AnimalWeightOption
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingAnimalDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingAnimalSummary
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.weighings.WeighingUiModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.AnimalViewModel
@@ -160,12 +163,30 @@ fun AppNavigation() {
                         it.nombre?.takeIf(String::isNotBlank)?.let { name -> append(" • $name") }
                     }
                 } ?: "Animal no disponible",
+                lotId = weighing.loteId,
                 weightLibras = weighing.pesoLibras,
                 previousWeightLibras = previousWeightByRecordId[weighing.id],
+                dateMillis = weighing.fechaPesaje,
                 date = formatDate(weighing.fechaPesaje),
                 notes = weighing.observaciones.orEmpty()
             )
         }
+    }
+    val weighingAnimals = remember(animales, weighings) {
+        animales.map { animal ->
+            val animalRecords = weighings
+                .filter { it.animalId == animal.id }
+                .sortedByDescending { it.dateMillis }
+            val latest = animalRecords.firstOrNull()
+            WeighingAnimalSummary(
+                animalId = animal.id,
+                animalName = animal.nombre?.takeIf(String::isNotBlank) ?: "Animal sin nombre",
+                animalCode = animal.codigoIdentificacion,
+                currentWeightLibras = latest?.weightLibras,
+                lastWeighingDate = latest?.date.orEmpty(),
+                recordCount = animalRecords.size
+            )
+        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.animalName })
     }
     val lots = remember(storedLots) {
         storedLots.map { record ->
@@ -224,6 +245,11 @@ fun AppNavigation() {
     var parcelEditingId by rememberSaveable { mutableStateOf("") }
     var parcelIsSaving by remember { mutableStateOf(false) }
     var parcelSaveError by remember { mutableStateOf<String?>(null) }
+    var selectedWeighingAnimalId by rememberSaveable { mutableStateOf("") }
+    var weighingInitialAnimalId by rememberSaveable { mutableStateOf("") }
+    var weighingInitialLotId by rememberSaveable { mutableStateOf("") }
+    var weighingIsSaving by remember { mutableStateOf(false) }
+    var weighingSaveError by remember { mutableStateOf<String?>(null) }
     var milkProductionRecords by remember { mutableStateOf(initialMilkProductionRecords) }
     var financialMovements by remember { mutableStateOf(initialFinancialMovements) }
     var employees by remember { mutableStateOf(initialEmployees) }
@@ -364,7 +390,8 @@ fun AppNavigation() {
         Routes.LOT_DETAIL -> Routes.LOTS
         Routes.PARCEL_FORM,
         Routes.PARCEL_DETAIL -> Routes.PARCELS
-        Routes.WEIGHING_FORM -> Routes.WEIGHINGS
+        Routes.WEIGHING_FORM,
+        Routes.WEIGHING_ANIMAL_DETAIL -> Routes.WEIGHINGS
         Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
         Routes.SANITARY_FORM -> Routes.SANITARY
         Routes.FINANCE_FORM -> Routes.FINANCE
@@ -398,6 +425,11 @@ fun AppNavigation() {
             if (destination == Routes.ANIMAL_FORM) {
                 animalEnEdicionId = null
                 animalSaveError = null
+            }
+            if (destination == Routes.WEIGHING_FORM) {
+                weighingInitialAnimalId = ""
+                weighingInitialLotId = ""
+                weighingSaveError = null
             }
             navController.navigate(destination) { launchSingleTop = true }
         }
@@ -766,7 +798,12 @@ fun AppNavigation() {
                                 }
                         }
                     },
-                    onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
+                    onRegisterWeight = {
+                        weighingInitialAnimalId = animal.id
+                        weighingInitialLotId = activeLotByAnimalId[animal.id].orEmpty()
+                        weighingSaveError = null
+                        navController.navigate(Routes.WEIGHING_FORM)
+                    },
                     sanitaryEventCount = sanitaryRecords.count { it.animalId == animal.id },
                     canManageHealth = "health" in currentUser?.permissionIds.orEmpty(),
                     onOpenSanitaryControl = {
@@ -893,6 +930,16 @@ fun AppNavigation() {
                     selectedAnimalLabels = allAnimalItems
                         .filter { it.id in lot.selectedAnimalIds }
                         .map { it.nombre ?: it.codigoIdentificacion },
+                    weightRecords = storedWeighings
+                        .filter { it.loteId == lot.id }
+                        .map { record ->
+                            LotWeightRecord(
+                                animalId = record.animalId,
+                                dateMillis = record.fechaPesaje,
+                                dateLabel = formatDate(record.fechaPesaje),
+                                weightPounds = record.pesoLibras
+                            )
+                        },
                     onBack = { navController.popBackStack() },
                     onEdit = {
                         lotEditingId = lot.id
@@ -911,7 +958,12 @@ fun AppNavigation() {
                             lotIsSaving = false
                         }
                     },
-                    onRegisterWeight = { navigateMain(Routes.WEIGHINGS) },
+                    onRegisterWeight = {
+                        weighingInitialAnimalId = ""
+                        weighingInitialLotId = lot.id
+                        weighingSaveError = null
+                        navController.navigate(Routes.WEIGHING_FORM)
+                    },
                     onNavigateMain = navigateMain,
                     isSaving = lotIsSaving,
                     saveError = lotSaveError
@@ -1018,15 +1070,52 @@ fun AppNavigation() {
             }
             composable(Routes.WEIGHINGS) {
                 WeighingListScreen(
-                    weighings = weighings,
+                    animals = weighingAnimals,
                     onMenuClick = openDrawer,
-                    onCreateWeighing = { navController.navigate(Routes.WEIGHING_FORM) },
+                    onCreateWeighing = {
+                        weighingInitialAnimalId = ""
+                        weighingInitialLotId = ""
+                        weighingSaveError = null
+                        navController.navigate(Routes.WEIGHING_FORM)
+                    },
+                    onAnimalClick = { animalId ->
+                        selectedWeighingAnimalId = animalId
+                        navController.navigate(Routes.WEIGHING_ANIMAL_DETAIL)
+                    },
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.WEIGHING_ANIMAL_DETAIL) {
+                val animal = weighingAnimals.firstOrNull { it.animalId == selectedWeighingAnimalId }
+                if (animal == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.WEIGHINGS) }
+                    return@composable
+                }
+                WeighingAnimalDetailScreen(
+                    animal = animal,
+                    records = weighings.filter { it.animalId == animal.animalId },
+                    onBack = { navController.popBackStack() },
+                    onRegisterWeight = {
+                        weighingInitialAnimalId = animal.animalId
+                        weighingInitialLotId = activeLotByAnimalId[animal.animalId].orEmpty()
+                        weighingSaveError = null
+                        navController.navigate(Routes.WEIGHING_FORM)
+                    },
                     onNavigateMain = navigateMain
                 )
             }
 
             composable(Routes.WEIGHING_FORM) {
-                val animalOptions = animales.map { animal ->
+                val sourceAnimals = if (weighingInitialLotId.isBlank()) {
+                    animales
+                } else {
+                    val lotAnimalIds = lots.firstOrNull { it.id == weighingInitialLotId }
+                        ?.selectedAnimalIds
+                        .orEmpty()
+                    animales.filter { it.id in lotAnimalIds }
+                }
+                val animalOptions = sourceAnimals.map { animal ->
                     AnimalWeightOption(
                         id = animal.id,
                         label = buildString {
@@ -1038,24 +1127,40 @@ fun AppNavigation() {
                 }
                 WeighingFormScreen(
                     animalOptions = animalOptions,
+                    initialAnimalId = weighingInitialAnimalId,
+                    contextLotLabel = lots.firstOrNull { it.id == weighingInitialLotId }
+                        ?.let { "${it.code} · ${it.name}" },
+                    isSaving = weighingIsSaving,
+                    saveError = weighingSaveError,
                     onBack = { navController.popBackStack() },
                     onSubmit = { form ->
                         val selectedAnimal = animales.first { it.id == form.animalId }
-                        val newWeight = form.weightLibras.toDouble()
+                        val newWeight = form.weightLibras.replace(',', '.').toDouble()
+                        val associatedLotId = weighingInitialLotId.takeIf { it.isNotBlank() }
+                            ?: activeLotByAnimalId[selectedAnimal.id]
 
                         coroutineScope.launch {
+                            weighingIsSaving = true
+                            weighingSaveError = null
                             runCatching {
                                 animalViewModel.registerWeight(
                                     animalId = selectedAnimal.id,
                                     weightPounds = newWeight,
                                     weighingDate = parseDate(form.date) ?: System.currentTimeMillis(),
-                                    notes = form.notes.ifBlank { null }
+                                    notes = form.notes.ifBlank { null },
+                                    lotId = associatedLotId,
+                                    recordType = if (associatedLotId == null) "INDIVIDUAL" else "LOTE"
                                 )
                             }.onSuccess {
-                                if (!navController.popBackStack(Routes.WEIGHINGS, false)) {
+                                weighingInitialAnimalId = ""
+                                weighingInitialLotId = ""
+                                if (!navController.popBackStack()) {
                                     navigateMain(Routes.WEIGHINGS)
                                 }
+                            }.onFailure { error ->
+                                weighingSaveError = error.message ?: "No se pudo guardar el pesaje."
                             }
+                            weighingIsSaving = false
                         }
                     }
                 )

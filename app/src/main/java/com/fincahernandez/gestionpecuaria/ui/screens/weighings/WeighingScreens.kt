@@ -1,8 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.weighings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,9 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -53,6 +51,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
+import com.fincahernandez.gestionpecuaria.ui.components.WeightTrendChart
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Locale
 import kotlin.math.abs
@@ -69,8 +69,10 @@ data class WeighingUiModel(
     val id: String,
     val animalId: String,
     val animalLabel: String,
+    val lotId: String? = null,
     val weightLibras: Double,
     val previousWeightLibras: Double? = null,
+    val dateMillis: Long,
     val date: String,
     val notes: String
 ) {
@@ -78,6 +80,16 @@ data class WeighingUiModel(
     val differenceLibras: Double?
         get() = previousWeightLibras?.let { weightLibras - it }
 }
+
+/** Una sola fila por animal para evitar repetirlo por cada pesaje histórico. */
+data class WeighingAnimalSummary(
+    val animalId: String,
+    val animalName: String,
+    val animalCode: String,
+    val currentWeightLibras: Double?,
+    val lastWeighingDate: String,
+    val recordCount: Int
+)
 
 /** Datos validados entregados por el formulario. */
 data class WeighingFormData(
@@ -91,17 +103,21 @@ data class WeighingFormData(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeighingListScreen(
-    weighings: List<WeighingUiModel>,
+    animals: List<WeighingAnimalSummary>,
     onMenuClick: () -> Unit,
     onCreateWeighing: () -> Unit,
+    onAnimalClick: (String) -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var search by rememberSaveable { mutableStateOf("") }
-    val filteredWeighings = weighings.filter { record ->
-        search.isBlank() || record.animalLabel.contains(search, ignoreCase = true)
+    val filteredAnimals = animals.filter { animal ->
+        search.isBlank() ||
+            animal.animalName.contains(search, ignoreCase = true) ||
+            animal.animalCode.contains(search, ignoreCase = true)
     }
-    val averageWeight = weighings.map { it.weightLibras }.average().takeUnless { it.isNaN() }
+    val currentWeights = animals.mapNotNull { it.currentWeightLibras }
+    val averageWeight = currentWeights.average().takeUnless { it.isNaN() }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -147,7 +163,7 @@ fun WeighingListScreen(
                     value = search,
                     onValueChange = { search = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Buscar pesaje") },
+                    label = { Text("Buscar animal") },
                     placeholder = { Text("Código o nombre del animal") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true
@@ -161,36 +177,40 @@ fun WeighingListScreen(
                         modifier = Modifier.weight(1f)
                     )
                     WeighingSummaryCard(
-                        title = "REGISTROS",
-                        value = weighings.size.toString(),
+                        title = "CON PESO",
+                        value = currentWeights.size.toString(),
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
-            item { WeighingGrowthChart(weighings) }
             item {
                 Text(
-                    "Pesajes recientes",
+                    "Animales",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
+                Text(
+                    "Seleccione un animal para consultar su evolución y diferencias de peso.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-            if (filteredWeighings.isEmpty()) {
+            if (filteredAnimals.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             if (search.isBlank()) {
-                                "Aún no hay pesajes registrados."
+                                "Aún no hay animales registrados."
                             } else {
-                                "No se encontraron pesajes para esa búsqueda."
+                                "No se encontraron animales para esa búsqueda."
                             },
                             modifier = Modifier.padding(20.dp)
                         )
                     }
                 }
             } else {
-                items(filteredWeighings, key = { it.id }) { record ->
-                    WeighingRecordCard(record)
+                items(filteredAnimals, key = { it.animalId }) { animal ->
+                    WeighingAnimalCard(animal = animal, onClick = { onAnimalClick(animal.animalId) })
                 }
             }
             item { Spacer(modifier = Modifier.height(76.dp)) }
@@ -216,42 +236,145 @@ private fun WeighingSummaryCard(title: String, value: String, modifier: Modifier
     }
 }
 
-/** Gráfico visual con los últimos pesos registrados. */
 @Composable
-private fun WeighingGrowthChart(weighings: List<WeighingUiModel>) {
-    val values = weighings.takeLast(7).map { it.weightLibras }
-    val maximum = values.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+private fun WeighingAnimalCard(animal: WeighingAnimalSummary, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Crecimiento reciente", fontWeight = FontWeight.Bold)
-            if (values.isEmpty()) {
-                Text("El gráfico aparecerá después del primer pesaje.")
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.Bottom
+            Icon(
+                Icons.Default.Scale,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(animal.animalName, fontWeight = FontWeight.Bold)
+                Text(animal.animalCode, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (animal.recordCount == 0) "Sin pesajes registrados"
+                    else "${animal.recordCount} pesaje(s) · Último: ${animal.lastWeighingDate}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                animal.currentWeightLibras?.let { "${oneDecimal(it)} lb" } ?: "—",
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Historial y tendencia de un solo animal, sin mezclar medidas de otros animales. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WeighingAnimalDetailScreen(
+    animal: WeighingAnimalSummary,
+    records: List<WeighingUiModel>,
+    onBack: () -> Unit,
+    onRegisterWeight: () -> Unit,
+    onNavigateMain: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val orderedRecords = records.sortedByDescending { it.dateMillis }
+    val latest = orderedRecords.firstOrNull()
+    val trendPoints = orderedRecords
+        .asReversed()
+        .map { record -> WeightChartPoint(record.date.take(5), record.weightLibras) }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Evolución de peso", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            AppBottomBar(selectedRoute = Routes.WEIGHINGS, onNavigate = onNavigateMain)
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onRegisterWeight,
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Nuevo pesaje") }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
                 ) {
-                    values.forEach { value ->
-                        val height = (value / maximum * 115).toInt().coerceAtLeast(20)
-                        Box(
-                            modifier = Modifier
-                                .width(30.dp)
-                                .height(height.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(topStart = 5.dp, topEnd = 5.dp)
-                                )
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(animal.animalName, style = MaterialTheme.typography.headlineSmall)
+                        Text(animal.animalCode, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            latest?.let { "Peso actual: ${oneDecimal(it.weightLibras)} lb" }
+                                ?: "Todavía no tiene pesajes",
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
+            latest?.let { lastRecord ->
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Última comparación", fontWeight = FontWeight.Bold)
+                            WeightComparisonContent(
+                                previousWeight = lastRecord.previousWeightLibras,
+                                currentWeight = lastRecord.weightLibras
+                            )
+                            Text("Fecha: ${lastRecord.date}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            item {
+                WeightTrendChart(
+                    title = "Tendencia real del animal",
+                    subtitle = "Últimos ${trendPoints.takeLast(12).size} pesajes registrados en libras.",
+                    points = trendPoints
+                )
+            }
+            item {
+                Text("Historial de pesajes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            if (orderedRecords.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text("Registre el primer pesaje para comenzar el historial.", Modifier.padding(18.dp))
+                    }
+                }
+            } else {
+                items(orderedRecords, key = { it.id }) { record -> WeighingRecordCard(record) }
+            }
+            item { Spacer(modifier = Modifier.height(76.dp)) }
         }
     }
 }
@@ -335,16 +458,20 @@ fun WeighingFormScreen(
     animalOptions: List<AnimalWeightOption>,
     onBack: () -> Unit,
     onSubmit: (WeighingFormData) -> Unit,
+    initialAnimalId: String = "",
+    contextLotLabel: String? = null,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var animalId by rememberSaveable { mutableStateOf("") }
+    var animalId by rememberSaveable(initialAnimalId) { mutableStateOf(initialAnimalId) }
     var weight by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     val selectedAnimal = animalOptions.firstOrNull { it.id == animalId }
-    val weightValue = weight.toDoubleOrNull()
+    val weightValue = weight.replace(',', '.').toDoubleOrNull()
     val weightInvalid = weight.isBlank() || weightValue == null || weightValue <= 0
     val formValid = animalId.isNotBlank() && !weightInvalid && date.isNotBlank()
 
@@ -370,6 +497,21 @@ fun WeighingFormScreen(
         ) {
             item {
                 Text("Ingrese los datos del pesaje actual.", style = MaterialTheme.typography.bodyLarge)
+            }
+            contextLotLabel?.let { lotLabel ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Pesaje asociado al lote", style = MaterialTheme.typography.labelMedium)
+                            Text(lotLabel, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
             item {
                 AnimalWeightDropdown(
@@ -452,6 +594,11 @@ fun WeighingFormScreen(
                 )
             }
             item {
+                saveError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         attemptedSave = true
@@ -466,13 +613,14 @@ fun WeighingFormScreen(
                             )
                         }
                     },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Guardar pesaje", fontWeight = FontWeight.Bold)
+                    Text(if (isSaving) "Guardando…" else "Guardar pesaje", fontWeight = FontWeight.Bold)
                 }
             }
         }

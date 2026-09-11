@@ -64,8 +64,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
+import com.fincahernandez.gestionpecuaria.ui.components.WeightTrendChart
 import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
+import java.util.Calendar
 import java.util.Locale
 
 /** Modelo presentado por las vistas a partir de los registros persistentes de Room. */
@@ -100,6 +103,14 @@ data class LotAnimalOption(
     val name: String?,
     val category: String,
     val weightLibras: Double?
+)
+
+/** Pesaje real asociado al lote, usado para calcular promedios y tendencias. */
+data class LotWeightRecord(
+    val animalId: String,
+    val dateMillis: Long,
+    val dateLabel: String,
+    val weightPounds: Double
 )
 
 /** Panel y listado independiente de lotes activos. */
@@ -640,6 +651,7 @@ private fun CompactDateField(
 fun LotDetailScreen(
     lot: LotUiModel,
     selectedAnimalLabels: List<String>,
+    weightRecords: List<LotWeightRecord>,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDeactivate: () -> Unit,
@@ -650,6 +662,27 @@ fun LotDetailScreen(
     modifier: Modifier = Modifier
 ) {
     var confirmDeactivate by rememberSaveable { mutableStateOf(false) }
+    var selectedWeightPeriod by rememberSaveable { mutableStateOf("TODO") }
+    val periodStart = weightPeriodStart(selectedWeightPeriod)
+    val filteredWeightRecords = weightRecords.filter { record ->
+        periodStart == null || record.dateMillis >= periodStart
+    }
+    val weightTrend = filteredWeightRecords
+        .groupBy { it.dateLabel }
+        .map { (date, records) ->
+            records.minOf { it.dateMillis } to WeightChartPoint(
+                label = date.take(5),
+                valuePounds = records.map { it.weightPounds }.average()
+            )
+        }
+        .sortedBy { it.first }
+        .map { it.second }
+    val currentAverageWeight = weightRecords
+        .groupBy { it.animalId }
+        .values
+        .mapNotNull { records -> records.maxByOrNull { it.dateMillis }?.weightPounds }
+        .takeIf { it.isNotEmpty() }
+        ?.average()
 
     if (confirmDeactivate) {
         AlertDialog(
@@ -726,10 +759,32 @@ fun LotDetailScreen(
                     )
                     SummaryValueCard(
                         "PESO PROM.",
-                        formatLotWeight(lot.initialAverageWeight),
+                        formatLotWeight(currentAverageWeight ?: lot.initialAverageWeight),
                         Modifier.weight(1f)
                     )
                 }
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Evolución del lote", fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("30 DÍAS", "MES", "AÑO", "TODO").forEach { period ->
+                            FilterChip(
+                                selected = selectedWeightPeriod == period,
+                                onClick = { selectedWeightPeriod = period },
+                                label = { Text(period) }
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                WeightTrendChart(
+                    title = "Promedio histórico real",
+                    subtitle = "Promedio de ${filteredWeightRecords.size} pesaje(s) individuales del período seleccionado.",
+                    points = weightTrend,
+                    emptyMessage = "No hay pesajes asociados a este lote durante el período."
+                )
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -815,3 +870,20 @@ fun LotDetailScreen(
 
 private fun formatLotWeight(weight: Double?): String =
     weight?.let { "${String.format(Locale.getDefault(), "%.1f", it)} lb" } ?: "Sin dato"
+
+/** Inicio del período elegido para filtrar la gráfica sin fabricar valores. */
+private fun weightPeriodStart(period: String, now: Long = System.currentTimeMillis()): Long? {
+    if (period == "TODO") return null
+    return Calendar.getInstance().apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        when (period) {
+            "30 DÍAS" -> add(Calendar.DAY_OF_YEAR, -30)
+            "MES" -> set(Calendar.DAY_OF_MONTH, 1)
+            "AÑO" -> set(Calendar.DAY_OF_YEAR, 1)
+        }
+    }.timeInMillis
+}

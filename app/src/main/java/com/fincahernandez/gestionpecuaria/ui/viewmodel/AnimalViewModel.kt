@@ -38,6 +38,15 @@ class AnimalViewModel(application: Application) : AndroidViewModel(application) 
         animalId: String,
         weightPounds: Double,
         weighingDate: Long,
-        notes: String?
-    ) = repository.registerWeight(animalId, weightPounds, weighingDate, notes)
+        notes: String?,
+        lotId: String? = null,
+        recordType: String = "INDIVIDUAL"
+    ) = repository.registerWeight(
+        animalId = animalId,
+        weightPounds = weightPounds,
+        weighingDate = weighingDate,
+        notes = notes,
+        lotId = lotId,
+        recordType = recordType
+    )
 }

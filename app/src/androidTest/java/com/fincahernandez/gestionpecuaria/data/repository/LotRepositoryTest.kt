@@ -83,6 +83,46 @@ class LotRepositoryTest {
         assertTrue("animal-2" in stored.historicalAnimalIds)
     }
 
+    @Test
+    fun individualWeightKeepsAnimalAndLotTraceability() = runBlocking {
+        database.animalDao().insertar(testAnimal("animal-1", "FH-001"))
+        ParcelRepository(database).createParcel(
+            ParcelDraft(
+                name = "Potrero Norte",
+                areaHectares = 10.0,
+                pastureType = "Mombasa",
+                capacity = 20
+            )
+        )
+        val lotId = repository.createLot(testDraft(listOf("animal-1")))
+        val weighingDate = 1_800_000_000_000
+
+        AnimalRepository(database).registerWeight(
+            animalId = "animal-1",
+            weightPounds = 475.0,
+            weighingDate = weighingDate,
+            notes = "Pesaje de control",
+            lotId = lotId,
+            recordType = "LOTE"
+        )
+
+        val records = database.pesajeDao().obtenerPorLoteYPeriodo(
+            loteId = lotId,
+            fechaInicio = weighingDate - 1,
+            fechaFin = weighingDate + 1
+        )
+        assertEquals(1, records.size)
+        assertEquals("animal-1", records.single().animalId)
+        assertEquals(lotId, records.single().loteId)
+        assertEquals("LOTE", records.single().tipoRegistro)
+        val average = database.pesajeDao().obtenerPesoPromedioDelLote(
+            loteId = lotId,
+            fechaInicio = weighingDate - 1,
+            fechaFin = weighingDate + 1
+        )
+        assertEquals(475.0, average ?: 0.0, 0.001)
+    }
+
     private fun openDatabase() {
         database = Room.databaseBuilder(
             context,

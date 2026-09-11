@@ -19,6 +19,7 @@ object Routes {
     const val PARCEL_DETAIL = "parcel_detail"
     const val WEIGHINGS = "weighings"
     const val WEIGHING_FORM = "weighing_form"
+    const val WEIGHING_ANIMAL_DETAIL = "weighing_animal_detail"
     const val MILK_PRODUCTION = "milk_production"
     const val MILK_PRODUCTION_FORM = "milk_production_form"
     const val SANITARY = "sanitary"

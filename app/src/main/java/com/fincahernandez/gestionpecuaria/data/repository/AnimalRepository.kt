@@ -78,13 +78,17 @@ class AnimalRepository(
         animalId: String,
         weightPounds: Double,
         weighingDate: Long,
-        notes: String?
+        notes: String?,
+        lotId: String? = null,
+        recordType: String = "INDIVIDUAL"
     ) {
         weighingDao.insertar(
             PesajeEntity(
                 animalId = animalId,
+                loteId = lotId,
                 pesoLibras = weightPounds,
                 fechaPesaje = weighingDate,
+                tipoRegistro = recordType,
                 observaciones = notes
             )
         )
