@@ -70,6 +70,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkExportResult
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportPreview
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportResult
+import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportMode
 import com.fincahernandez.gestionpecuaria.data.transfer.DataTransferModule
 import com.fincahernandez.gestionpecuaria.data.transfer.bulkImportTemplateCsv
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
@@ -116,10 +117,18 @@ fun ReportsCenterScreen(
     onBulkExport: suspend (Uri, Set<DataTransferModule>) -> BulkExportResult = { _, _ ->
         error("La exportación masiva no está disponible en esta vista previa.")
     },
-    onInspectBulkImport: suspend (Uri, Set<DataTransferModule>) -> BulkImportPreview = { _, _ ->
+    onInspectBulkImport: suspend (
+        Uri,
+        Set<DataTransferModule>,
+        BulkImportMode
+    ) -> BulkImportPreview = { _, _, _ ->
         error("La importación masiva no está disponible en esta vista previa.")
     },
-    onBulkImport: suspend (Uri, Set<DataTransferModule>) -> BulkImportResult = { _, _ ->
+    onBulkImport: suspend (
+        Uri,
+        Set<DataTransferModule>,
+        BulkImportMode
+    ) -> BulkImportResult = { _, _, _ ->
         error("La importación masiva no está disponible en esta vista previa.")
     },
     modifier: Modifier = Modifier
@@ -139,6 +148,8 @@ fun ReportsCenterScreen(
     var pendingBulkImportUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBulkImportPreview by remember { mutableStateOf<BulkImportPreview?>(null) }
     var pendingBulkImportModules by remember { mutableStateOf<Set<DataTransferModule>>(emptySet()) }
+    var pendingBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
+    var selectedBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
     var selectedTransferModules by remember {
         mutableStateOf(setOf(DataTransferModule.ANIMALS))
     }
@@ -278,7 +289,9 @@ fun ReportsCenterScreen(
         uri?.takeIf { isGeneralAdministrator }?.let {
             coroutineScope.launch {
                 isTransferring = true
-                runCatching { onInspectBulkImport(it, selectedTransferModules) }
+                runCatching {
+                    onInspectBulkImport(it, selectedTransferModules, selectedBulkImportMode)
+                }
                     .mapCatching { preview ->
                         require(preview.totalCount > 0) {
                             "El archivo no contiene filas para importar."
@@ -289,6 +302,7 @@ fun ReportsCenterScreen(
                         pendingBulkImportUri = it
                         pendingBulkImportPreview = preview
                         pendingBulkImportModules = selectedTransferModules
+                        pendingBulkImportMode = selectedBulkImportMode
                     }
                     .onFailure { error ->
                         operationTitle = "Importación no válida"
@@ -444,18 +458,49 @@ fun ReportsCenterScreen(
                                 FilterChip(
                                     selected = module in selectedTransferModules,
                                     onClick = {
-                                        selectedTransferModules = if (
+                                        val updatedModules = if (
                                             module in selectedTransferModules
                                         ) {
                                             selectedTransferModules - module
                                         } else {
                                             selectedTransferModules + module
                                         }
+                                        selectedTransferModules = updatedModules
+                                        if (DataTransferModule.ANIMALS !in updatedModules) {
+                                            selectedBulkImportMode = BulkImportMode.MERGE
+                                        }
                                     },
                                     label = { Text(module.displayName) },
                                     enabled = !isTransferring,
                                     modifier = Modifier.fillMaxWidth()
                                 )
+                            }
+                            if (DataTransferModule.ANIMALS in selectedTransferModules) {
+                                FilterChip(
+                                    selected = selectedBulkImportMode ==
+                                        BulkImportMode.INITIAL_LOAD_REPLACE,
+                                    onClick = {
+                                        selectedBulkImportMode = if (
+                                            selectedBulkImportMode == BulkImportMode.MERGE
+                                        ) {
+                                            BulkImportMode.INITIAL_LOAD_REPLACE
+                                        } else {
+                                            BulkImportMode.MERGE
+                                        }
+                                    },
+                                    label = { Text("Carga inicial: reemplazar historial de prueba") },
+                                    enabled = !isTransferring,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                if (selectedBulkImportMode == BulkImportMode.INITIAL_LOAD_REPLACE) {
+                                    Text(
+                                        "Al importar se eliminarán los pesajes, controles sanitarios " +
+                                            "y asignaciones anteriores de los códigos incluidos. " +
+                                            "Los códigos se conservarán.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                             Text(
                                 "Las columnas terminadas en NoEditar conservan la identidad de " +
@@ -671,19 +716,28 @@ fun ReportsCenterScreen(
     }
 
     pendingBulkImportPreview?.let { preview ->
+        val replacesInitialData = pendingBulkImportMode == BulkImportMode.INITIAL_LOAD_REPLACE
         AlertDialog(
             onDismissRequest = {
                 pendingBulkImportUri = null
                 pendingBulkImportPreview = null
                 pendingBulkImportModules = emptySet()
+                pendingBulkImportMode = BulkImportMode.MERGE
             },
-            title = { Text("Confirmar importación masiva") },
+            title = {
+                Text(if (replacesInitialData) "Confirmar carga inicial" else "Confirmar importación masiva")
+            },
             text = {
                 Text(
                     "Se procesarán ${preview.animalCount} animales, " +
                         "${preview.weighingCount} pesajes y " +
                         "${preview.sanitaryCount} registros sanitarios. " +
-                        "Los animales cuyo código ya exista serán actualizados."
+                        if (replacesInitialData) {
+                            "Se conservarán sus códigos, pero se eliminará definitivamente " +
+                                "el historial anterior de los animales incluidos."
+                        } else {
+                            "Los animales cuyo código ya exista serán actualizados sin borrar su historial."
+                        }
                 )
             },
             dismissButton = {
@@ -691,6 +745,7 @@ fun ReportsCenterScreen(
                     pendingBulkImportUri = null
                     pendingBulkImportPreview = null
                     pendingBulkImportModules = emptySet()
+                    pendingBulkImportMode = BulkImportMode.MERGE
                 }) { Text("Cancelar") }
             },
             confirmButton = {
@@ -698,16 +753,18 @@ fun ReportsCenterScreen(
                     onClick = {
                         val uri = pendingBulkImportUri ?: return@Button
                         val modules = pendingBulkImportModules
+                        val mode = pendingBulkImportMode
                         pendingBulkImportUri = null
                         pendingBulkImportPreview = null
                         pendingBulkImportModules = emptySet()
+                        pendingBulkImportMode = BulkImportMode.MERGE
                         coroutineScope.launch {
                             isTransferring = true
                             runCatching {
                                 check(isGeneralAdministrator) {
                                     "Solo el Administrador General puede importar datos."
                                 }
-                                onBulkImport(uri, modules)
+                                onBulkImport(uri, modules, mode)
                             }.onSuccess { result ->
                                 importedData = null
                                 operationTitle = "Importación completada"
@@ -720,7 +777,7 @@ fun ReportsCenterScreen(
                             isTransferring = false
                         }
                     }
-                ) { Text("Importar") }
+                ) { Text(if (replacesInitialData) "Reemplazar e importar" else "Importar") }
             }
         )
     }
@@ -820,10 +877,14 @@ private fun BulkExportResult.successMessage(): String =
     "Se exportaron $animalCount animales, $weighingCount pesajes y " +
         "$sanitaryCount registros sanitarios. Puede editar el archivo en Excel e importarlo nuevamente."
 
-private fun BulkImportResult.successMessage(): String =
-    "Se crearon $animalsCreated animales, se actualizaron $animalsUpdated, " +
-        "se importaron $weighingsImported pesajes y " +
-        "$sanitaryRecordsImported registros sanitarios."
+private fun BulkImportResult.successMessage(): String = buildString {
+    append("Se crearon $animalsCreated animales, se actualizaron $animalsUpdated, ")
+    append("se importaron $weighingsImported pesajes y ")
+    append("$sanitaryRecordsImported registros sanitarios.")
+    if (animalHistoriesReplaced > 0) {
+        append(" Se reemplazó el historial de prueba de $animalHistoriesReplaced animales.")
+    }
+}
 
 /**
  * Formato sencillo y estable que puede abrir Excel y que la aplicación puede validar

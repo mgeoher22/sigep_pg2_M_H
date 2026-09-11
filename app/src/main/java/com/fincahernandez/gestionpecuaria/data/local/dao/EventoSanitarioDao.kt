@@ -28,6 +28,10 @@ interface EventoSanitarioDao {
     )
     fun observarDelAnimal(animalId: String): Flow<List<EventoSanitarioEntity>>
 
+    /** Elimina registros de prueba al reemplazar un animal durante la carga inicial. */
+    @Query("DELETE FROM eventos_sanitarios WHERE animalId = :animalId")
+    suspend fun eliminarPorAnimalParaCargaInicial(animalId: String): Int
+
     /** Mantiene sincronizado el estado visible en la ficha general del animal. */
     @Query(
         "UPDATE animales SET estadoSalud = :estadoSalud, actualizadoEn = :actualizadoEn " +

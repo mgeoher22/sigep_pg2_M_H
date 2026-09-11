@@ -24,6 +24,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
 import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.ui.components.LocalLogoutAction
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
@@ -134,6 +135,9 @@ fun AppNavigation() {
     val allAnimalItems = animalItemCollections.all
     val animales = animalItemCollections.active
     val animalItemsById = remember(allAnimalItems) { allAnimalItems.associateBy { it.id } }
+    val previousWeightByRecordId = remember(storedWeighings) {
+        buildPreviousWeightByRecordId(storedWeighings)
+    }
     val weighings = remember(storedWeighings, animalItemsById) {
         storedWeighings.map { weighing ->
             val animal = animalItemsById[weighing.animalId]
@@ -147,6 +151,7 @@ fun AppNavigation() {
                     }
                 } ?: "Animal no disponible",
                 weightLibras = weighing.pesoLibras,
+                previousWeightLibras = previousWeightByRecordId[weighing.id],
                 date = formatDate(weighing.fechaPesaje),
                 notes = weighing.observaciones.orEmpty()
             )
@@ -1063,17 +1068,17 @@ fun AppNavigation() {
                         }
                         bulkDataImportViewModel.export(uri, modules)
                     },
-                    onInspectBulkImport = { uri, modules ->
+                    onInspectBulkImport = { uri, modules, mode ->
                         check(currentUser?.roleName == "Administrador General") {
                             "Solo el Administrador General puede importar datos."
                         }
-                        bulkDataImportViewModel.inspect(uri, modules)
+                        bulkDataImportViewModel.inspect(uri, modules, mode)
                     },
-                    onBulkImport = { uri, modules ->
+                    onBulkImport = { uri, modules, mode ->
                         check(currentUser?.roleName == "Administrador General") {
                             "Solo el Administrador General puede importar datos."
                         }
-                        bulkDataImportViewModel.import(uri, modules)
+                        bulkDataImportViewModel.import(uri, modules, mode)
                     },
                     onMenuClick = openDrawer,
                     onNavigateMain = navigateMain
@@ -1135,6 +1140,28 @@ fun AppNavigation() {
         }
     }
 }
+}
+
+/**
+ * Relaciona cada pesaje con la medición cronológicamente anterior del mismo animal.
+ * Agrupar primero evita comparar accidentalmente animales diferentes.
+ */
+internal fun buildPreviousWeightByRecordId(
+    weighings: List<PesajeEntity>
+): Map<String, Double?> = buildMap {
+    weighings.groupBy { it.animalId }.values.forEach { animalWeighings ->
+        var previousWeight: Double? = null
+        animalWeighings
+            .sortedWith(
+                compareBy<PesajeEntity> {
+                    it.fechaPesaje
+                }.thenBy { it.creadoEn }.thenBy { it.id }
+            )
+            .forEach { weighing ->
+                put(weighing.id, previousWeight)
+                previousWeight = weighing.pesoLibras
+            }
+    }
 }
 
 /** Traduce los permisos efectivos del usuario a los destinos que puede abrir. */

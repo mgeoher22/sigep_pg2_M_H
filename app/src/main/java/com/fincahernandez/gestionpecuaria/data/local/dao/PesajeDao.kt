@@ -30,6 +30,10 @@ interface PesajeDao {
     @Update
     suspend fun actualizar(pesaje: PesajeEntity)
 
+    /** Elimina el historial anterior únicamente durante una carga inicial confirmada. */
+    @Query("DELETE FROM pesajes WHERE animalId = :animalId")
+    suspend fun eliminarPorAnimalParaCargaInicial(animalId: String): Int
+
     /** Observa cronológicamente todos los pesajes de un animal. */
     @Query(
         """

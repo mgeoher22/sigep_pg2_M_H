@@ -91,6 +91,10 @@ interface LoteDao {
     )
     fun observarHistorialDelAnimal(animalId: String): Flow<List<LoteAnimalEntity>>
 
+    /** Retira asignaciones de prueba antes de reutilizar el animal en la carga inicial. */
+    @Query("DELETE FROM lote_animales WHERE animalId = :animalId")
+    suspend fun eliminarAsignacionesParaCargaInicial(animalId: String): Int
+
     /** Finaliza la pertenencia actual del animal sin eliminar el registro. */
     @Query(
         """

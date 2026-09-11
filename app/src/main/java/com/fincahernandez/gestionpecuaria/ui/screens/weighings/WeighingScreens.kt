@@ -53,9 +53,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Locale
+import kotlin.math.abs
 
 /** Opción seleccionable de animal con su peso anterior. */
 data class AnimalWeightOption(
@@ -64,15 +64,20 @@ data class AnimalWeightOption(
     val previousWeightLibras: Double?
 )
 
-/** Registro temporal visible en el panel de pesajes. */
+/** Registro persistente acompañado por la medición anterior del mismo animal. */
 data class WeighingUiModel(
     val id: String,
     val animalId: String,
     val animalLabel: String,
     val weightLibras: Double,
+    val previousWeightLibras: Double? = null,
     val date: String,
     val notes: String
-)
+) {
+    /** Diferencia positiva si ganó peso y negativa si perdió. */
+    val differenceLibras: Double?
+        get() = previousWeightLibras?.let { weightLibras - it }
+}
 
 /** Datos validados entregados por el formulario. */
 data class WeighingFormData(
@@ -137,7 +142,6 @@ fun WeighingListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 OutlinedTextField(
                     value = search,
@@ -255,30 +259,73 @@ private fun WeighingGrowthChart(weighings: List<WeighingUiModel>) {
 @Composable
 private fun WeighingRecordCard(record: WeighingUiModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                Icons.Default.Scale,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(record.animalLabel, fontWeight = FontWeight.Bold)
-                Text(record.date, style = MaterialTheme.typography.bodySmall)
-                if (record.notes.isNotBlank()) {
-                    Text(record.notes, style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Scale,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(record.animalLabel, fontWeight = FontWeight.Bold)
+                    Text(record.date, style = MaterialTheme.typography.bodySmall)
                 }
+                Text(
+                    "${oneDecimal(record.weightLibras)} lb",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            Text(
-                "${oneDecimal(record.weightLibras)} lb",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
+            WeightComparisonContent(
+                previousWeight = record.previousWeightLibras,
+                currentWeight = record.weightLibras
             )
+            if (record.notes.isNotBlank()) {
+                Text(record.notes, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
+}
+
+/** Muestra los dos valores y expresa la variación sin obligar a calcularla mentalmente. */
+@Composable
+private fun WeightComparisonContent(previousWeight: Double?, currentWeight: Double) {
+    if (previousWeight == null) {
+        Text(
+            "Primer pesaje del animal; todavía no existe una medición para comparar.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+
+    val difference = currentWeight - previousWeight
+    val comparisonText = when {
+        difference > WEIGHT_COMPARISON_TOLERANCE ->
+            "↑ Subió ${oneDecimal(difference)} lb"
+        difference < -WEIGHT_COMPARISON_TOLERANCE ->
+            "↓ Bajó ${oneDecimal(abs(difference))} lb"
+        else -> "Sin cambio de peso"
+    }
+    val comparisonColor = when {
+        difference > WEIGHT_COMPARISON_TOLERANCE -> MaterialTheme.colorScheme.primary
+        difference < -WEIGHT_COMPARISON_TOLERANCE -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Text(
+        "Anterior: ${oneDecimal(previousWeight)} lb   Nuevo: ${oneDecimal(currentWeight)} lb",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Text(
+        comparisonText,
+        color = comparisonColor,
+        fontWeight = FontWeight.Bold
+    )
 }
 
 /** Formulario individual de pesaje con teclado numérico y calendario. */
@@ -364,6 +411,27 @@ fun WeighingFormScreen(
                     } else null,
                     singleLine = true
                 )
+            }
+            if (selectedAnimal != null && weightValue != null && weightValue > 0) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Comparación del pesaje", fontWeight = FontWeight.Bold)
+                            WeightComparisonContent(
+                                previousWeight = selectedAnimal.previousWeightLibras,
+                                currentWeight = weightValue
+                            )
+                        }
+                    }
+                }
             }
             item {
                 CompactDateSelector(
@@ -463,3 +531,6 @@ private fun AnimalWeightDropdown(
 }
 
 private fun oneDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+/** Cambios inferiores a media décima se muestran como estables al usar una cifra decimal. */
+private const val WEIGHT_COMPARISON_TOLERANCE = 0.05
