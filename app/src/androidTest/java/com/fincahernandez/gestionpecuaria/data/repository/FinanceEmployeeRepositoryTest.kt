@@ -1,0 +1,80 @@
+package com.fincahernandez.gestionpecuaria.data.repository
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** Comprueba la persistencia y relación empleado-pago implementadas en HU-12. */
+@RunWith(AndroidJUnit4::class)
+class FinanceEmployeeRepositoryTest {
+    private val databaseName = "hu12-finance-employee-test.db"
+    private lateinit var context: Context
+    private lateinit var database: GestionPecuariaDatabase
+    private lateinit var financeRepository: FinanceRepository
+    private lateinit var employeeRepository: EmployeeRepository
+
+    @Before
+    fun prepare() {
+        context = ApplicationProvider.getApplicationContext()
+        context.deleteDatabase(databaseName)
+        openDatabase()
+    }
+
+    @After
+    fun cleanUp() {
+        database.close()
+        context.deleteDatabase(databaseName)
+    }
+
+    @Test
+    fun persistsManualMovementEmployeeAndRelatedPayment() = runBlocking {
+        val date = 1_800_000_000_000
+        financeRepository.saveMovement(
+            FinancialMovementDraft("EGRESO", "Alimentación", 850.0, date, "Concentrado")
+        )
+        val employeeId = employeeRepository.saveEmployee(
+            EmployeeDraft(
+                fullName = "Juan Pérez",
+                role = "Vaquero",
+                hireDate = date,
+                salary = 3_200.0,
+                paymentFrequency = "Mensual",
+                assignedSector = "General",
+                phone = "5555 0101",
+                active = true
+            )
+        )
+        employeeRepository.savePayment(
+            EmployeePaymentDraft(employeeId, date, 3_200.0, "Septiembre 2026", null)
+        )
+
+        assertEquals(850.0, financeRepository.observeMovements().first().single().monto, 0.001)
+        assertEquals(employeeId, employeeRepository.observePayments().first().single().empleadoId)
+
+        // Reabrir el archivo demuestra que no se trataba de listas temporales.
+        database.close()
+        openDatabase()
+        assertEquals("Juan Pérez", employeeRepository.observeEmployees().first().single().nombreCompleto)
+        assertEquals(3_200.0, employeeRepository.observePayments().first().single().monto, 0.001)
+        assertEquals("Alimentación", financeRepository.observeMovements().first().single().categoria)
+    }
+
+    private fun openDatabase() {
+        database = Room.databaseBuilder(
+            context,
+            GestionPecuariaDatabase::class.java,
+            databaseName
+        ).allowMainThreadQueries().build()
+        financeRepository = FinanceRepository(database)
+        employeeRepository = EmployeeRepository(database)
+    }
+}
