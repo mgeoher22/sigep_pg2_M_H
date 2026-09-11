@@ -64,9 +64,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
+import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 /** Modelo temporal utilizado por las vistas de lotes de HU-04. */
@@ -596,9 +595,7 @@ private fun CompactDateField(
                     enabled = pickerState.selectedDateMillis != null,
                     onClick = {
                         pickerState.selectedDateMillis?.let { millis ->
-                            onDateSelected(
-                                SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(millis))
-                            )
+                            onDateSelected(formatDatePickerMillis(millis))
                         }
                         showDialog = false
                     }

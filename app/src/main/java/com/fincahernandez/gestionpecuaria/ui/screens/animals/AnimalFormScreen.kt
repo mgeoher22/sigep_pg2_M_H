@@ -44,6 +44,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
+import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,9 +60,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Valores capturados en la pantalla de registro. */
 data class AnimalFormData(
@@ -605,8 +603,7 @@ private fun DateSelectorField(
                 TextButton(
                     onClick = {
                         datePickerState.selectedDateMillis?.let { millis ->
-                            val formato = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-                            onDateSelected(formato.format(Date(millis)))
+                            onDateSelected(formatDatePickerMillis(millis))
                         }
                         showDialog = false
                     },

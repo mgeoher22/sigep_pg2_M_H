@@ -24,9 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Selector de fecha reutilizable y compacto para pantallas pequeñas o tabletas
@@ -76,8 +73,7 @@ fun CompactDateSelector(
                     enabled = pickerState.selectedDateMillis != null,
                     onClick = {
                         pickerState.selectedDateMillis?.let { millis ->
-                            val formatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-                            onDateSelected(formatter.format(Date(millis)))
+                            onDateSelected(formatDatePickerMillis(millis))
                         }
                         showDialog = false
                     }
