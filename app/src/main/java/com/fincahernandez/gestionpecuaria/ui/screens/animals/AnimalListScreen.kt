@@ -431,18 +431,19 @@ private fun AnimalCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
+                        // El nombre es la referencia más fácil de reconocer durante el trabajo en finca.
                         Text(
-                            text = animal.codigoIdentificacion,
+                            text = animal.nombre?.takeIf { it.isNotBlank() } ?: "Sin nombre",
                             color = MaterialTheme.colorScheme.primary,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
-                        animal.nombre?.takeIf { it.isNotBlank() }?.let { nombre ->
-                            Text(
-                                text = nombre,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
+                        // El código permanece debajo como identificador único del registro.
+                        Text(
+                            text = animal.codigoIdentificacion,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     StatusBadge(estado = animal.estado)

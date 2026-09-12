@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.ConfiguracionLecheDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EventoSanitarioDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EmpleadoDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
@@ -16,6 +17,7 @@ import com.fincahernandez.gestionpecuaria.data.local.dao.ProduccionLecheraDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.MovimientoFinancieroDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.ConfiguracionLecheEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EmpleadoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
@@ -45,9 +47,10 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         ProduccionLecheraEntity::class,
         MovimientoFinancieroEntity::class,
         EmpleadoEntity::class,
-        PagoEmpleadoEntity::class
+        PagoEmpleadoEntity::class,
+        ConfiguracionLecheEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -69,6 +72,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun movimientoFinancieroDao(): MovimientoFinancieroDao
 
     abstract fun empleadoDao(): EmpleadoDao
+
+    abstract fun configuracionLecheDao(): ConfiguracionLecheDao
 
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
@@ -330,6 +335,38 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Agrega una configuración única para el precio fijo y la frecuencia de pago.
+         * Si ya existe producción, conserva como precio inicial el valor del registro
+         * más reciente; ninguna tabla ni fila previa se elimina durante la migración.
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `configuracion_leche` (
+                        `id` INTEGER NOT NULL,
+                        `precioPorLitro` REAL NOT NULL,
+                        `frecuenciaPago` TEXT NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    INSERT OR IGNORE INTO `configuracion_leche`
+                        (`id`, `precioPorLitro`, `frecuenciaPago`, `actualizadoEn`)
+                    SELECT 1, `precioPorLitro`, 'DIARIO',
+                        CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                    FROM `produccion_lechera`
+                    ORDER BY `fecha` DESC
+                    LIMIT 1
+                    """.trimIndent()
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -351,7 +388,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
-                    MIGRATION_10_11
+                    MIGRATION_10_11,
+                    MIGRATION_11_12
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

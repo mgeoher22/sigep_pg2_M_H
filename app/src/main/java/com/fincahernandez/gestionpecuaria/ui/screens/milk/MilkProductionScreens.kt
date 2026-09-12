@@ -22,14 +22,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -49,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
+import com.fincahernandez.gestionpecuaria.data.repository.MilkConfiguration
+import com.fincahernandez.gestionpecuaria.data.repository.MilkPaymentFrequency
 import java.util.Locale
 
 /** Registro diario persistente con el precio histórico aplicado. */
@@ -77,8 +82,11 @@ data class MilkProductionFormData(
 @Composable
 fun MilkProductionListScreen(
     records: List<MilkProductionUiModel>,
+    configuration: MilkConfiguration?,
+    isGeneralAdministrator: Boolean,
     onMenuClick: () -> Unit,
     onCreateRecord: () -> Unit,
+    onConfigure: () -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -113,11 +121,14 @@ fun MilkProductionListScreen(
             AppBottomBar(selectedRoute = Routes.MILK_PRODUCTION, onNavigate = onNavigateMain)
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateRecord,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar producción") }
-            )
+            // No permite crear registros sin un precio fijo previamente configurado.
+            if (configuration != null) {
+                ExtendedFloatingActionButton(
+                    onClick = onCreateRecord,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Registrar producción") }
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -149,6 +160,13 @@ fun MilkProductionListScreen(
                         )
                     }
                 }
+            }
+            item {
+                MilkTermsCard(
+                    configuration = configuration,
+                    isGeneralAdministrator = isGeneralAdministrator,
+                    onConfigure = onConfigure
+                )
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -201,6 +219,56 @@ fun MilkProductionListScreen(
                 }
             }
             item { Spacer(modifier = Modifier.height(76.dp)) }
+        }
+    }
+}
+
+/** Muestra el acuerdo vigente y reserva su edición al Administrador General. */
+@Composable
+private fun MilkTermsCard(
+    configuration: MilkConfiguration?,
+    isGeneralAdministrator: Boolean,
+    onConfigure: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Settings, contentDescription = null)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "Condiciones de venta de leche",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (configuration == null) {
+                Text("Aún no se ha definido el precio fijo ni la frecuencia de pago.")
+            } else {
+                Text(
+                    "Precio fijo: ${money(configuration.pricePerLiter)} por litro",
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text("Pago: ${configuration.paymentFrequency.displayName}")
+            }
+            if (isGeneralAdministrator) {
+                OutlinedButton(onClick = onConfigure) {
+                    Text(if (configuration == null) "Configurar" else "Cambiar configuración")
+                }
+            } else {
+                Text(
+                    "Solo el Administrador General puede modificar estos valores.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -311,23 +379,21 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
 fun MilkProductionFormScreen(
     onBack: () -> Unit,
     onSubmit: (MilkProductionFormData) -> Unit,
-    initialPricePerLiter: Double? = null,
+    configuration: MilkConfiguration?,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var date by rememberSaveable { mutableStateOf("") }
     var liters by rememberSaveable { mutableStateOf("") }
-    var pricePerLiter by rememberSaveable(initialPricePerLiter) {
-        mutableStateOf(initialPricePerLiter?.let(::twoDecimals).orEmpty())
-    }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
 
     val litersValue = liters.replace(',', '.').toDoubleOrNull()
-    val priceValue = pricePerLiter.replace(',', '.').toDoubleOrNull()
+    val pricePerLiter = configuration?.pricePerLiter?.let(::twoDecimals).orEmpty()
+    val priceValue = configuration?.pricePerLiter
     val litersInvalid = liters.isBlank() || litersValue == null || litersValue <= 0
-    val priceInvalid = pricePerLiter.isBlank() || priceValue == null || priceValue < 0
+    val priceInvalid = pricePerLiter.isBlank() || priceValue == null || priceValue <= 0
     val formValid = date.isNotBlank() && !litersInvalid && !priceInvalid
 
     Scaffold(
@@ -382,17 +448,21 @@ fun MilkProductionFormScreen(
             item {
                 OutlinedTextField(
                     value = pricePerLiter,
-                    onValueChange = { pricePerLiter = it },
+                    onValueChange = {},
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Precio por litro *") },
+                    label = { Text("Precio fijo por litro") },
                     prefix = { Text("Q ") },
                     suffix = { Text("/L") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    readOnly = true,
                     isError = attemptedSave && priceInvalid,
                     supportingText = if (attemptedSave && priceInvalid) {
-                        { Text("Ingrese un precio válido; puede ser cero.") }
+                        { Text("El Administrador General debe configurar primero el precio.") }
                     } else {
-                        { Text("Se conserva como precio histórico de la fecha seleccionada.") }
+                        {
+                            Text(
+                                "Definido por el Administrador General · Pago ${configuration?.paymentFrequency?.displayName.orEmpty()}"
+                            )
+                        }
                     },
                     singleLine = true
                 )
@@ -455,6 +525,109 @@ fun MilkProductionFormScreen(
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isSaving) "Guardando…" else "Guardar registro", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/** Pantalla administrativa para definir el precio fijo y cuándo paga el comprador. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MilkConfigurationScreen(
+    configuration: MilkConfiguration?,
+    onBack: () -> Unit,
+    onSave: (Double, MilkPaymentFrequency) -> Unit,
+    isSaving: Boolean = false,
+    saveError: String? = null,
+    modifier: Modifier = Modifier
+) {
+    var price by rememberSaveable(configuration?.updatedAt) {
+        mutableStateOf(configuration?.pricePerLiter?.let(::twoDecimals).orEmpty())
+    }
+    var frequencyName by rememberSaveable(configuration?.updatedAt) {
+        mutableStateOf(configuration?.paymentFrequency?.name ?: MilkPaymentFrequency.DAILY.name)
+    }
+    var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val priceValue = price.replace(',', '.').toDoubleOrNull()
+    val priceInvalid = priceValue == null || priceValue <= 0.0
+    val selectedFrequency = MilkPaymentFrequency.valueOf(frequencyName)
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Configuración de leche", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Text(
+                    "Estos valores se aplicarán automáticamente a los nuevos registros. " +
+                        "Los precios históricos no cambiarán.",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Precio fijo por litro *") },
+                    prefix = { Text("Q ") },
+                    suffix = { Text("/L") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = attemptedSave && priceInvalid,
+                    supportingText = if (attemptedSave && priceInvalid) {
+                        { Text("Ingrese un precio numérico mayor que cero.") }
+                    } else null,
+                    singleLine = true
+                )
+            }
+            item {
+                Text("¿Cuándo pagan la leche?", fontWeight = FontWeight.SemiBold)
+            }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MilkPaymentFrequency.entries.forEach { frequency ->
+                        FilterChip(
+                            selected = selectedFrequency == frequency,
+                            onClick = { frequencyName = frequency.name },
+                            label = { Text(frequency.displayName) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+            item {
+                saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+            item {
+                Button(
+                    onClick = {
+                        attemptedSave = true
+                        if (!priceInvalid) onSave(checkNotNull(priceValue), selectedFrequency)
+                    },
+                    enabled = !isSaving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (isSaving) "Guardando…" else "Guardar configuración")
                 }
             }
         }

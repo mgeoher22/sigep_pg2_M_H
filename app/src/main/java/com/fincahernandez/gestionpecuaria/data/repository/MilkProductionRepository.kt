@@ -2,8 +2,28 @@ package com.fincahernandez.gestionpecuaria.data.repository
 
 import androidx.room.withTransaction
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
+import com.fincahernandez.gestionpecuaria.data.local.entity.ConfiguracionLecheEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.ProduccionLecheraEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+/** Opciones acordadas con quien compra la producción de leche. */
+enum class MilkPaymentFrequency(val storedValue: String, val displayName: String) {
+    DAILY("DIARIO", "Día a día"),
+    EVERY_SATURDAY("CADA_SABADO", "Cada sábado");
+
+    companion object {
+        fun fromStoredValue(value: String): MilkPaymentFrequency =
+            entries.firstOrNull { it.storedValue == value } ?: DAILY
+    }
+}
+
+/** Configuración vigente; el precio se copia a cada registro para conservar el histórico. */
+data class MilkConfiguration(
+    val pricePerLiter: Double,
+    val paymentFrequency: MilkPaymentFrequency,
+    val updatedAt: Long
+)
 
 /** Valores validados que se almacenan para un único día de producción. */
 data class MilkProductionDraft(
@@ -16,8 +36,32 @@ data class MilkProductionDraft(
 /** Fuente única de verdad de la producción lechera persistida en Room. */
 class MilkProductionRepository(private val database: GestionPecuariaDatabase) {
     private val dao = database.produccionLecheraDao()
+    private val configurationDao = database.configuracionLecheDao()
 
     fun observeRecords(): Flow<List<ProduccionLecheraEntity>> = dao.observarTodas()
+
+    fun observeConfiguration(): Flow<MilkConfiguration?> = configurationDao.observar().map { entity ->
+        entity?.let {
+            MilkConfiguration(
+                pricePerLiter = it.precioPorLitro,
+                paymentFrequency = MilkPaymentFrequency.fromStoredValue(it.frecuenciaPago),
+                updatedAt = it.actualizadoEn
+            )
+        }
+    }
+
+    /** Guarda la configuración vigente sin modificar precios históricos ya registrados. */
+    suspend fun saveConfiguration(pricePerLiter: Double, frequency: MilkPaymentFrequency) {
+        require(pricePerLiter.isFinite() && pricePerLiter > 0.0) {
+            "El precio fijo por litro debe ser mayor que cero."
+        }
+        configurationDao.guardar(
+            ConfiguracionLecheEntity(
+                precioPorLitro = pricePerLiter,
+                frecuenciaPago = frequency.storedValue
+            )
+        )
+    }
 
     /**
      * Una segunda captura de la misma fecha corrige el registro existente y conserva

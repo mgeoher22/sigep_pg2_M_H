@@ -74,6 +74,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotWeightRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkConfigurationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
@@ -140,6 +141,7 @@ fun AppNavigation() {
     val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
     val storedLots by lotViewModel.lots.collectAsStateWithLifecycle()
     val storedMilkProduction by milkProductionViewModel.records.collectAsStateWithLifecycle()
+    val storedMilkConfiguration by milkProductionViewModel.configuration.collectAsStateWithLifecycle()
     val storedEmployees by employeeViewModel.employees.collectAsStateWithLifecycle()
     val storedEmployeePayments by employeeViewModel.payments.collectAsStateWithLifecycle()
     val storedFinancialMovements by financeViewModel.movements.collectAsStateWithLifecycle()
@@ -507,6 +509,8 @@ fun AppNavigation() {
     var weighingSaveError by remember { mutableStateOf<String?>(null) }
     var milkProductionIsSaving by remember { mutableStateOf(false) }
     var milkProductionSaveError by remember { mutableStateOf<String?>(null) }
+    var milkConfigurationIsSaving by remember { mutableStateOf(false) }
+    var milkConfigurationSaveError by remember { mutableStateOf<String?>(null) }
     var financeIsSaving by remember { mutableStateOf(false) }
     var financeSaveError by remember { mutableStateOf<String?>(null) }
     var selectedEmployeeId by rememberSaveable { mutableStateOf("") }
@@ -661,7 +665,8 @@ fun AppNavigation() {
         Routes.PARCEL_DETAIL -> Routes.PARCELS
         Routes.WEIGHING_FORM,
         Routes.WEIGHING_ANIMAL_DETAIL -> Routes.WEIGHINGS
-        Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
+        Routes.MILK_PRODUCTION_FORM,
+        Routes.MILK_CONFIGURATION -> Routes.MILK_PRODUCTION
         Routes.SANITARY_FORM -> Routes.SANITARY
         Routes.FINANCE_FORM -> Routes.FINANCE
         Routes.EMPLOYEE_FORM,
@@ -708,7 +713,17 @@ fun AppNavigation() {
             if (destination == Routes.FINANCE_FORM) {
                 financeSaveError = null
             }
-            navController.navigate(destination) { launchSingleTop = true }
+            val resolvedDestination = when {
+                destination == Routes.MILK_PRODUCTION_FORM &&
+                    storedMilkConfiguration == null && canEditRecords -> {
+                    milkConfigurationSaveError = null
+                    Routes.MILK_CONFIGURATION
+                }
+                destination == Routes.MILK_PRODUCTION_FORM &&
+                    storedMilkConfiguration == null -> Routes.MILK_PRODUCTION
+                else -> destination
+            }
+            navController.navigate(resolvedDestination) { launchSingleTop = true }
         }
     }
 
@@ -1484,20 +1499,60 @@ fun AppNavigation() {
             composable(Routes.MILK_PRODUCTION) {
                 MilkProductionListScreen(
                     records = milkProductionRecords,
+                    configuration = storedMilkConfiguration,
+                    isGeneralAdministrator = canEditRecords,
                     onMenuClick = openDrawer,
                     onCreateRecord = {
                         milkProductionSaveError = null
                         navController.navigate(Routes.MILK_PRODUCTION_FORM)
                     },
+                    onConfigure = {
+                        if (canEditRecords) {
+                            milkConfigurationSaveError = null
+                            navController.navigate(Routes.MILK_CONFIGURATION)
+                        }
+                    },
                     onNavigateMain = navigateMain
                 )
             }
 
+            composable(Routes.MILK_CONFIGURATION) {
+                // La pantalla puede alcanzarse únicamente desde el botón mostrado al administrador.
+                if (!canEditRecords) {
+                    LaunchedEffect(Unit) {
+                        navController.popBackStack()
+                    }
+                } else {
+                    MilkConfigurationScreen(
+                        configuration = storedMilkConfiguration,
+                        isSaving = milkConfigurationIsSaving,
+                        saveError = milkConfigurationSaveError,
+                        onBack = { navController.popBackStack() },
+                        onSave = { price, frequency ->
+                            coroutineScope.launch {
+                                milkConfigurationIsSaving = true
+                                milkConfigurationSaveError = null
+                                runCatching {
+                                    check(canEditRecords) {
+                                        "Solo el Administrador General puede cambiar esta configuración."
+                                    }
+                                    milkProductionViewModel.saveConfiguration(price, frequency)
+                                }.onSuccess {
+                                    navController.popBackStack()
+                                }.onFailure { error ->
+                                    milkConfigurationSaveError = error.message
+                                        ?: "No se pudo guardar la configuración."
+                                }
+                                milkConfigurationIsSaving = false
+                            }
+                        }
+                    )
+                }
+            }
+
             composable(Routes.MILK_PRODUCTION_FORM) {
                 MilkProductionFormScreen(
-                    initialPricePerLiter = milkProductionRecords
-                        .maxByOrNull { it.dateMillis }
-                        ?.pricePerLiter,
+                    configuration = storedMilkConfiguration,
                     isSaving = milkProductionIsSaving,
                     saveError = milkProductionSaveError,
                     onBack = { navController.popBackStack() },
@@ -1518,9 +1573,10 @@ fun AppNavigation() {
                                     MilkProductionDraft(
                                         date = productionDate,
                                         liters = form.liters.replace(',', '.').toDouble(),
-                                        pricePerLiter = form.pricePerLiter
-                                            .replace(',', '.')
-                                            .toDouble(),
+                                        // El formulario muestra el valor como solo lectura; se vuelve
+                                        // a tomar de Room para impedir alteraciones desde la interfaz.
+                                        pricePerLiter = checkNotNull(storedMilkConfiguration)
+                                            .pricePerLiter,
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
