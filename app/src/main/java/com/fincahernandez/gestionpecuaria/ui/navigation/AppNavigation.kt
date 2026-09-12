@@ -82,6 +82,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportDashboardData
+import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportsCenterScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.RolePermissionsScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserFormScreen
@@ -334,6 +335,155 @@ fun AppNavigation() {
                 sourceLabel = "Generado desde el historial de pagos",
                 automatic = true
             )
+        }
+    }
+    // Cada módulo entrega filas reales y fechadas al centro de reportes. Allí se
+    // aplican los rangos y se calculan métricas sin usar cantidades de demostración.
+    val reportRecords = remember(
+        storedAnimals,
+        weighings,
+        milkProductionRecords,
+        employees,
+        employeePayments,
+        financialMovements,
+        storedLots,
+        storedParcels
+    ) {
+        val animalItems = allAnimalItems.associateBy { it.id }
+        val parcelStatusById = parcels.associate { it.id to it.status }
+        buildList {
+            storedAnimals.forEach { stored ->
+                val animal = stored.animal
+                val item = animalItems[animal.id]
+                add(
+                    ReportRecord(
+                        id = animal.id,
+                        reportId = "animals",
+                        dateMillis = animal.creadoEn,
+                        title = buildString {
+                            append(animal.codigoIdentificacion)
+                            animal.nombre?.takeIf(String::isNotBlank)?.let { append(" · $it") }
+                        },
+                        detail = listOfNotNull(
+                            animal.categoria,
+                            animal.sexo,
+                            animal.raza?.takeIf(String::isNotBlank),
+                            animal.estadoSalud
+                        ).joinToString(" · "),
+                        primaryValue = item?.ultimoPesoLibras,
+                        kind = "ANIMAL",
+                        attributes = mapOf(
+                            "sex" to animal.sexo,
+                            "status" to animal.estado,
+                            "health" to animal.estadoSalud
+                        )
+                    )
+                )
+            }
+            weighings.forEach { weighing ->
+                add(
+                    ReportRecord(
+                        id = weighing.id,
+                        reportId = "weighings",
+                        dateMillis = weighing.dateMillis,
+                        title = weighing.animalLabel,
+                        detail = weighing.differenceLibras?.let { difference ->
+                            "Cambio: ${if (difference > 0) "+" else ""}${"%.2f".format(Locale.US, difference)} lb"
+                        } ?: "Primer pesaje disponible",
+                        primaryValue = weighing.weightLibras,
+                        secondaryValue = weighing.differenceLibras,
+                        kind = "PESAJE"
+                    )
+                )
+            }
+            milkProductionRecords.forEach { production ->
+                add(
+                    ReportRecord(
+                        id = production.id,
+                        reportId = "production",
+                        dateMillis = production.dateMillis,
+                        title = "Producción del ${production.date}",
+                        detail = "Q ${production.pricePerLiter} por litro · Ingreso Q ${"%.2f".format(Locale.US, production.grossIncome)}",
+                        primaryValue = production.liters,
+                        secondaryValue = production.grossIncome,
+                        kind = "PRODUCCION",
+                        attributes = mapOf("price" to production.pricePerLiter.toString())
+                    )
+                )
+            }
+            financialMovements.forEach { movement ->
+                add(
+                    ReportRecord(
+                        id = movement.id,
+                        reportId = "financial",
+                        dateMillis = movement.dateMillis,
+                        title = movement.category,
+                        detail = "${movement.type.lowercase().replaceFirstChar(Char::uppercase)} · ${movement.sourceLabel}",
+                        primaryValue = movement.amount,
+                        kind = movement.type
+                    )
+                )
+            }
+            storedEmployees.forEach { employee ->
+                add(
+                    ReportRecord(
+                        id = "employee-${employee.id}",
+                        reportId = "staff",
+                        dateMillis = employee.creadoEn,
+                        title = employee.nombreCompleto,
+                        detail = "${employee.cargo} · Ingreso laboral ${formatDate(employee.fechaIngreso)}",
+                        primaryValue = employee.salarioBase,
+                        kind = "EMPLEADO",
+                        attributes = mapOf("status" to if (employee.activo) "ACTIVO" else "INACTIVO")
+                    )
+                )
+            }
+            employeePayments.forEach { payment ->
+                add(
+                    ReportRecord(
+                        id = "payment-${payment.id}",
+                        reportId = "staff",
+                        dateMillis = payment.paymentDateMillis,
+                        title = "Pago · ${payment.employeeName}",
+                        detail = payment.period,
+                        primaryValue = payment.amount,
+                        kind = "PAGO"
+                    )
+                )
+            }
+            storedLots.forEach { stored ->
+                val lot = stored.lot
+                add(
+                    ReportRecord(
+                        id = lot.id,
+                        reportId = "lots",
+                        dateMillis = lot.creadoEn,
+                        title = "${lot.codigo} · ${lot.nombre}",
+                        detail = "${lot.tipo} · ${lot.estado.lowercase().replaceFirstChar(Char::uppercase)}",
+                        primaryValue = stored.activeAnimalIds.size.toDouble(),
+                        secondaryValue = stored.averageWeightPounds,
+                        kind = "LOTE",
+                        attributes = mapOf("status" to lot.estado)
+                    )
+                )
+            }
+            storedParcels.forEach { stored ->
+                val parcel = stored.parcel
+                val status = parcelStatusById[parcel.id] ?: parcel.estado
+                add(
+                    ReportRecord(
+                        id = parcel.id,
+                        reportId = "parcels",
+                        dateMillis = parcel.creadoEn,
+                        title = "${parcel.codigo} · ${parcel.nombre}",
+                        detail = "${parcel.tipoPastura} · ${status.lowercase().replaceFirstChar(Char::uppercase)}",
+                        primaryValue = parcel.areaHectareas,
+                        secondaryValue = parcel.capacidadAnimales?.toDouble(),
+                        kind = "PARCELA",
+                        attributes = mapOf("status" to status)
+                    )
+                )
+            }
         }
     }
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
@@ -1617,7 +1767,8 @@ fun AppNavigation() {
                         employeeCount = employees.count { it.active },
                         financialBalance = financialMovements.sumOf { movement ->
                             if (movement.type == "INGRESO") movement.amount else -movement.amount
-                        }
+                        },
+                        records = reportRecords
                     ),
                     allowedReportIds = allowedReportIds,
                     isGeneralAdministrator = canImportData,

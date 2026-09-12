@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Groups
@@ -66,7 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
-import com.fincahernandez.gestionpecuaria.ui.components.DemoModeNotice
+import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkExportResult
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportPreview
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportResult
@@ -74,31 +73,19 @@ import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportMode
 import com.fincahernandez.gestionpecuaria.data.transfer.DataTransferModule
 import com.fincahernandez.gestionpecuaria.data.transfer.bulkImportTemplateCsv
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
-import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Valores actuales utilizados para construir las vistas previas de los reportes. */
-data class ReportDashboardData(
-    val animalCount: Int,
-    val lotCount: Int,
-    val parcelCount: Int,
-    val weighingCount: Int,
-    val milkLiters: Double,
-    val employeeCount: Int,
-    val financialBalance: Double
-)
-
 private data class ReportOption(
     val id: String,
     val title: String,
     val description: String,
-    val icon: ImageVector,
-    val currentValue: (ReportDashboardData) -> String
+    val icon: ImageVector
 )
 
 /**
@@ -136,7 +123,17 @@ fun ReportsCenterScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val visibleReportOptions = reportOptions.filter { it.id in allowedReportIds }
-    var selectedPeriod by rememberSaveable { mutableStateOf("Mensual") }
+    if (visibleReportOptions.isEmpty()) {
+        EmptyReportsScreen(
+            onMenuClick = onMenuClick,
+            onNavigateMain = onNavigateMain,
+            modifier = modifier
+        )
+        return
+    }
+    var selectedPeriod by rememberSaveable { mutableStateOf("Mes actual") }
+    var customStartDate by rememberSaveable { mutableStateOf("") }
+    var customEndDate by rememberSaveable { mutableStateOf("") }
     var selectedReportId by rememberSaveable {
         mutableStateOf(visibleReportOptions.first().id)
     }
@@ -144,7 +141,6 @@ fun ReportsCenterScreen(
     var operationMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var operationTitle by rememberSaveable { mutableStateOf("Operación completada") }
     var isTransferring by remember { mutableStateOf(false) }
-    var importedData by remember { mutableStateOf<ReportDashboardData?>(null) }
     var pendingBulkImportUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBulkImportPreview by remember { mutableStateOf<BulkImportPreview?>(null) }
     var pendingBulkImportModules by remember { mutableStateOf<Set<DataTransferModule>>(emptySet()) }
@@ -156,50 +152,37 @@ fun ReportsCenterScreen(
 
     val selectedReport = visibleReportOptions.first { it.id == selectedReportId }
     val generatedReport = visibleReportOptions.firstOrNull { it.id == generatedPreviewId }
-    val effectiveData = importedData ?: data
+    val effectiveData = data
+    val selectedRange = remember(selectedPeriod, customStartDate, customEndDate) {
+        resolveReportDateRange(
+            period = selectedPeriod,
+            customStart = customStartDate,
+            customEnd = customEndDate
+        )
+    }
+    val selectedAnalysis = remember(effectiveData, selectedReport, selectedRange) {
+        selectedRange?.let { range ->
+            buildReportAnalysis(effectiveData, selectedReport.id, selectedReport.title, range)
+        }
+    }
 
-    /** Guarda un resumen compatible con Excel mediante el selector seguro de Android. */
-    val csvExporter = rememberLauncherForActivityResult(
+    /** Exporta las métricas y los últimos registros visibles del reporte seleccionado. */
+    val reportCsvExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        uri?.let {
+        val analysis = selectedAnalysis
+        if (uri != null && analysis != null) {
             coroutineScope.launch {
                 isTransferring = true
-                runCatching { writeReportCsv(context, it, effectiveData) }
+                runCatching { writeReportAnalysisCsv(context, uri, analysis) }
                     .onSuccess {
-                        operationTitle = "Exportación completada"
+                        operationTitle = "Reporte exportado"
                         operationMessage =
-                            "El resumen se guardó como CSV y puede abrirse con Excel."
+                            "Las métricas y los 10 registros más recientes se guardaron para Excel."
                     }
                     .onFailure {
                         operationTitle = "No fue posible exportar"
                         operationMessage = "Verifique la ubicación elegida e inténtelo nuevamente."
-                    }
-                isTransferring = false
-            }
-        }
-    }
-
-    /** Lee únicamente archivos elegidos por la persona; no solicita acceso a toda la carpeta. */
-    val csvImporter = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.takeIf { isGeneralAdministrator }?.let {
-            coroutineScope.launch {
-                isTransferring = true
-                runCatching { readReportCsv(context, it) }
-                    .onSuccess { imported ->
-                        importedData = imported
-                        generatedPreviewId = null
-                        operationTitle = "Datos importados"
-                        operationMessage =
-                            "El resumen importado ya se utiliza en las vistas previas. " +
-                                "Los registros originales de la aplicación no fueron modificados."
-                    }
-                    .onFailure { error ->
-                        operationTitle = "Archivo no válido"
-                        operationMessage = error.message
-                            ?: "Seleccione un CSV exportado por esta aplicación."
                     }
                 isTransferring = false
             }
@@ -214,13 +197,10 @@ fun ReportsCenterScreen(
             coroutineScope.launch {
                 isTransferring = true
                 runCatching {
-                    writeReportPdf(
-                        context = context,
-                        uri = it,
-                        reportTitle = selectedReport.title,
-                        period = selectedPeriod,
-                        value = selectedReport.currentValue(effectiveData)
-                    )
+                    val analysis = requireNotNull(selectedAnalysis) {
+                        "Seleccione un rango de fechas válido."
+                    }
+                    writeReportPdf(context = context, uri = it, analysis = analysis)
                 }.onSuccess {
                     operationTitle = "PDF generado"
                     operationMessage = "El reporte se guardó correctamente."
@@ -346,82 +326,11 @@ fun ReportsCenterScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { DemoModeNotice(compact = true) }
             item {
                 Text(
                     "Seleccione el periodo y el tipo de informe que desea consultar.",
                     style = MaterialTheme.typography.bodyLarge
                 )
-            }
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            "Intercambio de reportes",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            if (importedData == null) {
-                                "Trabajando con los datos actuales de la aplicación."
-                            } else {
-                                "Vista previa basada en un archivo CSV importado."
-                            },
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (isGeneralAdministrator) {
-                                OutlinedButton(
-                                    onClick = {
-                                        csvImporter.launch(
-                                            arrayOf(
-                                                "text/csv",
-                                                "text/comma-separated-values",
-                                                "application/vnd.ms-excel",
-                                                "text/plain"
-                                            )
-                                        )
-                                    },
-                                    enabled = !isTransferring,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.FileUpload, contentDescription = null)
-                                    Text(" Importar resumen")
-                                }
-                            }
-                            Button(
-                                onClick = { csvExporter.launch(reportCsvFileName()) },
-                                enabled = !isTransferring,
-                                modifier = if (isGeneralAdministrator) {
-                                    Modifier.weight(1f)
-                                } else {
-                                    Modifier.fillMaxWidth()
-                                }
-                            ) {
-                                Icon(Icons.Default.FileDownload, contentDescription = null)
-                                Text(" Exportar Excel")
-                            }
-                        }
-                        if (importedData != null) {
-                            TextButton(onClick = {
-                                importedData = null
-                                generatedPreviewId = null
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = null)
-                                Text(" Volver a los datos actuales")
-                            }
-                        }
-                    }
-                }
             }
             if (isGeneralAdministrator) {
                 item {
@@ -576,18 +485,68 @@ fun ReportsCenterScreen(
             }
             item {
                 Text("Periodo", fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("30 días", "Mensual", "Anual").forEach { period ->
-                        FilterChip(
-                            selected = selectedPeriod == period,
-                            onClick = {
-                                selectedPeriod = period
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("30 días", "Mes actual", "Año actual", "Personalizado")
+                        .chunked(2)
+                        .forEach { periods ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                periods.forEach { period ->
+                                    FilterChip(
+                                        selected = selectedPeriod == period,
+                                        onClick = {
+                                            selectedPeriod = period
+                                            generatedPreviewId = null
+                                        },
+                                        label = { Text(period) },
+                                        leadingIcon = if (selectedPeriod == period) {
+                                            {
+                                                Icon(
+                                                    Icons.Default.CalendarMonth,
+                                                    contentDescription = null
+                                                )
+                                            }
+                                        } else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            if (selectedPeriod == "Personalizado") {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CompactDateSelector(
+                            label = "Fecha inicial",
+                            value = customStartDate,
+                            onDateSelected = {
+                                customStartDate = it
                                 generatedPreviewId = null
                             },
-                            label = { Text(period) },
-                            leadingIcon = if (selectedPeriod == period) {
-                                { Icon(Icons.Default.CalendarMonth, contentDescription = null) }
-                            } else null
+                            showError = selectedRange == null && customStartDate.isBlank(),
+                            modifier = Modifier.weight(1f)
+                        )
+                        CompactDateSelector(
+                            label = "Fecha final",
+                            value = customEndDate,
+                            onDateSelected = {
+                                customEndDate = it
+                                generatedPreviewId = null
+                            },
+                            showError = selectedRange == null && customEndDate.isBlank(),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (customStartDate.isNotBlank() && customEndDate.isNotBlank() &&
+                        selectedRange == null
+                    ) {
+                        Text(
+                            "La fecha inicial no puede ser posterior a la fecha final.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
@@ -601,6 +560,9 @@ fun ReportsCenterScreen(
             }
             items(visibleReportOptions, key = { it.id }) { report ->
                 val selected = report.id == selectedReportId
+                val reportAnalysis = selectedRange?.let { range ->
+                    buildReportAnalysis(effectiveData, report.id, report.title, range)
+                }
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -632,7 +594,7 @@ fun ReportsCenterScreen(
                             Text(report.description, style = MaterialTheme.typography.bodySmall)
                         }
                         Text(
-                            report.currentValue(effectiveData),
+                            reportAnalysis?.headline ?: "Seleccione fechas",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         )
@@ -644,7 +606,8 @@ fun ReportsCenterScreen(
                     onClick = { generatedPreviewId = selectedReport.id },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(54.dp)
+                        .height(54.dp),
+                    enabled = selectedRange != null
                 ) {
                     Icon(Icons.Default.Assessment, contentDescription = null)
                     Spacer(modifier = Modifier.padding(horizontal = 5.dp))
@@ -652,6 +615,10 @@ fun ReportsCenterScreen(
                 }
             }
             generatedReport?.let { report ->
+                val analysis = selectedRange?.let { range ->
+                    buildReportAnalysis(effectiveData, report.id, report.title, range)
+                }
+                if (analysis == null) return@let
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -664,7 +631,7 @@ fun ReportsCenterScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "VISTA PREVIA • ${selectedPeriod.uppercase()}",
+                                "VISTA PREVIA • ${analysis.periodLabel}",
                                 color = Color.White.copy(alpha = 0.8f),
                                 style = MaterialTheme.typography.labelLarge
                             )
@@ -675,16 +642,57 @@ fun ReportsCenterScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                report.currentValue(effectiveData),
+                                analysis.headline,
                                 color = Color.White,
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "Resumen calculado con los datos disponibles actualmente.",
+                                analysis.headlineLabel,
                                 color = Color.White
                             )
                         }
+                    }
+                }
+                item {
+                    Text(
+                        "Métricas para la toma de decisiones",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                analysis.metrics.chunked(2).forEach { metricRow ->
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            metricRow.forEach { metric ->
+                                ReportMetricCard(metric = metric, modifier = Modifier.weight(1f))
+                            }
+                            if (metricRow.size == 1) Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "10 registros más recientes del rango",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (analysis.recentRecords.isEmpty()) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "No existen registros de este módulo dentro del rango seleccionado.",
+                                modifier = Modifier.padding(18.dp)
+                            )
+                        }
+                    }
+                } else {
+                    items(
+                        analysis.recentRecords,
+                        key = { "report-${analysis.reportId}-${it.id}" }
+                    ) { record ->
+                        ReportRecordCard(record)
                     }
                 }
                 item {
@@ -706,7 +714,9 @@ fun ReportsCenterScreen(
                         }
                         OutlinedButton(
                             onClick = {
-                                csvExporter.launch(reportCsvFileName())
+                                reportCsvExporter.launch(
+                                    reportFileName(report.title, "csv")
+                                )
                             },
                             enabled = !isTransferring,
                             modifier = Modifier.weight(1f)
@@ -772,7 +782,6 @@ fun ReportsCenterScreen(
                                 }
                                 onBulkImport(uri, modules, mode)
                             }.onSuccess { result ->
-                                importedData = null
                                 operationTitle = "Importación completada"
                                 operationMessage = result.successMessage()
                             }.onFailure { error ->
@@ -800,62 +809,160 @@ fun ReportsCenterScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EmptyReportsScreen(
+    onMenuClick: () -> Unit,
+    onNavigateMain: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Centro de reportes", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Abrir menú")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            AppBottomBar(selectedRoute = Routes.REPORTS, onNavigate = onNavigateMain)
+        }
+    ) { innerPadding ->
+        Card(
+            modifier = Modifier
+                .padding(innerPadding)
+                .padding(20.dp)
+                .fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("No hay reportes autorizados", fontWeight = FontWeight.Bold)
+                Text(
+                    "La cuenta puede abrir el centro, pero no tiene permiso para consultar " +
+                        "ningún módulo de datos. Solicite al Administrador General que revise sus permisos."
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportMetricCard(metric: ReportMetric, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(metric.label, style = MaterialTheme.typography.labelLarge)
+            Text(
+                metric.value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(metric.explanation, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun ReportRecordCard(record: ReportRecord) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(record.title, fontWeight = FontWeight.SemiBold)
+                Text(record.detail, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                        .format(Date(record.dateMillis)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            record.primaryValue?.let { value ->
+                Text(
+                    formatRecordValue(record.reportId, record.kind, value),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
 private val reportOptions = listOf(
     ReportOption(
         id = "financial",
         title = "Reportes financieros",
-        description = "Balance, estado de resultados y comparación por periodo.",
-        icon = Icons.Default.AccountBalance,
-        currentValue = { formatQuetzales(it.financialBalance) }
+        description = "Ingresos, egresos, balance y movimientos del periodo.",
+        icon = Icons.Default.AccountBalance
     ),
     ReportOption(
         id = "production",
         title = "Producción",
-        description = "Producción de leche y rendimiento productivo.",
-        icon = Icons.Default.LocalDrink,
-        currentValue = { "${formatNumber(it.milkLiters)} L" }
+        description = "Litros, promedio diario, precio e ingreso bruto.",
+        icon = Icons.Default.LocalDrink
     ),
     ReportOption(
         id = "staff",
         title = "Personal",
-        description = "Nómina, empleados activos y costos de mano de obra.",
-        icon = Icons.Default.Badge,
-        currentValue = { "${it.employeeCount} empleados" }
+        description = "Altas de personal, pagos y costos de nómina.",
+        icon = Icons.Default.Badge
     ),
     ReportOption(
         id = "animals",
-        title = "Sanidad e inventario",
-        description = "Inventario animal y futura información sanitaria.",
-        icon = Icons.Default.Pets,
-        currentValue = { "${it.animalCount} animales" }
+        title = "Inventario animal",
+        description = "Altas de animales, sexo, peso e inventario activo.",
+        icon = Icons.Default.Pets
     ),
     ReportOption(
         id = "weighings",
         title = "Pesajes",
-        description = "Registros de peso y seguimiento del crecimiento.",
-        icon = Icons.Default.Scale,
-        currentValue = { "${it.weighingCount} registros" }
+        description = "Peso promedio, ganancias y pérdidas de peso.",
+        icon = Icons.Default.Scale
     ),
     ReportOption(
         id = "lots",
         title = "Lotes",
-        description = "Inventario agrupado y rendimiento por lote.",
-        icon = Icons.Default.Groups,
-        currentValue = { "${it.lotCount} lotes" }
+        description = "Nuevos lotes, estado y cantidad de animales.",
+        icon = Icons.Default.Groups
     ),
     ReportOption(
         id = "parcels",
         title = "Parcelas",
-        description = "Uso de terrenos y productividad de las parcelas.",
-        icon = Icons.Default.Landscape,
-        currentValue = { "${it.parcelCount} parcelas" }
+        description = "Superficie, capacidad y ocupación de terrenos.",
+        icon = Icons.Default.Landscape
     )
 )
 
-private fun formatQuetzales(value: Double): String = "Q ${formatNumber(value)}"
-
-private fun formatNumber(value: Double): String =
-    NumberFormat.getNumberInstance(Locale.US).format(value)
+private fun formatRecordValue(reportId: String, kind: String, value: Double): String {
+    val number = NumberFormat.getNumberInstance(Locale.US).apply {
+        maximumFractionDigits = 2
+    }.format(value)
+    return when (reportId) {
+        "financial", "staff" -> "Q $number"
+        "production" -> "$number L"
+        "animals", "weighings" -> "$number lb"
+        "lots" -> "$number animales"
+        "parcels" -> "$number ha"
+        else -> if (kind.isBlank()) number else "$number $kind"
+    }
+}
 
 private const val REPORT_CSV_FORMAT = "gestion_pecuaria_reportes_v1"
 private const val MAX_IMPORTED_REPORT_CHARS = 1_000_000
@@ -972,6 +1079,43 @@ private suspend fun writeReportCsv(
     }
 }
 
+/** Guarda exactamente las métricas y filas que la persona revisó en la vista previa. */
+private suspend fun writeReportAnalysisCsv(
+    context: Context,
+    uri: Uri,
+    analysis: ReportAnalysis
+) = withContext(Dispatchers.IO) {
+    val output = context.contentResolver.openOutputStream(uri, "wt")
+        ?: error("No fue posible abrir el archivo seleccionado.")
+    output.bufferedWriter(Charsets.UTF_8).use { writer ->
+        writer.write("\uFEFF")
+        writer.appendLine("seccion;campo;valor;detalle")
+        writer.appendLine("reporte;titulo;${analysis.title.toCsvCell()};")
+        writer.appendLine("reporte;periodo;${analysis.periodLabel.toCsvCell()};")
+        writer.appendLine(
+            "reporte;indicador_principal;${analysis.headline.toCsvCell()};" +
+                analysis.headlineLabel.toCsvCell()
+        )
+        analysis.metrics.forEach { metric ->
+            writer.appendLine(
+                "metrica;${metric.label.toCsvCell()};${metric.value.toCsvCell()};" +
+                    metric.explanation.toCsvCell()
+            )
+        }
+        writer.appendLine("registro;fecha;nombre;detalle")
+        val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        analysis.recentRecords.forEach { record ->
+            writer.appendLine(
+                "registro;${dateFormatter.format(Date(record.dateMillis))};" +
+                    "${record.title.toCsvCell()};${record.detail.toCsvCell()}"
+            )
+        }
+    }
+}
+
+private fun String.toCsvCell(): String =
+    replace(";", ",").replace("\r", " ").replace("\n", " ").trim()
+
 /** Guarda la plantilla administrativa con los módulos escogidos. */
 private suspend fun writeBulkImportTemplate(
     context: Context,
@@ -1012,9 +1156,7 @@ private suspend fun readReportCsv(context: Context, uri: Uri): ReportDashboardDa
 private suspend fun writeReportPdf(
     context: Context,
     uri: Uri,
-    reportTitle: String,
-    period: String,
-    value: String
+    analysis: ReportAnalysis
 ) = withContext(Dispatchers.IO) {
     val document = PdfDocument()
     try {
@@ -1040,22 +1182,57 @@ private suspend fun writeReportPdf(
 
         textPaint.textSize = 22f
         textPaint.isFakeBoldText = true
-        canvas.drawText(reportTitle, 48f, 165f, textPaint)
+        canvas.drawText(analysis.title, 48f, 165f, textPaint)
         textPaint.isFakeBoldText = false
         textPaint.textSize = 14f
-        canvas.drawText("Periodo: $period", 48f, 195f, textPaint)
+        canvas.drawText("Periodo: ${analysis.periodLabel}", 48f, 195f, textPaint)
 
         primaryPaint.textSize = 32f
         primaryPaint.isFakeBoldText = true
-        canvas.drawText(value, 48f, 260f, primaryPaint)
+        canvas.drawText(analysis.headline, 48f, 250f, primaryPaint)
 
         textPaint.textSize = 13f
-        canvas.drawText(
-            "Resumen calculado con los datos disponibles en la aplicación.",
-            48f,
-            300f,
-            textPaint
-        )
+        canvas.drawText(analysis.headlineLabel, 48f, 278f, textPaint)
+
+        var y = 325f
+        textPaint.isFakeBoldText = true
+        textPaint.textSize = 15f
+        canvas.drawText("Métricas", 48f, y, textPaint)
+        y += 28f
+        textPaint.textSize = 12f
+        analysis.metrics.forEach { metric ->
+            textPaint.isFakeBoldText = true
+            canvas.drawText("${metric.label}: ${metric.value}", 48f, y, textPaint)
+            textPaint.isFakeBoldText = false
+            canvas.drawText(metric.explanation.fitPdfLine(textPaint), 285f, y, textPaint)
+            y += 24f
+        }
+
+        y += 14f
+        textPaint.isFakeBoldText = true
+        textPaint.textSize = 15f
+        canvas.drawText("10 registros más recientes del rango", 48f, y, textPaint)
+        y += 27f
+        textPaint.textSize = 11f
+        val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        if (analysis.recentRecords.isEmpty()) {
+            textPaint.isFakeBoldText = false
+            canvas.drawText("No existen registros dentro del rango seleccionado.", 48f, y, textPaint)
+        } else {
+            analysis.recentRecords.forEachIndexed { index, record ->
+                textPaint.isFakeBoldText = true
+                canvas.drawText(
+                    "${index + 1}. ${dateFormatter.format(Date(record.dateMillis))}  " +
+                        record.title.fitPdfLine(textPaint, 280f),
+                    48f,
+                    y,
+                    textPaint
+                )
+                textPaint.isFakeBoldText = false
+                canvas.drawText(record.detail.fitPdfLine(textPaint, 210f), 335f, y, textPaint)
+                y += 25f
+            }
+        }
         canvas.drawText(
             "Generado: ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())}",
             48f,
@@ -1070,4 +1247,12 @@ private suspend fun writeReportPdf(
     } finally {
         document.close()
     }
+}
+
+/** Recorta texto según el ancho real de la tipografía para evitar que salga del PDF. */
+private fun String.fitPdfLine(paint: Paint, maxWidth: Float = 250f): String {
+    if (paint.measureText(this) <= maxWidth) return this
+    val suffix = "…"
+    val count = paint.breakText(this, true, maxWidth - paint.measureText(suffix), null)
+    return take(count.coerceAtLeast(0)) + suffix
 }
