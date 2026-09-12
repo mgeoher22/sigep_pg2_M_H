@@ -45,5 +45,25 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun authenticate(username: String, password: String): AuthenticationResult =
         repository.authenticate(username, password)
 
+    suspend fun updateUser(
+        actorUserId: String,
+        userId: String,
+        fullName: String,
+        username: String,
+        newPassword: String,
+        roleName: String,
+        active: Boolean,
+        permissionIds: Set<String>
+    ): AuthenticatedUser = repository.updateUser(
+        actorUserId = actorUserId,
+        userId = userId,
+        fullName = fullName,
+        username = username,
+        newPassword = newPassword,
+        roleName = roleName,
+        active = active,
+        permissionIds = permissionIds
+    )
+
     suspend fun resetLocalAccess() = repository.resetLocalAccess()
 }

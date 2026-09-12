@@ -3,6 +3,7 @@ package com.fincahernandez.gestionpecuaria.data.repository
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 import com.fincahernandez.gestionpecuaria.data.security.PasswordHasher
+import com.fincahernandez.gestionpecuaria.data.security.GENERAL_ADMIN_ROLE
 import com.fincahernandez.gestionpecuaria.data.security.definedRoles
 import com.fincahernandez.gestionpecuaria.data.security.permissionsForRole
 import com.fincahernandez.gestionpecuaria.data.security.permissionsForUser
@@ -114,6 +115,70 @@ class UserRepository(database: GestionPecuariaDatabase) {
     suspend fun activeUserById(id: String): AuthenticatedUser? = userDao.buscarPorId(id)
         ?.takeIf { it.activo }
         ?.toAuthenticatedUser()
+
+    /**
+     * Actualiza datos, rol, permisos y estado de una cuenta conservando su historial.
+     * Una contraseña vacía mantiene la credencial actual; solo un Administrador General
+     * activo puede ejecutar esta operación.
+     */
+    suspend fun updateUser(
+        actorUserId: String,
+        userId: String,
+        fullName: String,
+        username: String,
+        newPassword: String,
+        roleName: String,
+        active: Boolean,
+        permissionIds: Set<String>
+    ): AuthenticatedUser = withContext(Dispatchers.Default) {
+        val actor = userDao.buscarPorId(actorUserId)
+        require(actor?.activo == true && actor.rol == GENERAL_ADMIN_ROLE) {
+            "Solo el Administrador General puede editar cuentas y permisos."
+        }
+        val current = userDao.buscarPorId(userId)
+            ?: throw IllegalArgumentException("El usuario que desea editar ya no existe.")
+        require(fullName.isNotBlank()) { "El nombre es obligatorio." }
+        val normalizedUsername = normalizeUsername(username)
+        require(normalizedUsername.isNotBlank()) { "El usuario es obligatorio." }
+        require(definedRoles.any { it.name == roleName }) { "El rol no es válido." }
+        val validPermissionIds = rolePermissions.mapTo(mutableSetOf()) { it.id }
+        require(permissionIds.all { it in validPermissionIds }) {
+            "La selección contiene un permiso no válido."
+        }
+        require("dashboard" in permissionIds) {
+            "El acceso al panel principal es obligatorio."
+        }
+        if (current.id == actor.id) {
+            require(active && roleName == GENERAL_ADMIN_ROLE && "users" in permissionIds) {
+                "No puede desactivar ni retirar el acceso administrativo de su propia cuenta."
+            }
+        }
+
+        val usernameOwner = userDao.buscarPorUsuario(normalizedUsername)
+        require(usernameOwner == null || usernameOwner.id == current.id) {
+            "Ese nombre de usuario ya está registrado."
+        }
+        val protectedPassword = newPassword
+            .takeIf(String::isNotBlank)
+            ?.let(PasswordHasher::protect)
+        val customizedPermissions = permissionIds
+            .takeIf { it != permissionsForRole(roleName) }
+            ?.let(::serializePermissions)
+        val updated = current.copy(
+            nombreCompleto = fullName.trim(),
+            usuario = username.trim(),
+            usuarioNormalizado = normalizedUsername,
+            passwordHash = protectedPassword?.hash ?: current.passwordHash,
+            passwordSalt = protectedPassword?.salt ?: current.passwordSalt,
+            passwordAlgorithm = protectedPassword?.algorithm ?: current.passwordAlgorithm,
+            passwordIterations = protectedPassword?.iterations ?: current.passwordIterations,
+            rol = roleName,
+            activo = active,
+            permisosPersonalizados = customizedPermissions
+        )
+        userDao.actualizar(updated)
+        updated.toAuthenticatedUser()
+    }
 
     /** Borra solo las credenciales para permitir configurar nuevamente el administrador. */
     suspend fun resetLocalAccess() = userDao.eliminarTodos()

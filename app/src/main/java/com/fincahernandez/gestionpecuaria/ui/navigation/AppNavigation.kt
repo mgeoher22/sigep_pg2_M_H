@@ -37,6 +37,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
+import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
@@ -155,6 +156,7 @@ fun AppNavigation() {
                 username = user.username,
                 roleName = user.roleName,
                 active = user.active,
+                permissionIds = user.permissionIds,
                 permissionCount = user.permissionIds.size,
                 hasCustomPermissions = user.hasCustomPermissions
             )
@@ -378,6 +380,7 @@ fun AppNavigation() {
     var setupError by remember { mutableStateOf<String?>(null) }
     var userIsSaving by remember { mutableStateOf(false) }
     var userSaveError by remember { mutableStateOf<String?>(null) }
+    var userEditingId by rememberSaveable { mutableStateOf("") }
 
     val selectedLot = remember(lots, selectedLotId) {
         lots.firstOrNull { it.id == selectedLotId }
@@ -414,6 +417,7 @@ fun AppNavigation() {
     // Los permisos personalizados permiten entrar a módulos, pero no convierten
     // otro rol en Administrador General para modificar registros existentes.
     val canEditRecords = canEditExistingRecords(currentUser?.roleName)
+    val canImportData = canImportApplicationData(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
             currentUserId = ""
@@ -1616,21 +1620,21 @@ fun AppNavigation() {
                         }
                     ),
                     allowedReportIds = allowedReportIds,
-                    isGeneralAdministrator = currentUser?.roleName == "Administrador General",
+                    isGeneralAdministrator = canImportData,
                     onBulkExport = { uri, modules ->
-                        check(currentUser?.roleName == "Administrador General") {
+                        check(canEditRecords) {
                             "Solo el Administrador General puede exportar datos operativos."
                         }
                         bulkDataImportViewModel.export(uri, modules)
                     },
                     onInspectBulkImport = { uri, modules, mode ->
-                        check(currentUser?.roleName == "Administrador General") {
+                        check(canImportData) {
                             "Solo el Administrador General puede importar datos."
                         }
                         bulkDataImportViewModel.inspect(uri, modules, mode)
                     },
                     onBulkImport = { uri, modules, mode ->
-                        check(currentUser?.roleName == "Administrador General") {
+                        check(canImportData) {
                             "Solo el Administrador General puede importar datos."
                         }
                         bulkDataImportViewModel.import(uri, modules, mode)
@@ -1643,8 +1647,18 @@ fun AppNavigation() {
             composable(Routes.USERS) {
                 UserManagementScreen(
                     users = users,
+                    canManageUsers = canEditRecords,
                     onMenuClick = openDrawer,
                     onCreateUser = {
+                        userEditingId = ""
+                        userSaveError = null
+                        navController.navigate(Routes.USER_FORM)
+                    },
+                    onEditUser = { userId ->
+                        check(canEditRecords) {
+                            "Solo el Administrador General puede editar usuarios."
+                        }
+                        userEditingId = userId
                         userSaveError = null
                         navController.navigate(Routes.USER_FORM)
                     },
@@ -1656,8 +1670,11 @@ fun AppNavigation() {
             }
 
             composable(Routes.USER_FORM) {
+                val editingUser = users.firstOrNull { it.id == userEditingId }
                 UserFormScreen(
                     existingUsernames = users.map { it.username }.toSet(),
+                    initialUser = editingUser,
+                    protectOwnAccount = editingUser?.id == currentUserId,
                     isSaving = userIsSaving,
                     saveError = userSaveError,
                     onBack = {
@@ -1665,20 +1682,40 @@ fun AppNavigation() {
                         navController.popBackStack()
                     },
                     onSubmit = { form ->
+                        check(canEditRecords) {
+                            "Solo el Administrador General puede administrar usuarios."
+                        }
                         userIsSaving = true
                         userSaveError = null
                         coroutineScope.launch {
                             runCatching {
-                                userViewModel.createUser(
-                                    fullName = form.fullName,
-                                    username = form.username,
-                                    password = form.temporaryPassword,
-                                    roleName = form.roleName,
-                                    active = form.active,
-                                    permissionIds = form.permissionIds
-                                )
-                            }.onSuccess {
+                                if (editingUser == null) {
+                                    userViewModel.createUser(
+                                        fullName = form.fullName,
+                                        username = form.username,
+                                        password = form.temporaryPassword,
+                                        roleName = form.roleName,
+                                        active = form.active,
+                                        permissionIds = form.permissionIds
+                                    )
+                                } else {
+                                    userViewModel.updateUser(
+                                        actorUserId = currentUserId,
+                                        userId = editingUser.id,
+                                        fullName = form.fullName,
+                                        username = form.username,
+                                        newPassword = form.temporaryPassword,
+                                        roleName = form.roleName,
+                                        active = form.active,
+                                        permissionIds = form.permissionIds
+                                    )
+                                }
+                            }.onSuccess { savedUser ->
                                 userIsSaving = false
+                                if (savedUser.id == currentUserId) {
+                                    updateCurrentUser(savedUser)
+                                }
+                                userEditingId = ""
                                 navController.popBackStack()
                             }.onFailure { error ->
                                 userIsSaving = false

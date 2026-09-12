@@ -104,7 +104,7 @@ private data class ReportOption(
 /**
  * Centro de reportes basado en el prototipo y en RF-023, RF-024 y RF-025.
  * Genera vistas previas, documentos PDF y resúmenes CSV compatibles con Excel.
- * También permite analizar un resumen importado sin alterar los registros operativos.
+ * Todos los roles con acceso pueden exportar; la importación es administrativa.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,7 +184,7 @@ fun ReportsCenterScreen(
     val csvImporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
+        uri?.takeIf { isGeneralAdministrator }?.let {
             coroutineScope.launch {
                 isTransferring = true
                 runCatching { readReportCsv(context, it) }
@@ -379,27 +379,33 @@ fun ReportsCenterScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(
-                                onClick = {
-                                    csvImporter.launch(
-                                        arrayOf(
-                                            "text/csv",
-                                            "text/comma-separated-values",
-                                            "application/vnd.ms-excel",
-                                            "text/plain"
+                            if (isGeneralAdministrator) {
+                                OutlinedButton(
+                                    onClick = {
+                                        csvImporter.launch(
+                                            arrayOf(
+                                                "text/csv",
+                                                "text/comma-separated-values",
+                                                "application/vnd.ms-excel",
+                                                "text/plain"
+                                            )
                                         )
-                                    )
-                                },
-                                enabled = !isTransferring,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.FileUpload, contentDescription = null)
-                                Text(" Importar resumen")
+                                    },
+                                    enabled = !isTransferring,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.FileUpload, contentDescription = null)
+                                    Text(" Importar resumen")
+                                }
                             }
                             Button(
                                 onClick = { csvExporter.launch(reportCsvFileName()) },
                                 enabled = !isTransferring,
-                                modifier = Modifier.weight(1f)
+                                modifier = if (isGeneralAdministrator) {
+                                    Modifier.weight(1f)
+                                } else {
+                                    Modifier.fillMaxWidth()
+                                }
                             ) {
                                 Icon(Icons.Default.FileDownload, contentDescription = null)
                                 Text(" Exportar Excel")

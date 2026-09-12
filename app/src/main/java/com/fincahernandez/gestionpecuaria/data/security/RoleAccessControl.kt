@@ -46,7 +46,7 @@ val definedRoles = listOf(
     DefinedRole(
         name = "Operario",
         description = "Captura diariamente los datos primarios de campo.",
-        permissionIds = setOf("dashboard", "animals", "weighings", "lots")
+        permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
     ),
     DefinedRole(
         name = "Auxiliar Contable",
@@ -81,3 +81,6 @@ fun serializePermissions(permissionIds: Set<String>): String =
  * adicional que pueda otorgarse a otra plantilla de usuario.
  */
 fun canEditExistingRecords(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE
+
+/** Importar archivos puede modificar muchos registros y continúa siendo administrativo. */
+fun canImportApplicationData(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE

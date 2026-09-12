@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Menu
@@ -69,6 +70,7 @@ data class UserUiModel(
     val username: String,
     val roleName: String,
     val active: Boolean,
+    val permissionIds: Set<String>,
     val permissionCount: Int,
     val hasCustomPermissions: Boolean
 )
@@ -88,8 +90,10 @@ data class UserFormData(
 @Composable
 fun UserManagementScreen(
     users: List<UserUiModel>,
+    canManageUsers: Boolean,
     onMenuClick: () -> Unit,
     onCreateUser: () -> Unit,
+    onEditUser: (String) -> Unit,
     onViewRolePermissions: () -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -119,11 +123,13 @@ fun UserManagementScreen(
             AppBottomBar(selectedRoute = Routes.USERS, onNavigate = onNavigateMain)
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateUser,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Crear usuario") }
-            )
+            if (canManageUsers) {
+                ExtendedFloatingActionButton(
+                    onClick = onCreateUser,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Crear usuario") }
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -192,7 +198,9 @@ fun UserManagementScreen(
                         ) {
                             Text("Aún no existen usuarios", fontWeight = FontWeight.Bold)
                             Text("Cree la primera cuenta administrativa.")
-                            OutlinedButton(onClick = onCreateUser) { Text("Crear usuario") }
+                            if (canManageUsers) {
+                                OutlinedButton(onClick = onCreateUser) { Text("Crear usuario") }
+                            }
                         }
                     }
                 }
@@ -227,16 +235,27 @@ fun UserManagementScreen(
                                     }
                                 )
                             }
-                            Text(
-                                if (user.active) "ACTIVO" else "INACTIVO",
-                                color = if (user.active) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    if (user.active) "ACTIVO" else "INACTIVO",
+                                    color = if (user.active) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (canManageUsers) {
+                                    IconButton(onClick = { onEditUser(user.id) }) {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = "Editar ${user.fullName}",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -253,36 +272,60 @@ fun UserFormScreen(
     existingUsernames: Set<String>,
     onBack: () -> Unit,
     onSubmit: (UserFormData) -> Unit,
+    initialUser: UserUiModel? = null,
+    protectOwnAccount: Boolean = false,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var fullName by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var selectedRoleName by rememberSaveable { mutableStateOf(definedRoles.first().name) }
-    // Se serializa como texto para que la selección sobreviva al giro de la tableta.
-    var selectedPermissionsValue by rememberSaveable {
-        mutableStateOf(definedRoles.first().permissionIds.sorted().joinToString(","))
+    val isEditing = initialUser != null
+    var fullName by rememberSaveable(initialUser?.id) {
+        mutableStateOf(initialUser?.fullName.orEmpty())
     }
-    var active by rememberSaveable { mutableStateOf(true) }
-    var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    var username by rememberSaveable(initialUser?.id) {
+        mutableStateOf(initialUser?.username.orEmpty())
+    }
+    var password by rememberSaveable(initialUser?.id) { mutableStateOf("") }
+    var selectedRoleName by rememberSaveable(initialUser?.id) {
+        mutableStateOf(initialUser?.roleName ?: definedRoles.first().name)
+    }
+    // Se serializa como texto para que la selección sobreviva al giro de la tableta.
+    var selectedPermissionsValue by rememberSaveable(initialUser?.id) {
+        mutableStateOf(
+            (initialUser?.permissionIds ?: definedRoles.first().permissionIds)
+                .sorted()
+                .joinToString(",")
+        )
+    }
+    var active by rememberSaveable(initialUser?.id) {
+        mutableStateOf(initialUser?.active ?: true)
+    }
+    var attemptedSave by rememberSaveable(initialUser?.id) { mutableStateOf(false) }
 
     val normalizedUsername = username.trim().lowercase()
-    val usernameExists = normalizedUsername in existingUsernames.map { it.lowercase() }
+    val usernameExists = normalizedUsername in existingUsernames
+        .filterNot { it.equals(initialUser?.username, ignoreCase = true) }
+        .map { it.lowercase() }
     val selectedRole = definedRoles.first { it.name == selectedRoleName }
     val selectedPermissionIds = selectedPermissionsValue
         .split(',')
         .filterTo(linkedSetOf()) { it.isNotBlank() }
     val usernameValid = normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
+    val passwordValid = if (isEditing) password.isBlank() || password.length >= 8
+    else password.length >= 8
     val formValid = fullName.isNotBlank() && usernameValid &&
-        !usernameExists && password.length >= 8
+        !usernameExists && passwordValid
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             BrandedTopAppBar(
-                title = { Text("Crear usuario", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (isEditing) "Editar usuario" else "Crear usuario",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
@@ -300,7 +343,11 @@ fun UserFormScreen(
         ) {
             item {
                 Text(
-                    "Defina las credenciales iniciales y seleccione el rol del trabajador.",
+                    if (isEditing) {
+                        "Actualice los datos, el rol y los permisos de la cuenta."
+                    } else {
+                        "Defina las credenciales iniciales y seleccione el rol del trabajador."
+                    },
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
@@ -345,12 +392,20 @@ fun UserFormScreen(
                     value = password,
                     onValueChange = { password = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Contraseña temporal *") },
+                    label = {
+                        Text(if (isEditing) "Nueva contraseña (opcional)" else "Contraseña temporal *")
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation(),
-                    isError = attemptedSave && password.length < 8,
+                    isError = attemptedSave && !passwordValid,
                     supportingText = {
-                        Text("Debe contener al menos 8 caracteres.")
+                        Text(
+                            if (isEditing) {
+                                "Déjela vacía para conservar la actual; una nueva debe tener 8 caracteres."
+                            } else {
+                                "Debe contener al menos 8 caracteres."
+                            }
+                        )
                     },
                     singleLine = true
                 )
@@ -358,6 +413,7 @@ fun UserFormScreen(
             item {
                 RoleDropdown(
                     value = selectedRoleName,
+                    enabled = !protectOwnAccount,
                     onSelected = { roleName ->
                         selectedRoleName = roleName
                         // Elegir otro rol vuelve a cargar su plantilla antes de personalizarla.
@@ -383,7 +439,7 @@ fun UserFormScreen(
                         Text(selectedRole.description)
                         Text(
                             "Esta es la plantilla base. Los cambios siguientes solo afectarán " +
-                                "a esta nueva cuenta."
+                                "a esta cuenta."
                         )
                     }
                 }
@@ -418,7 +474,8 @@ fun UserFormScreen(
             items(rolePermissions, key = { "user-permission-${it.id}" }) { permission ->
                 val checked = permission.id in selectedPermissionIds
                 val includedByRole = permission.id in selectedRole.permissionIds
-                val isRequired = permission.id == "dashboard"
+                val isRequired = permission.id == "dashboard" ||
+                    (protectOwnAccount && permission.id == "users")
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -438,7 +495,9 @@ fun UserFormScreen(
                             Text(permission.label, fontWeight = FontWeight.SemiBold)
                             Text(
                                 when {
-                                    isRequired -> "Obligatorio para ingresar a la aplicación"
+                                    permission.id == "dashboard" ->
+                                        "Obligatorio para ingresar a la aplicación"
+                                    isRequired -> "Obligatorio en su cuenta administrativa actual"
                                     checked && !includedByRole -> "Permiso adicional al rol"
                                     !checked && includedByRole -> "Retirado para este usuario"
                                     includedByRole -> "Incluido por el rol"
@@ -468,11 +527,19 @@ fun UserFormScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Cuenta activa", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "Permite iniciar sesión desde su creación.",
+                            if (isEditing) {
+                                "Desactive la cuenta cuando ya no se necesite. Sus datos e historial se conservarán."
+                            } else {
+                                "Permite iniciar sesión desde su creación."
+                            },
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    Switch(checked = active, onCheckedChange = { active = it })
+                    Switch(
+                        checked = active,
+                        enabled = !protectOwnAccount,
+                        onCheckedChange = { active = it }
+                    )
                 }
             }
             item {
@@ -512,7 +579,10 @@ fun UserFormScreen(
                     } else {
                         Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Guardar usuario", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isEditing) "Guardar cambios" else "Guardar usuario",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -630,12 +700,13 @@ fun RolePermissionsScreen(
 @Composable
 private fun RoleDropdown(
     value: String,
+    enabled: Boolean = true,
     onSelected: (String) -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     ExposedDropdownMenuBox(
         expanded = expanded,
-        onExpandedChange = { expanded = !expanded }
+        onExpandedChange = { if (enabled) expanded = !expanded }
     ) {
         OutlinedTextField(
             value = value,
@@ -644,6 +715,7 @@ private fun RoleDropdown(
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                 .fillMaxWidth(),
             readOnly = true,
+            enabled = enabled,
             label = { Text("Rol del usuario *") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }
         )
