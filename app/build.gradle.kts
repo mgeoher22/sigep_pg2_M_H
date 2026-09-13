@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+val localConfig = Properties().apply {
+    val contents = providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+        .asText.orNull
+    if (contents != null) load(contents.reader())
+}
+
+// Solo configuración pública: estos valores se incluyen en el APK.
+fun publicConfigString(name: String): String {
+    val value = localConfig.getProperty(name, "").trim()
+    val escaped = value.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+    return "\"$escaped\""
 }
 
 android {
@@ -15,6 +33,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "SUPABASE_URL", publicConfigString("SUPABASE_URL"))
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", publicConfigString("SUPABASE_PUBLISHABLE_KEY"))
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,6 +58,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

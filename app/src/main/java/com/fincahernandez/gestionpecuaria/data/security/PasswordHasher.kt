@@ -23,6 +23,12 @@ object PasswordHasher {
 
     fun protect(password: String): ProtectedPassword {
         require(password.length >= 8) { "La contraseña debe tener al menos 8 caracteres." }
+        return protectValidatedCloudPassword(password)
+    }
+
+    /** Supabase already validated this password; accept its configured length policy. */
+    fun protectValidatedCloudPassword(password: String): ProtectedPassword {
+        require(password.isNotEmpty()) { "La contraseña no puede estar vacía." }
         val salt = ByteArray(SALT_LENGTH_BYTES).also(SecureRandom()::nextBytes)
         val algorithm = availableAlgorithm()
         val hash = derive(password, salt, algorithm, ITERATIONS)

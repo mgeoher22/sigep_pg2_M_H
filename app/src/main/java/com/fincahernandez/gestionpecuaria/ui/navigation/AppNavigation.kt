@@ -143,6 +143,11 @@ fun AppNavigation() {
     val sanitaryViewModel: SanitaryViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
+    val cloudSessionManager = remember(context) {
+        com.fincahernandez.gestionpecuaria.data.remote.CloudSessionManager(
+            com.fincahernandez.gestionpecuaria.data.remote.EncryptedCloudSessionStore(context))
+    }
+    val unifiedAuth = remember(context) { com.fincahernandez.gestionpecuaria.data.remote.createOfflineAuth(context, cloudSessionManager) }
     val milkNotificationPreferences = remember(context) { MilkNotificationPreferences(context) }
     val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
     val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
@@ -808,6 +813,8 @@ fun AppNavigation() {
 
     /** Cierra la sesión actual y evita que las pantallas protegidas queden en el historial. */
     val logout: () -> Unit = {
+        val revokeCloudSession = unifiedAuth.signOut()
+        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) { revokeCloudSession() }
         sessionManager.clear()
         updateCurrentUser(null)
         coroutineScope.launch { drawerState.close() }
@@ -847,16 +854,14 @@ fun AppNavigation() {
                 SplashScreen()
                 LaunchedEffect(Unit) {
                     val startedAt = System.currentTimeMillis()
-                    val hasUsers = userViewModel.hasUsers()
                     val rememberedUser = sessionManager.rememberedUserId()
-                        ?.let { userViewModel.activeUserById(it) }
+                        ?.let { unifiedAuth.remembered(it) }
                     if (rememberedUser == null) sessionManager.clear()
                     updateCurrentUser(rememberedUser)
 
                     val elapsed = System.currentTimeMillis() - startedAt
                     delay((1_700L - elapsed).coerceAtLeast(0L))
                     val destination = when {
-                        !hasUsers -> Routes.SETUP_ADMIN
                         rememberedUser != null -> Routes.DASHBOARD
                         else -> Routes.LOGIN
                     }
@@ -902,58 +907,28 @@ fun AppNavigation() {
                     isLoading = loginIsLoading,
                     errorMessage = loginError,
                     onClearError = { loginError = null },
-                    // La recuperación local solo se muestra en compilaciones de prueba.
-                    // Borra cuentas y sesión, pero conserva los datos productivos.
-                    onResetAccess = if (isDebuggable) {
-                        {
-                            loginIsLoading = true
-                            loginError = null
-                            coroutineScope.launch {
-                                runCatching {
-                                    userViewModel.resetLocalAccess()
-                                    sessionManager.clear()
-                                }.onSuccess {
-                                    loginIsLoading = false
-                                    updateCurrentUser(null)
-                                    navController.navigate(Routes.SETUP_ADMIN) {
-                                        popUpTo(Routes.LOGIN) { inclusive = true }
-                                    }
-                                }.onFailure {
-                                    loginIsLoading = false
-                                    loginError = "No fue posible restablecer el acceso."
-                                }
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                    onLogin = { username, password, rememberSession ->
+                    onResetAccess = null,
+                    onLogin = { email, password, rememberSession ->
                         loginIsLoading = true
                         loginError = null
                         coroutineScope.launch {
-                            when (val result = userViewModel.authenticate(username, password)) {
-                                is AuthenticationResult.Success -> {
-                                    loginIsLoading = false
-                                    updateCurrentUser(result.user)
-                                    if (rememberSession) {
-                                        sessionManager.remember(result.user.id)
-                                    } else {
-                                        sessionManager.clear()
-                                    }
-                                    navController.navigate(Routes.DASHBOARD) {
-                                        popUpTo(Routes.LOGIN) { inclusive = true }
-                                    }
+                            try {
+                                val user = unifiedAuth.login(email, password)
+                                updateCurrentUser(user)
+                                if (rememberSession) sessionManager.remember(user.id) else sessionManager.clear()
+                                navController.navigate(Routes.DASHBOARD) {
+                                    popUpTo(Routes.LOGIN) { inclusive = true }
                                 }
-                                AuthenticationResult.InvalidCredentials -> {
-                                    loginIsLoading = false
-                                    loginError = "Usuario o contraseña incorrectos."
+                            } catch (error: kotlinx.coroutines.CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                loginError = when (error) {
+                                    is com.fincahernandez.gestionpecuaria.data.remote.CloudAccessDenied,
+                                    is com.fincahernandez.gestionpecuaria.data.remote.CloudHttpException,
+                                    is IllegalArgumentException -> error.message ?: "No se pudo validar el acceso."
+                                    else -> "No se pudo iniciar sesión. Revisa la conexión y vuelve a intentar."
                                 }
-                                AuthenticationResult.InactiveAccount -> {
-                                    loginIsLoading = false
-                                    loginError =
-                                        "Esta cuenta está inactiva. Consulte al Administrador General."
-                                }
-                            }
+                            } finally { loginIsLoading = false }
                         }
                     }
                 )

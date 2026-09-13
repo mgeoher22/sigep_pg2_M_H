@@ -126,9 +126,9 @@ fun LoginScreen(
     modifier: Modifier = Modifier
 ) {
     var username by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
+    var password by androidx.compose.runtime.remember { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    var rememberSession by rememberSaveable { mutableStateOf(false) }
+    var rememberSession by rememberSaveable { mutableStateOf(true) }
     var attemptedLogin by rememberSaveable { mutableStateOf(false) }
     var informationMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var showResetConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -162,7 +162,7 @@ fun LoginScreen(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
-                    Text(" Sistema local disponible", color = MaterialTheme.colorScheme.primary)
+                    Text(" Acceso con y sin internet", color = MaterialTheme.colorScheme.primary)
                 }
             }
             item {
@@ -195,7 +195,7 @@ fun LoginScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Ingrese las credenciales creadas por el administrador.",
+                            "Primer ingreso con internet usando tu correo de Supabase. Después podrás ingresar sin conexión en esta tablet.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         OutlinedTextField(
@@ -205,12 +205,12 @@ fun LoginScreen(
                                 onClearError()
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Usuario") },
+                            label = { Text("Correo electrónico") },
                             leadingIcon = {
                                 Icon(Icons.Default.AccountCircle, contentDescription = null)
                             },
                             keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Text,
+                                keyboardType = KeyboardType.Email,
                                 imeAction = ImeAction.Next
                             ),
                             keyboardActions = KeyboardActions(
@@ -218,7 +218,7 @@ fun LoginScreen(
                             ),
                             isError = usernameInvalid,
                             supportingText = if (usernameInvalid) {
-                                { Text("Ingrese el usuario.") }
+                                { Text("Ingrese el correo electrónico.") }
                             } else null,
                             singleLine = true
                         )
@@ -258,7 +258,9 @@ fun LoginScreen(
                                     focusManager.clearFocus()
                                     attemptedLogin = true
                                     if (!isLoading && username.isNotBlank() && password.isNotBlank()) {
-                                        onLogin(username.trim(), password, rememberSession)
+                                        val enteredPassword = password
+                                    password = ""
+                                    onLogin(username.trim(), enteredPassword, rememberSession)
                                     }
                                 }
                             ),
@@ -287,7 +289,7 @@ fun LoginScreen(
                             TextButton(
                                 onClick = {
                                     informationMessage =
-                                        "La recuperación de contraseña se habilitará al crear el módulo de usuarios."
+                                        "Solicita al administrador restablecer tu contraseña en Supabase. Luego ingresa con internet para actualizar el acceso de esta tablet."
                                 }
                             ) { Text("¿Olvidó su contraseña?") }
                         }
@@ -296,7 +298,9 @@ fun LoginScreen(
                                 attemptedLogin = true
                                 focusManager.clearFocus()
                                 if (username.isNotBlank() && password.isNotBlank()) {
-                                    onLogin(username.trim(), password, rememberSession)
+                                    val enteredPassword = password
+                                    password = ""
+                                    onLogin(username.trim(), enteredPassword, rememberSession)
                                 }
                             },
                             modifier = Modifier
@@ -325,7 +329,7 @@ fun LoginScreen(
                         OutlinedButton(
                             onClick = {
                                 informationMessage =
-                                    "Solicite al Administrador General que cree o reactive su cuenta."
+                                    "Solicita al administrador crear tu usuario en Supabase Auth y autorizarlo en miembros_finca."
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -360,13 +364,14 @@ fun LoginScreen(
     informationMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { informationMessage = null },
-            title = { Text("Función pendiente") },
+            title = { Text("Acceso a la cuenta") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { informationMessage = null }) { Text("Entendido") }
             }
         )
     }
+
 
     if (showResetConfirmation) {
         AlertDialog(
