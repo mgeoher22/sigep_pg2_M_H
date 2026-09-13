@@ -29,6 +29,8 @@ data class AnimalEntity(
     val fechaIngreso: Long,
     val categoria: String,
     val tipoOrigen: String = "NACIDO_EN_FINCA",
+    /** Animal hembra registrado como madre; es nulo cuando el parentesco se desconoce. */
+    val madreId: String? = null,
     val procedencia: String? = null,
     val estadoSalud: String = "EXCELENTE",
     val estado: String = "ACTIVO",

@@ -12,6 +12,7 @@ data class LotStoredRecord(
     val lot: LoteEntity,
     val activeAnimalIds: List<String>,
     val historicalAnimalIds: List<String>,
+    val assignments: List<LoteAnimalEntity>,
     val averageWeightPounds: Double?
 )
 
@@ -55,6 +56,7 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
                 lot = lot,
                 activeAnimalIds = activeIds,
                 historicalAnimalIds = lotAssignments.map { it.animalId }.distinct(),
+                assignments = lotAssignments,
                 averageWeightPounds = weights.takeIf { it.isNotEmpty() }?.average()
             )
         }

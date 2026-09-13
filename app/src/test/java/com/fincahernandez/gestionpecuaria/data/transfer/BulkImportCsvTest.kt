@@ -80,4 +80,51 @@ class BulkImportCsvTest {
         assertEquals(620.5, imported.currentWeightPounds ?: 0.0, 0.0)
         assertEquals("Animal de prueba", imported.notes)
     }
+
+    @Test
+    fun exportAndImportPreserveMotherCode() {
+        val mother = AnimalEntity(
+            id = "mother-1",
+            codigoIdentificacion = "FH-010",
+            nombre = "Luna",
+            sexo = "HEMBRA",
+            fechaNacimiento = 1_704_067_200_000,
+            fechaIngreso = 1_704_067_200_000,
+            categoria = "LECHERO"
+        )
+        val calf = AnimalEntity(
+            id = "calf-1",
+            codigoIdentificacion = "FH-011",
+            nombre = "Lucero",
+            sexo = "MACHO",
+            fechaNacimiento = 1_725_840_000_000,
+            fechaIngreso = 1_725_840_000_000,
+            categoria = "ENGORDE",
+            madreId = mother.id
+        )
+
+        val csv = buildBulkExportCsv(
+            animals = listOf(calf, mother),
+            weighings = emptyList(),
+            sanitaryRecords = emptyList(),
+            modules = setOf(DataTransferModule.ANIMALS)
+        )
+        val imported = parseBulkImportCsv(csv, setOf(DataTransferModule.ANIMALS))
+
+        assertEquals("FH-010", imported.animals.first { it.code == "FH-011" }.motherCode)
+        assertEquals(null, imported.animals.first { it.code == "FH-010" }.motherCode)
+    }
+
+    @Test
+    fun previousCsvWithoutMotherColumnRemainsCompatible() {
+        val currentCsv = bulkImportTemplateCsv(setOf(DataTransferModule.ANIMALS))
+        val previousCsv = currentCsv
+            .replace(";codigoMadre;", ";")
+            .replace(";Ejemplo;;HEMBRA;", ";Ejemplo;HEMBRA;")
+
+        val imported = parseBulkImportCsv(previousCsv, setOf(DataTransferModule.ANIMALS))
+
+        assertEquals(1, imported.animals.size)
+        assertEquals(null, imported.animals.single().motherCode)
+    }
 }

@@ -50,7 +50,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         PagoEmpleadoEntity::class,
         ConfiguracionLecheEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -388,6 +388,16 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Permite guardar la madre de los animales nacidos en la finca.
+         * La columna es opcional para conservar intactos los animales ya registrados.
+         */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE animales ADD COLUMN madreId TEXT")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -411,7 +421,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
-                    MIGRATION_12_13
+                    MIGRATION_12_13,
+                    MIGRATION_13_14
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

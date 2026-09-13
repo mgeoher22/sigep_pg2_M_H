@@ -75,7 +75,14 @@ data class AnimalFormData(
     val pesoInicial: String,
     val procedencia: String,
     val observaciones: String,
-    val fotoUri: String = ""
+    val fotoUri: String = "",
+    val madreId: String = ""
+)
+
+/** Vaca disponible para registrar la relación de maternidad. */
+data class AnimalMotherOption(
+    val id: String,
+    val label: String
 )
 
 /**
@@ -88,6 +95,7 @@ data class AnimalFormData(
 fun AnimalFormScreen(
     codigoGenerado: String,
     initialData: AnimalFormData? = null,
+    motherOptions: List<AnimalMotherOption> = emptyList(),
     saveError: String? = null,
     isSaving: Boolean = false,
     onBack: () -> Unit,
@@ -106,6 +114,7 @@ fun AnimalFormScreen(
     var tipoOrigen by rememberSaveable {
         mutableStateOf(initialData?.tipoOrigen?.ifBlank { "NACIDO_EN_FINCA" } ?: "NACIDO_EN_FINCA")
     }
+    var madreId by rememberSaveable { mutableStateOf(initialData?.madreId.orEmpty()) }
     var fechaNacimiento by rememberSaveable {
         mutableStateOf(initialData?.fechaNacimiento.orEmpty())
     }
@@ -265,9 +274,24 @@ fun AnimalFormScreen(
                     )
                     FilterChip(
                         selected = tipoOrigen == "INGRESADO_A_FINCA",
-                        onClick = { tipoOrigen = "INGRESADO_A_FINCA" },
+                        onClick = {
+                            tipoOrigen = "INGRESADO_A_FINCA"
+                            // Un animal comprado o trasladado no usa la maternidad de la finca.
+                            madreId = ""
+                        },
                         label = { Text("Ingresado a la finca") },
                         modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // La madre solo se solicita para nacimientos ocurridos dentro de la finca.
+            if (tipoOrigen == "NACIDO_EN_FINCA") {
+                item {
+                    MotherDropdownField(
+                        selectedMotherId = madreId,
+                        options = motherOptions,
+                        onMotherSelected = { madreId = it }
                     )
                 }
             }
@@ -394,7 +418,8 @@ fun AnimalFormScreen(
                                     pesoInicial = pesoInicial,
                                     procedencia = procedencia,
                                     observaciones = observaciones,
-                                    fotoUri = fotoUri
+                                    fotoUri = fotoUri,
+                                    madreId = if (tipoOrigen == "NACIDO_EN_FINCA") madreId else ""
                                 )
                             )
                         }
@@ -419,6 +444,64 @@ fun AnimalFormScreen(
             }
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+    }
+}
+
+/**
+ * Lista únicamente las vacas activas recibidas desde Room. La opción vacía permite
+ * registrar nacimientos cuyo parentesco todavía no se conoce.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MotherDropdownField(
+    selectedMotherId: String,
+    options: List<AnimalMotherOption>,
+    onMotherSelected: (String) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.id == selectedMotherId }?.label.orEmpty()
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+            readOnly = true,
+            label = { Text("Vaca madre") },
+            placeholder = {
+                Text(if (options.isEmpty()) "No hay vacas activas registradas" else "Seleccione la madre")
+            },
+            supportingText = { Text("Opcional si todavía no se conoce el parentesco.") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Sin madre registrada") },
+                onClick = {
+                    onMotherSelected("")
+                    expanded = false
+                }
+            )
+            options.forEach { mother ->
+                DropdownMenuItem(
+                    text = { Text(mother.label) },
+                    onClick = {
+                        onMotherSelected(mother.id)
+                        expanded = false
+                    }
+                )
+            }
         }
     }
 }

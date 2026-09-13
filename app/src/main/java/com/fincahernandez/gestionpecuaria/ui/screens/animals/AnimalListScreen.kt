@@ -71,6 +71,7 @@ data class AnimalListItem(
     val tipoOrigen: String = "",
     val fechaNacimiento: String = "",
     val fechaIngreso: String = "",
+    val madreId: String = "",
     val procedencia: String = "",
     val observaciones: String = "",
     val fotoUri: String = ""

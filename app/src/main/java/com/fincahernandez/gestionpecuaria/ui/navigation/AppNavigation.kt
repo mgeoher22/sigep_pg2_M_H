@@ -24,6 +24,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.AppDrawerContent
 import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.ui.components.LocalLogoutAction
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
@@ -46,6 +47,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalMotherOption
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.InitialAdminSetupScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
@@ -1053,10 +1055,31 @@ fun AppNavigation() {
 
             composable(Routes.ANIMAL_FORM) {
                 val animalEnEdicion = animales.firstOrNull { it.id == animalEnEdicionId }
+                val motherOptions = remember(animales, animalEnEdicion, animalItemsById) {
+                    val eligible = animales
+                        .filter { it.sexo == "HEMBRA" && it.id != animalEnEdicion?.id }
+                        .toMutableList()
+                    // Conserva visible una madre ya asignada aunque luego haya sido retirada.
+                    animalEnEdicion?.madreId
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(animalItemsById::get)
+                        ?.takeIf { storedMother -> eligible.none { it.id == storedMother.id } }
+                        ?.let(eligible::add)
+                    eligible
+                        .sortedWith(compareBy({ it.nombre.orEmpty() }, { it.codigoIdentificacion }))
+                        .map { mother ->
+                            AnimalMotherOption(
+                                id = mother.id,
+                                label = "${mother.nombre?.takeIf(String::isNotBlank) ?: "Sin nombre"} · " +
+                                    mother.codigoIdentificacion
+                            )
+                        }
+                }
                 AnimalFormScreen(
                     codigoGenerado = animalEnEdicion?.codigoIdentificacion
                         ?: generarCodigoAnimal(allAnimalItems),
                     initialData = animalEnEdicion?.toFormData(),
+                    motherOptions = motherOptions,
                     saveError = animalSaveError,
                     isSaving = animalIsSaving,
                     onBack = { navController.popBackStack() },
@@ -1116,6 +1139,13 @@ fun AppNavigation() {
                 }
                 AnimalConfirmationScreen(
                     animal = animal,
+                    motherLabel = animal.madreId
+                        .takeIf(String::isNotBlank)
+                        ?.let(animalItemsById::get)
+                        ?.let { mother ->
+                            "${mother.nombre?.takeIf(String::isNotBlank) ?: "Sin nombre"} · " +
+                                mother.codigoIdentificacion
+                        },
                     onViewProfile = { navController.navigate(Routes.ANIMAL_DETAIL) },
                     onRegisterAnother = {
                         animalEnEdicionId = null
@@ -1147,6 +1177,16 @@ fun AppNavigation() {
                 }
                 AnimalDetailScreen(
                     animal = animal,
+                    currentLotLabel = activeLotByAnimalId[animal.id]
+                        ?.let(lotsById::get)
+                        ?.let { lot -> "${lot.name} · ${lot.code}" },
+                    motherLabel = animal.madreId
+                        .takeIf(String::isNotBlank)
+                        ?.let(animalItemsById::get)
+                        ?.let { mother ->
+                            "${mother.nombre?.takeIf(String::isNotBlank) ?: "Sin nombre"} · " +
+                                mother.codigoIdentificacion
+                        },
                     canEditRecords = canEditRecords,
                     onBack = { navController.popBackStack() },
                     onEdit = {
@@ -1303,14 +1343,20 @@ fun AppNavigation() {
                     }
                     return@composable
                 }
+                val lotAssignments = storedLots
+                    .firstOrNull { it.lot.id == lot.id }
+                    ?.assignments
+                    .orEmpty()
                 LotDetailScreen(
                     lot = lot,
                     canEditRecords = canEditRecords,
                     selectedAnimalLabels = allAnimalItems
                         .filter { it.id in lot.selectedAnimalIds }
                         .map { it.nombre ?: it.codigoIdentificacion },
-                    weightRecords = storedWeighings
-                        .filter { it.loteId == lot.id }
+                    weightRecords = lotWeighingsWithinAssignments(
+                        assignments = lotAssignments,
+                        weighings = storedWeighings
+                    )
                         .map { record ->
                             LotWeightRecord(
                                 animalId = record.animalId,
@@ -2065,6 +2111,30 @@ internal fun buildPreviousWeightByRecordId(
     }
 }
 
+/**
+ * Conserva una medición base anterior al ingreso y todos los pesajes realizados
+ * durante cada permanencia en el lote. Así no mezcla el aumento de otros lotes.
+ */
+internal fun lotWeighingsWithinAssignments(
+    assignments: List<LoteAnimalEntity>,
+    weighings: List<PesajeEntity>
+): List<PesajeEntity> = assignments
+    .flatMap { assignment ->
+        val animalWeighings = weighings
+            .filter { it.animalId == assignment.animalId }
+            .sortedBy { it.fechaPesaje }
+        val baseline = animalWeighings.lastOrNull {
+            it.fechaPesaje <= assignment.fechaIngreso
+        }
+        val duringAssignment = animalWeighings.filter { weighing ->
+            weighing.fechaPesaje >= assignment.fechaIngreso &&
+                (assignment.fechaSalida == null || weighing.fechaPesaje <= assignment.fechaSalida)
+        }
+        listOfNotNull(baseline) + duringAssignment
+    }
+    .distinctBy { it.id }
+    .sortedBy { it.fechaPesaje }
+
 /** Traduce los permisos efectivos del usuario a los destinos que puede abrir. */
 private fun allowedRoutesForPermissions(permissions: Set<String>): Set<String> {
     return buildSet {
@@ -2146,6 +2216,7 @@ private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
     raza = raza.trim(),
     sexo = sexo,
     tipoOrigen = tipoOrigen,
+    madreId = madreId,
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     procedencia = procedencia.trim(),
@@ -2166,6 +2237,7 @@ private fun AnimalFormData.toEntity(id: String) = AnimalEntity(
         ?: System.currentTimeMillis(),
     categoria = categoria,
     tipoOrigen = tipoOrigen,
+    madreId = madreId.ifBlank { null },
     procedencia = procedencia.trim().ifBlank { null },
     estadoSalud = estadoSalud,
     estado = "ACTIVO",
@@ -2184,6 +2256,7 @@ private fun AnimalStoredRecord.toListItem() = AnimalListItem(
     raza = animal.raza.orEmpty(),
     sexo = animal.sexo,
     tipoOrigen = animal.tipoOrigen,
+    madreId = animal.madreId.orEmpty(),
     fechaNacimiento = formatDate(animal.fechaNacimiento),
     fechaIngreso = formatDate(animal.fechaIngreso),
     procedencia = animal.procedencia.orEmpty(),
@@ -2222,6 +2295,7 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     sexo = sexo,
     categoria = categoria,
     tipoOrigen = tipoOrigen,
+    madreId = madreId,
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     estadoSalud = estado,

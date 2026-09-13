@@ -73,6 +73,7 @@ internal data class BulkAnimalRow(
     val internalId: String?,
     val code: String,
     val name: String?,
+    val motherCode: String?,
     val sex: String,
     val breed: String?,
     val birthDate: Long?,
@@ -172,10 +173,31 @@ class BulkDataImportRepository(
             val weighingDao = database.pesajeDao()
             val sanitaryDao = database.eventoSanitarioDao()
 
+            // Primero resuelve todos los identificadores. Así una cría puede referirse
+            // a su madre aunque ambas estén en el CSV y la madre aparezca después.
+            val existingByRow = payload.animals.associateWith { row ->
+                row.internalId?.let { animalDao.buscarPorId(it) }
+                    ?: animalDao.buscarPorCodigoIdentificacion(row.code)
+            }
+            val animalIdByCode = mutableMapOf<String, String>()
+            payload.animals.forEach { row ->
+                val existing = existingByRow[row]
+                val resolvedId = existing?.id ?: row.internalId ?: UUID.randomUUID().toString()
+                animalIdByCode[row.code] = resolvedId
+                // También conserva el código anterior si esta fila lo está modificando.
+                existing?.let { animalIdByCode[it.codigoIdentificacion] = it.id }
+            }
+            payload.animals.mapNotNull { it.motherCode }.distinct().forEach { motherCode ->
+                if (motherCode !in animalIdByCode) {
+                    animalDao.buscarPorCodigoIdentificacion(motherCode)?.let { mother ->
+                        animalIdByCode[motherCode] = mother.id
+                    }
+                }
+            }
+
             payload.animals.forEach { row ->
                 // El id interno permite cambiar el código desde Excel sin crear otro animal.
-                val existing = row.internalId?.let { animalDao.buscarPorId(it) }
-                    ?: animalDao.buscarPorCodigoIdentificacion(row.code)
+                val existing = existingByRow[row]
                 if (existing != null && mode == BulkImportMode.INITIAL_LOAD_REPLACE) {
                     // La fila se vuelve la fuente inicial oficial para este código.
                     weighingDao.eliminarPorAnimalParaCargaInicial(existing.id)
@@ -183,13 +205,15 @@ class BulkDataImportRepository(
                     database.loteDao().eliminarAsignacionesParaCargaInicial(existing.id)
                     replacedAnimalHistories++
                 }
+                val resolvedAnimalId = requireNotNull(animalIdByCode[row.code])
+                val resolvedMotherId = row.motherCode?.let(animalIdByCode::get)
                 val storedAnimal = if (existing == null) {
-                    row.toEntity().also {
+                    row.toEntity(resolvedAnimalId, resolvedMotherId).also {
                         animalDao.insertar(it)
                         createdAnimals++
                     }
                 } else {
-                    existing.withImportedValues(row).also {
+                    existing.withImportedValues(row, resolvedMotherId).also {
                         animalDao.actualizar(it)
                         updatedAnimals++
                     }
@@ -237,9 +261,28 @@ class BulkDataImportRepository(
                 .mapTo(this) { it.animalCode }
             payload.sanitaryRecords.filter { it.animalCode !in validCodes }
                 .mapTo(this) { it.animalCode }
+            payload.animals.mapNotNull { it.motherCode }
+                .filter { it !in validCodes }
+                .mapTo(this) { it }
         }
         require(unknownCodes.isEmpty()) {
             "No existen los animales con código: ${unknownCodes.sorted().joinToString()}."
+        }
+
+        val importedByCode = payload.animals.associateBy { it.code }
+        val storedByCode = storedAnimals.associateBy { it.codigoIdentificacion }
+        payload.animals.forEach { row ->
+            val motherCode = row.motherCode ?: return@forEach
+            require(row.originType == "NACIDO_EN_FINCA") {
+                "El animal ${row.code} solo puede tener madre si nació en la finca."
+            }
+            require(motherCode != row.code) {
+                "El animal ${row.code} no puede registrarse como su propia madre."
+            }
+            val motherSex = importedByCode[motherCode]?.sex ?: storedByCode[motherCode]?.sexo
+            require(motherSex == "HEMBRA") {
+                "El código de madre $motherCode debe corresponder a una hembra."
+            }
         }
 
         validateCurrentAnimalWeights(payload.animals, storedAnimals, mode)
@@ -322,8 +365,8 @@ private fun requireModules(modules: Set<DataTransferModule>) {
     require(modules.isNotEmpty()) { "Seleccione al menos un módulo." }
 }
 
-private fun BulkAnimalRow.toEntity() = AnimalEntity(
-    id = internalId ?: UUID.randomUUID().toString(),
+private fun BulkAnimalRow.toEntity(resolvedId: String, resolvedMotherId: String?) = AnimalEntity(
+    id = resolvedId,
     codigoIdentificacion = code,
     nombre = name,
     sexo = sex,
@@ -332,6 +375,7 @@ private fun BulkAnimalRow.toEntity() = AnimalEntity(
     fechaIngreso = arrivalDate,
     categoria = category,
     tipoOrigen = originType,
+    madreId = resolvedMotherId,
     procedencia = origin,
     estadoSalud = healthStatus,
     estado = inventoryStatus,
@@ -339,7 +383,10 @@ private fun BulkAnimalRow.toEntity() = AnimalEntity(
     fotoUri = photoUri
 )
 
-private fun AnimalEntity.withImportedValues(row: BulkAnimalRow) = copy(
+private fun AnimalEntity.withImportedValues(
+    row: BulkAnimalRow,
+    resolvedMotherId: String?
+) = copy(
     codigoIdentificacion = row.code,
     nombre = row.name,
     sexo = row.sex,
@@ -348,6 +395,7 @@ private fun AnimalEntity.withImportedValues(row: BulkAnimalRow) = copy(
     fechaIngreso = row.arrivalDate,
     categoria = row.category,
     tipoOrigen = row.originType,
+    madreId = resolvedMotherId,
     procedencia = row.origin,
     estadoSalud = row.healthStatus,
     estado = row.inventoryStatus,
@@ -402,7 +450,7 @@ private const val MAX_BULK_IMPORT_CHARS = 5_000_000
 
 private val bulkHeaders = listOf(
     "tipo", "idInternoNoEditar", "idRegistroNoEditar", "codigoAnimal", "nombre",
-    "sexo", "raza", "fechaNacimiento", "fechaIngreso", "categoria", "tipoOrigen",
+    "codigoMadre", "sexo", "raza", "fechaNacimiento", "fechaIngreso", "categoria", "tipoOrigen",
     "procedencia", "estadoSalud", "estado", "fotoUriNoEditar", "idPesoActualNoEditar",
     "pesoActualLibras", "fechaPesoActual", "pesoLibras", "fechaPesaje", "tipoEvento",
     "fechaEvento", "diagnostico", "medicamento", "dosis", "proximoControl",
@@ -466,6 +514,10 @@ internal fun buildBulkExportCsv(
                     "idInternoNoEditar" to animal.id,
                     "codigoAnimal" to animal.codigoIdentificacion,
                     "nombre" to animal.nombre.orEmpty(),
+                    "codigoMadre" to animal.madreId
+                        ?.let(animalById::get)
+                        ?.codigoIdentificacion
+                        .orEmpty(),
                     "sexo" to animal.sexo,
                     "raza" to animal.raza.orEmpty(),
                     "fechaNacimiento" to formatCsvDate(animal.fechaNacimiento),
@@ -534,7 +586,10 @@ internal fun parseBulkImportCsv(
     val lines = csv.removePrefix("\uFEFF").lineSequence().filter { it.isNotBlank() }.toList()
     require(lines.size >= 2) { "El archivo no contiene registros para importar." }
     val receivedHeaders = parseCsvLine(lines.first()).map(String::trim)
-    val missingHeaders = bulkHeaders.filterNot { it in receivedHeaders }
+    // codigoMadre se añadió después de la primera versión del formato; los archivos
+    // anteriores siguen siendo válidos y simplemente se importan sin parentesco.
+    val optionalHeaders = setOf("codigoMadre")
+    val missingHeaders = bulkHeaders.filterNot { it in receivedHeaders || it in optionalHeaders }
     require(missingHeaders.isEmpty()) {
         "Faltan columnas obligatorias: ${missingHeaders.joinToString()}."
     }
@@ -546,8 +601,10 @@ internal fun parseBulkImportCsv(
     lines.drop(1).forEachIndexed { index, line ->
         val rowNumber = index + 2
         val cells = parseCsvLine(line)
-        fun cell(header: String): String =
-            cells.getOrNull(indexByHeader.getValue(header)).orEmpty().trim()
+        fun cell(header: String): String = indexByHeader[header]
+            ?.let(cells::getOrNull)
+            .orEmpty()
+            .trim()
         fun required(header: String): String = cell(header).ifBlank {
             throw IllegalArgumentException("Fila $rowNumber: falta $header.")
         }
@@ -593,6 +650,7 @@ internal fun parseBulkImportCsv(
                     internalId = cell("idInternoNoEditar").ifBlank { null },
                     code = required("codigoAnimal"),
                     name = cell("nombre").ifBlank { null },
+                    motherCode = cell("codigoMadre").ifBlank { null },
                     sex = sex,
                     breed = cell("raza").ifBlank { null },
                     birthDate = birthDate,

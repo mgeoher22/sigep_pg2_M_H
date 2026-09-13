@@ -42,6 +42,7 @@ import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 @OptIn(ExperimentalMaterial3Api::class)
 fun AnimalConfirmationScreen(
     animal: AnimalListItem,
+    motherLabel: String? = null,
     onViewProfile: () -> Unit,
     onRegisterAnother: () -> Unit,
     onBackToList: () -> Unit,
@@ -98,7 +99,7 @@ fun AnimalConfirmationScreen(
                     )
                 }
             }
-            item { ConfirmationCard(animal) }
+            item { ConfirmationCard(animal, motherLabel) }
             item {
                 Button(
                     onClick = onViewProfile,
@@ -136,7 +137,7 @@ fun AnimalConfirmationScreen(
 
 /** Resumen del animal mostrado después del registro. */
 @Composable
-private fun ConfirmationCard(animal: AnimalListItem) {
+private fun ConfirmationCard(animal: AnimalListItem, motherLabel: String?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -161,6 +162,12 @@ private fun ConfirmationCard(animal: AnimalListItem) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Categoría", style = MaterialTheme.typography.labelMedium)
                     Text(animal.categoria)
+                }
+            }
+            if (animal.tipoOrigen == "NACIDO_EN_FINCA") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("Vaca madre", style = MaterialTheme.typography.labelMedium)
+                    Text(motherLabel ?: "Sin registro")
                 }
             }
             Row(modifier = Modifier.fillMaxWidth()) {

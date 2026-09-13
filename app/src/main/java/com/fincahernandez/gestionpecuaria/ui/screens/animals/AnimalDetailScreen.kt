@@ -56,6 +56,8 @@ import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 @Composable
 fun AnimalDetailScreen(
     animal: AnimalListItem,
+    currentLotLabel: String? = null,
+    motherLabel: String? = null,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -119,10 +121,14 @@ fun AnimalDetailScreen(
                     )
                 }
             }
-            item { AnimalRegisteredInformation(animal) }
+            item { AnimalRegisteredInformation(animal, motherLabel) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MetricCard("LOTE ACTUAL", "Sin asignar", Modifier.weight(1f))
+                    MetricCard(
+                        "LOTE ACTUAL",
+                        currentLotLabel ?: "Sin asignar",
+                        Modifier.weight(1f)
+                    )
                     MetricCard("ESTADO", animal.estado, Modifier.weight(1f))
                 }
             }
@@ -203,7 +209,7 @@ fun AnimalDetailScreen(
 
 /** Muestra los valores capturados en el formulario para cumplir HU-03. */
 @Composable
-private fun AnimalRegisteredInformation(animal: AnimalListItem) {
+private fun AnimalRegisteredInformation(animal: AnimalListItem, motherLabel: String?) {
     val origen = when (animal.tipoOrigen) {
         "NACIDO_EN_FINCA" -> "Nacido en la finca/parcela"
         "INGRESADO_A_FINCA" -> "Ingresado a la finca"
@@ -227,6 +233,9 @@ private fun AnimalRegisteredInformation(animal: AnimalListItem) {
             AnimalInformationRow("Raza", animal.raza.ifBlank { "Sin registro" })
             AnimalInformationRow("Sexo", animal.sexo.ifBlank { "Sin registro" })
             AnimalInformationRow("Origen", origen)
+            if (animal.tipoOrigen == "NACIDO_EN_FINCA") {
+                AnimalInformationRow("Vaca madre", motherLabel ?: "Sin registro")
+            }
             AnimalInformationRow(
                 "Fecha de nacimiento",
                 animal.fechaNacimiento.ifBlank { "Sin registro" }

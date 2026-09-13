@@ -113,6 +113,26 @@ data class LotWeightRecord(
     val weightPounds: Double
 )
 
+/** Resultado de sumar el cambio entre el primer y último pesaje de cada animal. */
+data class LotWeightGainSummary(
+    val totalPounds: Double,
+    val comparedAnimals: Int
+)
+
+internal fun calculateLotWeightGain(records: List<LotWeightRecord>): LotWeightGainSummary {
+    val individualChanges = records
+        .groupBy { it.animalId }
+        .values
+        .mapNotNull { animalRecords ->
+            val ordered = animalRecords.sortedBy { it.dateMillis }
+            if (ordered.size < 2) null else ordered.last().weightPounds - ordered.first().weightPounds
+        }
+    return LotWeightGainSummary(
+        totalPounds = individualChanges.sum(),
+        comparedAnimals = individualChanges.size
+    )
+}
+
 /** Panel y listado independiente de lotes activos. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -684,6 +704,7 @@ fun LotDetailScreen(
         .mapNotNull { records -> records.maxByOrNull { it.dateMillis }?.weightPounds }
         .takeIf { it.isNotEmpty() }
         ?.average()
+    val weightGain = calculateLotWeightGain(weightRecords)
 
     if (confirmDeactivate) {
         AlertDialog(
@@ -761,6 +782,20 @@ fun LotDetailScreen(
                     SummaryValueCard(
                         "PESO PROM.",
                         formatLotWeight(currentAverageWeight ?: lot.initialAverageWeight),
+                        Modifier.weight(1f)
+                    )
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SummaryValueCard(
+                        "GANANCIA NETA",
+                        formatLotWeightChange(weightGain),
+                        Modifier.weight(1f)
+                    )
+                    SummaryValueCard(
+                        "COMPARADOS",
+                        "${weightGain.comparedAnimals} animales",
                         Modifier.weight(1f)
                     )
                 }
@@ -875,6 +910,12 @@ fun LotDetailScreen(
 
 private fun formatLotWeight(weight: Double?): String =
     weight?.let { "${String.format(Locale.getDefault(), "%.1f", it)} lb" } ?: "Sin dato"
+
+private fun formatLotWeightChange(summary: LotWeightGainSummary): String {
+    if (summary.comparedAnimals == 0) return "Sin comparación"
+    val sign = if (summary.totalPounds > 0.0) "+" else ""
+    return "$sign${String.format(Locale.getDefault(), "%.1f", summary.totalPounds)} lb"
+}
 
 /** Inicio del período elegido para filtrar la gráfica sin fabricar valores. */
 private fun weightPeriodStart(period: String, now: Long = System.currentTimeMillis()): Long? {
