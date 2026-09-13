@@ -37,6 +37,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
+import com.fincahernandez.gestionpecuaria.data.security.canConfirmMilkPayments
 import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
@@ -76,7 +77,10 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotWeightRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkConfigurationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkPaymentUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionUiModel
+import com.fincahernandez.gestionpecuaria.notification.MilkNotificationPreferences
+import com.fincahernandez.gestionpecuaria.notification.MilkPaymentNotificationScheduler
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
@@ -137,6 +141,7 @@ fun AppNavigation() {
     val sanitaryViewModel: SanitaryViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
+    val milkNotificationPreferences = remember(context) { MilkNotificationPreferences(context) }
     val storedAnimals by animalViewModel.animals.collectAsStateWithLifecycle()
     val storedWeighings by animalViewModel.weighings.collectAsStateWithLifecycle()
     val storedLots by lotViewModel.lots.collectAsStateWithLifecycle()
@@ -262,9 +267,33 @@ fun AppNavigation() {
                 date = formatDate(record.fecha),
                 liters = record.litros,
                 pricePerLiter = record.precioPorLitro,
+                paymentDueDateMillis = record.fechaPagoProgramada,
+                paymentDueDate = formatDate(record.fechaPagoProgramada),
+                paymentConfirmedAtMillis = record.pagoConfirmadoEn,
                 notes = record.observaciones.orEmpty()
             )
         }
+    }
+    val milkPayments = remember(milkProductionRecords) {
+        milkProductionRecords
+            .groupBy { record ->
+                record.paymentDueDateMillis to (record.paymentConfirmedAtMillis != null)
+            }
+            .map { (key, groupedRecords) ->
+                MilkPaymentUiModel(
+                    paymentDueDateMillis = key.first,
+                    paymentDueDate = formatDate(key.first),
+                    amount = groupedRecords.sumOf { it.grossIncome },
+                    productionRecordCount = groupedRecords.size,
+                    confirmed = key.second,
+                    confirmedAtMillis = groupedRecords.mapNotNull { it.paymentConfirmedAtMillis }
+                        .maxOrNull()
+                )
+            }
+            .sortedWith(
+                compareBy<MilkPaymentUiModel> { it.confirmed }
+                    .thenBy { it.paymentDueDateMillis }
+            )
     }
     val employees = remember(storedEmployees) {
         storedEmployees.map { employee ->
@@ -313,16 +342,24 @@ fun AppNavigation() {
                 date = formatDate(movement.fecha),
                 notes = movement.observaciones.orEmpty()
             )
-        } + milkProductionRecords.map { production ->
+        } + milkProductionRecords
+            .filter { it.paymentConfirmedAtMillis != null }
+            .groupBy { it.paymentDueDateMillis }
+            .map { (paymentDueDate, productions) ->
             FinancialMovementUiModel(
-                id = "milk-${production.id}",
+                id = "milk-payment-$paymentDueDate",
                 type = "INGRESO",
                 category = "Producción de leche",
-                amount = production.grossIncome,
-                dateMillis = production.dateMillis,
-                date = production.date,
-                notes = "${production.liters} L × Q ${production.pricePerLiter}",
-                sourceLabel = "Generado desde Producción Lechera",
+                amount = productions.sumOf { it.grossIncome },
+                dateMillis = productions.mapNotNull { it.paymentConfirmedAtMillis }.maxOrNull()
+                    ?: paymentDueDate,
+                date = formatDate(
+                    productions.mapNotNull { it.paymentConfirmedAtMillis }.maxOrNull()
+                        ?: paymentDueDate
+                ),
+                notes = "Pago confirmado · ${productions.sumOf { it.liters }} L · " +
+                    "${productions.size} registros",
+                sourceLabel = "Confirmado desde Producción Lechera",
                 automatic = true
             )
         } + employeePayments.map { payment ->
@@ -405,11 +442,20 @@ fun AppNavigation() {
                         reportId = "production",
                         dateMillis = production.dateMillis,
                         title = "Producción del ${production.date}",
-                        detail = "Q ${production.pricePerLiter} por litro · Ingreso Q ${"%.2f".format(Locale.US, production.grossIncome)}",
+                        detail = "Q ${production.pricePerLiter} por litro · " +
+                            "${if (production.paymentConfirmedAtMillis == null) "Pendiente" else "Confirmado"} " +
+                            "Q ${"%.2f".format(Locale.US, production.grossIncome)}",
                         primaryValue = production.liters,
                         secondaryValue = production.grossIncome,
                         kind = "PRODUCCION",
-                        attributes = mapOf("price" to production.pricePerLiter.toString())
+                        attributes = mapOf(
+                            "price" to production.pricePerLiter.toString(),
+                            "paymentStatus" to if (production.paymentConfirmedAtMillis == null) {
+                                "PENDING"
+                            } else {
+                                "CONFIRMED"
+                            }
+                        )
                     )
                 )
             }
@@ -511,6 +557,9 @@ fun AppNavigation() {
     var milkProductionSaveError by remember { mutableStateOf<String?>(null) }
     var milkConfigurationIsSaving by remember { mutableStateOf(false) }
     var milkConfigurationSaveError by remember { mutableStateOf<String?>(null) }
+    var milkPaymentIsConfirming by remember { mutableStateOf(false) }
+    var milkPaymentActionError by remember { mutableStateOf<String?>(null) }
+    var milkNotificationsEnabled by remember { mutableStateOf(false) }
     var financeIsSaving by remember { mutableStateOf(false) }
     var financeSaveError by remember { mutableStateOf<String?>(null) }
     var selectedEmployeeId by rememberSaveable { mutableStateOf("") }
@@ -568,9 +617,32 @@ fun AppNavigation() {
             )
         }
     }
+    LaunchedEffect(currentUserId) {
+        milkNotificationsEnabled = milkNotificationPreferences.isEnabled(currentUserId)
+    }
+
+    /** Mantiene programado solo el aviso pendiente más próximo del dispositivo. */
+    LaunchedEffect(milkPayments, milkNotificationsEnabled) {
+        val nearestPendingPayment = milkPayments
+            .asSequence()
+            .filterNot { it.confirmed }
+            .minByOrNull { it.paymentDueDateMillis }
+        if (
+            nearestPendingPayment != null &&
+            milkNotificationPreferences.anyUserEnabled()
+        ) {
+            MilkPaymentNotificationScheduler.schedule(
+                context,
+                nearestPendingPayment.paymentDueDateMillis
+            )
+        } else {
+            MilkPaymentNotificationScheduler.cancel(context)
+        }
+    }
     // Los permisos personalizados permiten entrar a módulos, pero no convierten
     // otro rol en Administrador General para modificar registros existentes.
     val canEditRecords = canEditExistingRecords(currentUser?.roleName)
+    val canConfirmMilkPayment = canConfirmMilkPayments(currentUser?.roleName)
     val canImportData = canImportApplicationData(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
@@ -1499,8 +1571,13 @@ fun AppNavigation() {
             composable(Routes.MILK_PRODUCTION) {
                 MilkProductionListScreen(
                     records = milkProductionRecords,
+                    payments = milkPayments,
                     configuration = storedMilkConfiguration,
                     isGeneralAdministrator = canEditRecords,
+                    canConfirmPayments = canConfirmMilkPayment,
+                    notificationsEnabled = milkNotificationsEnabled,
+                    isConfirmingPayment = milkPaymentIsConfirming,
+                    paymentActionError = milkPaymentActionError,
                     onMenuClick = openDrawer,
                     onCreateRecord = {
                         milkProductionSaveError = null
@@ -1510,6 +1587,28 @@ fun AppNavigation() {
                         if (canEditRecords) {
                             milkConfigurationSaveError = null
                             navController.navigate(Routes.MILK_CONFIGURATION)
+                        }
+                    },
+                    onNotificationPreferenceChange = { enabled ->
+                        milkNotificationPreferences.setEnabled(currentUserId, enabled)
+                        milkNotificationsEnabled = enabled
+                    },
+                    onConfirmPayment = { paymentDueDate ->
+                        if (canConfirmMilkPayment) {
+                            coroutineScope.launch {
+                                milkPaymentIsConfirming = true
+                                milkPaymentActionError = null
+                                runCatching {
+                                    check(canConfirmMilkPayment) {
+                                        "Su rol no está autorizado para confirmar pagos de leche."
+                                    }
+                                    milkProductionViewModel.confirmPayment(paymentDueDate)
+                                }.onFailure { error ->
+                                    milkPaymentActionError = error.message
+                                        ?: "No se pudo confirmar el pago."
+                                }
+                                milkPaymentIsConfirming = false
+                            }
                         }
                     },
                     onNavigateMain = navigateMain
@@ -1569,14 +1668,17 @@ fun AppNavigation() {
                                 check(!replacesExistingRecord || canEditRecords) {
                                     "Solo el Administrador General puede corregir una producción existente."
                                 }
+                                val activeConfiguration = checkNotNull(storedMilkConfiguration) {
+                                    "El Administrador General debe configurar el precio de la leche."
+                                }
                                 milkProductionViewModel.saveDailyProduction(
                                     MilkProductionDraft(
                                         date = productionDate,
                                         liters = form.liters.replace(',', '.').toDouble(),
                                         // El formulario muestra el valor como solo lectura; se vuelve
                                         // a tomar de Room para impedir alteraciones desde la interfaz.
-                                        pricePerLiter = checkNotNull(storedMilkConfiguration)
-                                            .pricePerLiter,
+                                        pricePerLiter = activeConfiguration.pricePerLiter,
+                                        paymentFrequency = activeConfiguration.paymentFrequency,
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
@@ -1977,7 +2079,11 @@ private fun allowedRoutesForPermissions(permissions: Set<String>): Set<String> {
             add(Routes.PARCELS)
         }
         if ("health" in permissions) add(Routes.SANITARY)
-        if ("finance" in permissions) add(Routes.FINANCE)
+        if ("finance" in permissions) {
+            add(Routes.FINANCE)
+            // El rol financiero necesita consultar y confirmar pagos de leche.
+            add(Routes.MILK_PRODUCTION)
+        }
         if ("employees" in permissions) add(Routes.EMPLOYEES)
         if ("reports" in permissions) add(Routes.REPORTS)
         if ("users" in permissions) add(Routes.USERS)

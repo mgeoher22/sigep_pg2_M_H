@@ -50,7 +50,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         PagoEmpleadoEntity::class,
         ConfiguracionLecheEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -367,6 +367,27 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Añade el estado del cobro a la producción existente sin eliminar información.
+         * Los registros anteriores se consideran ya cobrados para conservar los ingresos
+         * que la aplicación mostraba antes de incorporar el flujo de confirmación.
+         */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE produccion_lechera " +
+                        "ADD COLUMN fechaPagoProgramada INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE produccion_lechera ADD COLUMN pagoConfirmadoEn INTEGER"
+                )
+                database.execSQL(
+                    "UPDATE produccion_lechera SET " +
+                        "fechaPagoProgramada = fecha, pagoConfirmadoEn = actualizadoEn"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -389,7 +410,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
-                    MIGRATION_11_12
+                    MIGRATION_11_12,
+                    MIGRATION_12_13
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

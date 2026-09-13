@@ -403,7 +403,7 @@ fun ReportsCenterScreen(
                                             BulkImportMode.MERGE
                                         }
                                     },
-                                    label = { Text("Carga inicial: reemplazar historial de prueba") },
+                                    label = { Text("Carga inicial: reemplazar historial anterior") },
                                     enabled = !isTransferring,
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -995,7 +995,7 @@ private fun BulkImportResult.successMessage(): String = buildString {
     append("se importaron $weighingsImported pesajes y ")
     append("$sanitaryRecordsImported registros sanitarios.")
     if (animalHistoriesReplaced > 0) {
-        append(" Se reemplazó el historial de prueba de $animalHistoriesReplaced animales.")
+        append(" Se reemplazó el historial anterior de $animalHistoriesReplaced animales.")
     }
 }
 

@@ -17,6 +17,27 @@ interface ProduccionLecheraDao {
     @Query("SELECT * FROM produccion_lechera WHERE fecha = :fecha LIMIT 1")
     suspend fun buscarPorFecha(fecha: Long): ProduccionLecheraEntity?
 
+    /** Monto que continúa pendiente para una fecha de pago concreta. */
+    @Query(
+        "SELECT SUM(litros * precioPorLitro) FROM produccion_lechera " +
+            "WHERE fechaPagoProgramada = :fechaPago AND pagoConfirmadoEn IS NULL"
+    )
+    suspend fun montoPendiente(fechaPago: Long): Double?
+
+    @Query(
+        "SELECT * FROM produccion_lechera " +
+            "WHERE pagoConfirmadoEn IS NULL ORDER BY fechaPagoProgramada ASC"
+    )
+    suspend fun obtenerPendientes(): List<ProduccionLecheraEntity>
+
+    /** Confirma en una sola operación toda la producción incluida en ese pago. */
+    @Query(
+        "UPDATE produccion_lechera SET pagoConfirmadoEn = :confirmadoEn, " +
+            "actualizadoEn = :confirmadoEn " +
+            "WHERE fechaPagoProgramada = :fechaPago AND pagoConfirmadoEn IS NULL"
+    )
+    suspend fun confirmarPago(fechaPago: Long, confirmadoEn: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(registro: ProduccionLecheraEntity)
 

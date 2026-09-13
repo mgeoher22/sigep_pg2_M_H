@@ -40,14 +40,26 @@ class MilkProductionRepositoryTest {
         val secondDate = firstDate + 86_400_000
 
         repository.saveDailyProduction(
-            MilkProductionDraft(firstDate, 100.0, 4.25, "Primer registro")
+            MilkProductionDraft(
+                firstDate,
+                100.0,
+                4.25,
+                MilkPaymentFrequency.DAILY,
+                "Primer registro"
+            )
         )
         repository.saveDailyProduction(
-            MilkProductionDraft(secondDate, 120.0, 4.50, null)
+            MilkProductionDraft(secondDate, 120.0, 4.50, MilkPaymentFrequency.DAILY, null)
         )
         // La misma fecha debe corregirse, no crear un tercer registro.
         repository.saveDailyProduction(
-            MilkProductionDraft(firstDate, 105.0, 4.30, "Dato corregido")
+            MilkProductionDraft(
+                firstDate,
+                105.0,
+                4.30,
+                MilkPaymentFrequency.DAILY,
+                "Dato corregido"
+            )
         )
 
         var records = repository.observeRecords().first()

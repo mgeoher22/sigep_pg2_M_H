@@ -32,6 +32,9 @@ class MilkProductionViewModel(application: Application) : AndroidViewModel(appli
     suspend fun saveDailyProduction(draft: MilkProductionDraft): String =
         repository.saveDailyProduction(draft)
 
+    suspend fun confirmPayment(paymentDueDate: Long): Int =
+        repository.confirmPayment(paymentDueDate)
+
     suspend fun saveConfiguration(pricePerLiter: Double, frequency: MilkPaymentFrequency) =
         repository.saveConfiguration(pricePerLiter, frequency)
 }

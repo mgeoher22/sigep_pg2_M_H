@@ -350,7 +350,7 @@ fun LoginScreen(
                     modifier = Modifier.navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("© 2026 Finca Hernández • Versión de prueba")
+                    Text("© 2026 Finca Hernández")
                     Text("Los datos locales permanecen en este dispositivo")
                 }
             }

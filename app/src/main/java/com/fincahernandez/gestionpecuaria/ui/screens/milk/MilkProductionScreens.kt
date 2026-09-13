@@ -1,5 +1,10 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.milk
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,10 +51,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
@@ -63,11 +71,24 @@ data class MilkProductionUiModel(
     val date: String,
     val liters: Double,
     val pricePerLiter: Double,
+    val paymentDueDateMillis: Long,
+    val paymentDueDate: String,
+    val paymentConfirmedAtMillis: Long?,
     val notes: String
 ) {
     /** Ingreso bruto; los costos de producción se tratarán en el módulo financiero. */
     val grossIncome: Double get() = liters * pricePerLiter
 }
+
+/** Resumen de una liquidación diaria o semanal que debe confirmar el administrador. */
+data class MilkPaymentUiModel(
+    val paymentDueDateMillis: Long,
+    val paymentDueDate: String,
+    val amount: Double,
+    val productionRecordCount: Int,
+    val confirmed: Boolean,
+    val confirmedAtMillis: Long?
+)
 
 /** Datos capturados por el formulario de producción. */
 data class MilkProductionFormData(
@@ -82,16 +103,29 @@ data class MilkProductionFormData(
 @Composable
 fun MilkProductionListScreen(
     records: List<MilkProductionUiModel>,
+    payments: List<MilkPaymentUiModel>,
     configuration: MilkConfiguration?,
     isGeneralAdministrator: Boolean,
+    canConfirmPayments: Boolean,
+    notificationsEnabled: Boolean,
+    isConfirmingPayment: Boolean,
+    paymentActionError: String?,
     onMenuClick: () -> Unit,
     onCreateRecord: () -> Unit,
     onConfigure: () -> Unit,
+    onNotificationPreferenceChange: (Boolean) -> Unit,
+    onConfirmPayment: (Long) -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val totalLiters = records.sumOf { it.liters }
     val totalGrossIncome = records.sumOf { it.grossIncome }
+    val confirmedIncome = records
+        .filter { it.paymentConfirmedAtMillis != null }
+        .sumOf { it.grossIncome }
+    val pendingIncome = records
+        .filter { it.paymentConfirmedAtMillis == null }
+        .sumOf { it.grossIncome }
     val averageLiters = records.map { it.liters }.average().takeUnless { it.isNaN() }
     val weightedAveragePrice = if (totalLiters > 0.0) totalGrossIncome / totalLiters else null
     val latestPrice = records.maxByOrNull { it.dateMillis }?.pricePerLiter
@@ -147,15 +181,15 @@ fun MilkProductionListScreen(
                         modifier = Modifier.padding(22.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("INGRESO BRUTO REGISTRADO", color = Color.White.copy(alpha = 0.8f))
+                        Text("INGRESOS CONFIRMADOS", color = Color.White.copy(alpha = 0.8f))
                         Text(
-                            money(totalGrossIncome),
+                            money(confirmedIncome),
                             color = Color.White,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Litros × precio histórico; todavía no descuenta costos.",
+                            "Pendiente de confirmar: ${money(pendingIncome)}",
                             color = Color.White
                         )
                     }
@@ -165,8 +199,39 @@ fun MilkProductionListScreen(
                 MilkTermsCard(
                     configuration = configuration,
                     isGeneralAdministrator = isGeneralAdministrator,
-                    onConfigure = onConfigure
+                    notificationsEnabled = notificationsEnabled,
+                    onConfigure = onConfigure,
+                    onNotificationPreferenceChange = onNotificationPreferenceChange
                 )
+            }
+            item {
+                Text(
+                    "Pagos de leche",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (payments.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text("Aún no hay pagos calculados.", modifier = Modifier.padding(18.dp))
+                    }
+                }
+            } else {
+                items(
+                    items = payments,
+                    key = { "${it.paymentDueDateMillis}-${it.confirmed}" }
+                ) { payment ->
+                    MilkPaymentCard(
+                        payment = payment,
+                        canConfirmPayment = canConfirmPayments,
+                        isConfirming = isConfirmingPayment,
+                        onConfirm = { onConfirmPayment(payment.paymentDueDateMillis) }
+                    )
+                }
+            }
+            paymentActionError?.let { error ->
+                item { Text(error, color = MaterialTheme.colorScheme.error) }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -228,8 +293,30 @@ fun MilkProductionListScreen(
 private fun MilkTermsCard(
     configuration: MilkConfiguration?,
     isGeneralAdministrator: Boolean,
-    onConfigure: () -> Unit
+    notificationsEnabled: Boolean,
+    onConfigure: () -> Unit,
+    onNotificationPreferenceChange: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        onNotificationPreferenceChange(granted)
+    }
+
+    /** Solicita el permiso de Android solo cuando el usuario decide activar los avisos. */
+    val changeNotifications: (Boolean) -> Unit = { enabled ->
+        if (
+            enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onNotificationPreferenceChange(enabled)
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -268,6 +355,81 @@ private fun MilkTermsCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Notificación de pago", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Avisar en la fecha de pago con el monto pendiente en quetzales.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = notificationsEnabled,
+                    onCheckedChange = changeNotifications
+                )
+            }
+        }
+    }
+}
+
+/** Tarjeta de pago calculada; el ingreso nace únicamente al confirmarla. */
+@Composable
+private fun MilkPaymentCard(
+    payment: MilkPaymentUiModel,
+    canConfirmPayment: Boolean,
+    isConfirming: Boolean,
+    onConfirm: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (payment.confirmed) "PAGO CONFIRMADO" else "PAGO PENDIENTE",
+                        color = if (payment.confirmed) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("Fecha de pago: ${payment.paymentDueDate}")
+                }
+                Text(
+                    money(payment.amount),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                "Incluye ${payment.productionRecordCount} " +
+                    if (payment.productionRecordCount == 1) "registro" else "registros"
+            )
+            if (!payment.confirmed) {
+                if (canConfirmPayment) {
+                    Button(onClick = onConfirm, enabled = !isConfirming) {
+                        Text(if (isConfirming) "Confirmando…" else "Confirmar pago recibido")
+                    }
+                } else {
+                    Text(
+                        "Pendiente de confirmación por un rol autorizado.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -357,8 +519,16 @@ private fun MilkRecordCard(record: MilkProductionUiModel) {
                 Text(record.date, fontWeight = FontWeight.Bold)
                 Text("${money(record.pricePerLiter)} por litro")
                 Text(
-                    "Ingreso bruto: ${money(record.grossIncome)}",
+                    if (record.paymentConfirmedAtMillis == null) {
+                        "Monto pendiente: ${money(record.grossIncome)}"
+                    } else {
+                        "Ingreso confirmado: ${money(record.grossIncome)}"
+                    },
                     fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "Pago programado: ${record.paymentDueDate}",
+                    style = MaterialTheme.typography.bodySmall
                 )
                 if (record.notes.isNotBlank()) {
                     Text(record.notes, style = MaterialTheme.typography.bodySmall)

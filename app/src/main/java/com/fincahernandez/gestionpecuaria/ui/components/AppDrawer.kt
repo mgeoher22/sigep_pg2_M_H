@@ -81,9 +81,6 @@ fun AppDrawerContent(
                 }
             }
             Spacer(modifier = Modifier.height(14.dp))
-            // Mantiene visible que la aplicación todavía trabaja con datos simulados.
-            DemoModeNotice(compact = true)
-            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = userName,
                 fontWeight = FontWeight.SemiBold,

@@ -24,4 +24,15 @@ class RecordEditingAccessTest {
             assertFalse(canImportApplicationData(role.name))
         }
     }
+
+    @Test
+    fun authorizedManagementRolesCanConfirmMilkPayments() {
+        assertTrue(canConfirmMilkPayments(GENERAL_ADMIN_ROLE))
+        assertTrue(canConfirmMilkPayments(FIELD_ADMIN_ROLE))
+        assertTrue(canConfirmMilkPayments(FINANCIAL_ROLE))
+        assertTrue(canConfirmMilkPayments("Financiero"))
+        assertFalse(canConfirmMilkPayments("Operario"))
+        assertFalse(canConfirmMilkPayments("Técnico Veterinario"))
+        assertFalse(canConfirmMilkPayments(null))
+    }
 }

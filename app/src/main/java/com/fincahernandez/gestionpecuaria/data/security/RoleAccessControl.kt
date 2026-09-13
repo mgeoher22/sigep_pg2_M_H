@@ -12,6 +12,8 @@ data class DefinedRole(
 )
 
 const val GENERAL_ADMIN_ROLE = "Administrador General"
+const val FIELD_ADMIN_ROLE = "Administrador de Campo"
+const val FINANCIAL_ROLE = "Auxiliar Contable"
 
 /** Permisos que resumen las funciones descritas por los actores del ERS. */
 val rolePermissions = listOf(
@@ -34,7 +36,7 @@ val definedRoles = listOf(
         permissionIds = rolePermissions.map { it.id }.toSet()
     ),
     DefinedRole(
-        name = "Administrador de Campo",
+        name = FIELD_ADMIN_ROLE,
         description = "Supervisa animales, lotes, parcelas y operarios.",
         permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
     ),
@@ -49,7 +51,7 @@ val definedRoles = listOf(
         permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
     ),
     DefinedRole(
-        name = "Auxiliar Contable",
+        name = FINANCIAL_ROLE,
         description = "Gestiona ingresos, egresos, empleados y nómina.",
         permissionIds = setOf("dashboard", "finance", "employees", "reports")
     )
@@ -84,3 +86,12 @@ fun canEditExistingRecords(roleName: String?): Boolean = roleName == GENERAL_ADM
 
 /** Importar archivos puede modificar muchos registros y continúa siendo administrativo. */
 fun canImportApplicationData(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE
+
+/** Roles autorizados para validar que el comprador efectivamente pagó la leche. */
+fun canConfirmMilkPayments(roleName: String?): Boolean = roleName in setOf(
+    GENERAL_ADMIN_ROLE,
+    FIELD_ADMIN_ROLE,
+    FINANCIAL_ROLE,
+    // Mantiene compatibilidad si una cuenta fue creada con esta denominación.
+    "Financiero"
+)

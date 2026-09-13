@@ -93,7 +93,7 @@ fun AnimalConfirmationScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "El registro se mantiene temporalmente durante esta demostración.",
+                        "El registro se guardó correctamente en este dispositivo.",
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }

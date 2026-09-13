@@ -19,6 +19,10 @@ data class ProduccionLecheraEntity(
     val fecha: Long,
     val litros: Double,
     val precioPorLitro: Double,
+    /** Fecha en que corresponde cobrar según la modalidad vigente al registrarlo. */
+    val fechaPagoProgramada: Long,
+    /** Permanece nulo hasta que un Administrador General confirma el pago recibido. */
+    val pagoConfirmadoEn: Long? = null,
     val observaciones: String? = null,
     val creadoEn: Long = System.currentTimeMillis(),
     val actualizadoEn: Long = System.currentTimeMillis()

@@ -6,6 +6,8 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.ConfiguracionLecheEn
 import com.fincahernandez.gestionpecuaria.data.local.entity.ProduccionLecheraEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.util.Calendar
+import java.util.TimeZone
 
 /** Opciones acordadas con quien compra la producción de leche. */
 enum class MilkPaymentFrequency(val storedValue: String, val displayName: String) {
@@ -30,6 +32,7 @@ data class MilkProductionDraft(
     val date: Long,
     val liters: Double,
     val pricePerLiter: Double,
+    val paymentFrequency: MilkPaymentFrequency,
     val notes: String?
 )
 
@@ -76,6 +79,10 @@ class MilkProductionRepository(private val database: GestionPecuariaDatabase) {
                 fecha = draft.date,
                 litros = draft.liters,
                 precioPorLitro = draft.pricePerLiter,
+                fechaPagoProgramada = calculateMilkPaymentDueDate(
+                    draft.date,
+                    draft.paymentFrequency
+                ),
                 observaciones = draft.notes?.trim()?.ifBlank { null }
             )
             dao.insertar(record)
@@ -85,12 +92,25 @@ class MilkProductionRepository(private val database: GestionPecuariaDatabase) {
                 current.copy(
                     litros = draft.liters,
                     precioPorLitro = draft.pricePerLiter,
+                    fechaPagoProgramada = calculateMilkPaymentDueDate(
+                        draft.date,
+                        draft.paymentFrequency
+                    ),
+                    // Una corrección cambia el monto y debe confirmarse nuevamente.
+                    pagoConfirmadoEn = null,
                     observaciones = draft.notes?.trim()?.ifBlank { null },
                     actualizadoEn = now
                 )
             )
             current.id
         }
+    }
+
+    /** Solo después de esta acción el pago puede incorporarse a los ingresos. */
+    suspend fun confirmPayment(paymentDueDate: Long): Int = database.withTransaction {
+        require(paymentDueDate > 0L) { "La fecha de pago no es válida." }
+        dao.confirmarPago(paymentDueDate, System.currentTimeMillis())
+            .also { require(it > 0) { "Este pago ya fue confirmado o no tiene registros pendientes." } }
     }
 
     private fun validate(draft: MilkProductionDraft) {
@@ -102,4 +122,28 @@ class MilkProductionRepository(private val database: GestionPecuariaDatabase) {
             "El precio por litro no puede ser negativo."
         }
     }
+}
+
+/**
+ * Calcula la fecha de cobro sin modificar la fecha productiva.
+ * En pago semanal, el sábado actual cuenta como fecha de pago del mismo periodo.
+ */
+fun calculateMilkPaymentDueDate(
+    productionDate: Long,
+    frequency: MilkPaymentFrequency,
+    timeZone: TimeZone = TimeZone.getDefault()
+): Long {
+    val calendar = Calendar.getInstance(timeZone).apply {
+        timeInMillis = productionDate
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (frequency == MilkPaymentFrequency.EVERY_SATURDAY) {
+        val daysUntilSaturday =
+            (Calendar.SATURDAY - calendar.get(Calendar.DAY_OF_WEEK) + 7) % 7
+        calendar.add(Calendar.DAY_OF_MONTH, daysUntilSaturday)
+    }
+    return calendar.timeInMillis
 }
