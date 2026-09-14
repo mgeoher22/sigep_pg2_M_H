@@ -257,6 +257,48 @@ class CloudSessionManager(
         }
     }
 
+
+    private fun managedUser(row: JSONObject): CloudManagedUser {
+        val custom = if(row.isNull("permissions")) null else row.getString("permissions")
+        return CloudManagedUser(row.getString("id"),row.getString("name"),row.getString("email"),
+            row.getString("role"),row.getBoolean("active"),permissionsForUser(row.getString("role"),custom),custom!=null)
+    }
+    private suspend fun manageUsers(localId: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        restore(localId) ?: throw CloudAccessDenied("Ingresa con internet para administrar cuentas.")
+        mutex.withLock {
+            val epoch = synchronized(stateLock) { generation }
+            val s = load(localId) ?: throw CloudAccessDenied("La sesión se cerró.")
+            val profile = account(s,member(s))
+            require(profile.role == "Administrador General" && "users" in profile.permissions) {
+                "Solo el Administrador General con permiso de Usuarios puede crear cuentas."
+            }
+            val result = try { JSONObject(request("/functions/v1/gestionar-usuarios",s.getString("access"),body)) }
+            catch(e:CloudHttpException) {
+                throw CloudAccessDenied(when(e.status) {
+                    404 -> "Falta activar la función gestionar-usuarios en Supabase."
+                    409 -> "Ese correo ya está registrado. Actualiza la lista antes de intentar otra alta."
+                    400,422 -> "Revisa el nombre, correo, contraseña y permisos. Supabase rechazó los datos."
+                    401,403 -> "La sesión no tiene autorización. Ingresa otra vez con el administrador."
+                    else -> if(body.optString("action")=="create") "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar; revisa Supabase si el correo ya existe."
+                        else "No se pudo cargar la lista de Supabase. Revisa internet y vuelve a intentarlo."
+                })
+            }
+            coroutineContext.ensureActive()
+            synchronized(stateLock) { if(generation!=epoch)throw CancellationException("La sesión se cerró") }
+            result
+        }
+    }
+    suspend fun listCloudUsers(localId: String): List<CloudManagedUser> {
+        val rows = manageUsers(localId,JSONObject().put("action","list")).getJSONArray("users")
+        return (0 until rows.length()).map {managedUser(rows.getJSONObject(it))}
+    }
+    suspend fun createCloudUser(localId: String, draft: CloudUserDraft): CloudManagedUser {
+        val d = draft.validated()
+        return managedUser(manageUsers(localId,JSONObject().put("action","create")
+            .put("name",d.name).put("email",d.email).put("password",d.password)
+            .put("role",d.role).put("active",d.active).put("permissionIds",JSONArray(d.permissions.sorted()))))
+    }
+
     /** Local deletion precedes network revocation, so offline logout is effective locally. */
     fun clearLocalSession(): () -> Boolean {
         val text = synchronized(stateLock) {

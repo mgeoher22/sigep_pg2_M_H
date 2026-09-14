@@ -1,5 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.navigation
 
+import com.fincahernandez.gestionpecuaria.ui.components.label
 import android.content.pm.ApplicationInfo
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.DrawerValue
@@ -825,6 +826,12 @@ fun AppNavigation() {
     }
 
     var cloudAction by remember { mutableStateOf<String?>(null) }
+    var cloudUsers by remember(currentUserId) { mutableStateOf<List<com.fincahernandez.gestionpecuaria.ui.screens.users.UserUiModel>>(emptyList()) }
+    var cloudUserStatus by remember(currentUserId) { mutableStateOf("Conéctate para cargar las cuentas.") }
+    var cloudUsersRefresh by remember { mutableStateOf(0) }
+    val autoSyncStatus = com.fincahernandez.gestionpecuaria.ui.components.rememberAutoSyncStatus(
+        currentUser?.id, cloudSessionManager, paused = cloudAction != null || currentRoute in setOf(Routes.USERS, Routes.USER_FORM)
+    )
     if (cloudAction != null && currentUser != null) {
         com.fincahernandez.gestionpecuaria.ui.screens.auth.CloudToolsDialog(
             action = cloudAction!!, user = currentUser, manager = cloudSessionManager,
@@ -842,6 +849,7 @@ fun AppNavigation() {
             drawerContent = {
                 AppDrawerContent(
                     selectedRoute = selectedMainRoute,
+                    syncStatus = autoSyncStatus.label(),
                     allowedRoutes = allowedMainRoutes,
                     userName = currentUser?.fullName.orEmpty(),
                     roleName = currentUser?.roleName.orEmpty(),
@@ -1016,7 +1024,9 @@ fun AppNavigation() {
                     roleName = currentUser?.roleName.orEmpty(),
                     onMenuClick = openDrawer,
                     onNavigate = navigateMain,
-                    onQuickAction = navigateQuickAction
+                    onQuickAction = navigateQuickAction,
+                    syncStatus = autoSyncStatus.label(),
+                    onSyncClick = { cloudAction = "sync" }
                 )
             }
 
@@ -1985,83 +1995,49 @@ fun AppNavigation() {
                 )
             }
 
+
             composable(Routes.USERS) {
-                UserManagementScreen(
-                    users = users,
-                    canManageUsers = canEditRecords,
-                    onMenuClick = openDrawer,
-                    onCreateUser = {
-                        userEditingId = ""
-                        userSaveError = null
-                        navController.navigate(Routes.USER_FORM)
-                    },
-                    onEditUser = { userId ->
-                        check(canEditRecords) {
-                            "Solo el Administrador General puede editar usuarios."
+                LaunchedEffect(currentUserId, cloudUsersRefresh) {
+                    cloudUserStatus = "Cargando cuentas de la nube…"
+                    try {
+                        cloudUsers = cloudSessionManager.listCloudUsers(currentUserId).map { u ->
+                            UserUiModel(u.id,u.name,u.email,u.role,u.active,u.permissions,u.permissions.size,u.customized)
                         }
-                        userEditingId = userId
-                        userSaveError = null
-                        navController.navigate(Routes.USER_FORM)
-                    },
-                    onViewRolePermissions = {
-                        navController.navigate(Routes.ROLE_PERMISSIONS)
-                    },
+                        cloudUserStatus = "Lista actualizada desde Supabase."
+                    } catch(e:kotlinx.coroutines.CancellationException) { throw e }
+                    catch(e:Exception) { cloudUserStatus = e.message ?: "No se pudo cargar la lista. Revisa internet." }
+                }
+                UserManagementScreen(
+                    users = cloudUsers,
+                    canManageUsers = canEditRecords && "users" in currentPermissionIds,
+                    cloudMode = true, cloudStatus = cloudUserStatus,
+                    onRefresh = { cloudUsersRefresh++ },
+                    onMenuClick = openDrawer,
+                    onCreateUser = { userEditingId="";userSaveError=null;navController.navigate(Routes.USER_FORM) },
+                    onEditUser = {},
+                    onViewRolePermissions = { navController.navigate(Routes.ROLE_PERMISSIONS) },
                     onNavigateMain = navigateMain
                 )
             }
-
             composable(Routes.USER_FORM) {
-                val editingUser = users.firstOrNull { it.id == userEditingId }
                 UserFormScreen(
-                    existingUsernames = users.map { it.username }.toSet(),
-                    initialUser = editingUser,
-                    protectOwnAccount = editingUser?.id == currentUserId,
-                    isSaving = userIsSaving,
-                    saveError = userSaveError,
-                    onBack = {
-                        userSaveError = null
-                        navController.popBackStack()
-                    },
+                    existingUsernames = cloudUsers.map {it.username}.toSet(), cloudMode = true,
+                    isSaving = userIsSaving, saveError = userSaveError,
+                    onBack = { if(!userIsSaving){userSaveError=null;navController.popBackStack()} },
                     onSubmit = { form ->
-                        check(canEditRecords) {
-                            "Solo el Administrador General puede administrar usuarios."
-                        }
-                        userIsSaving = true
-                        userSaveError = null
+                        userIsSaving=true;userSaveError=null
                         coroutineScope.launch {
-                            runCatching {
-                                if (editingUser == null) {
-                                    userViewModel.createUser(
-                                        fullName = form.fullName,
-                                        username = form.username,
-                                        password = form.temporaryPassword,
-                                        roleName = form.roleName,
-                                        active = form.active,
-                                        permissionIds = form.permissionIds
-                                    )
-                                } else {
-                                    userViewModel.updateUser(
-                                        actorUserId = currentUserId,
-                                        userId = editingUser.id,
-                                        fullName = form.fullName,
-                                        username = form.username,
-                                        newPassword = form.temporaryPassword,
-                                        roleName = form.roleName,
-                                        active = form.active,
-                                        permissionIds = form.permissionIds
-                                    )
-                                }
-                            }.onSuccess { savedUser ->
-                                userIsSaving = false
-                                if (savedUser.id == currentUserId) {
-                                    updateCurrentUser(savedUser)
-                                }
-                                userEditingId = ""
+                            try {
+                                cloudSessionManager.createCloudUser(currentUserId,
+                                    com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft(
+                                        form.fullName,form.username,form.temporaryPassword,form.roleName,form.active,form.permissionIds))
+                                cloudUsersRefresh++
                                 navController.popBackStack()
-                            }.onFailure { error ->
-                                userIsSaving = false
-                                userSaveError = userCreationError(error)
-                            }
+                            } catch(e:kotlinx.coroutines.CancellationException) {throw e}
+                            catch(e:Exception) {
+                                userSaveError = if(e is IllegalArgumentException || e is com.fincahernandez.gestionpecuaria.data.remote.CloudAccessDenied) e.message
+                                    else "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar y revisa internet."
+                            } finally {userIsSaving=false}
                         }
                     }
                 )

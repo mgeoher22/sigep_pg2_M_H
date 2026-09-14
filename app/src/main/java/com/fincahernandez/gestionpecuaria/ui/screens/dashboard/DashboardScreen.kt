@@ -107,7 +107,9 @@ fun DashboardScreen(
     onMenuClick: () -> Unit,
     onNavigate: (String) -> Unit,
     onQuickAction: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    syncStatus: String = "",
+    onSyncClick: () -> Unit = {}
 ) {
     val allowedRoutes = LocalAllowedMainRoutes.current
     val stats = dashboardStats(data).filter { it.route in allowedRoutes }
@@ -165,6 +167,9 @@ fun DashboardScreen(
                         "Resumen calculado con los registros disponibles en la aplicación.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (syncStatus.isNotBlank()) androidx.compose.material3.TextButton(onClick = onSyncClick) {
+                        Text(syncStatus, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
 

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +51,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -96,7 +98,10 @@ fun UserManagementScreen(
     onEditUser: (String) -> Unit,
     onViewRolePermissions: () -> Unit,
     onNavigateMain: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cloudMode: Boolean = false,
+    cloudStatus: String = "",
+    onRefresh: () -> Unit = {}
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -149,9 +154,13 @@ fun UserManagementScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("CUENTAS LOCALES", fontWeight = FontWeight.Bold)
+                        if(cloudMode) {
+                            Text(cloudStatus)
+                            TextButton(onClick=onRefresh) { Text("Actualizar lista") }
+                        }
+                        Text(if(cloudMode) "CUENTAS DE LA FINCA" else "CUENTAS LOCALES", fontWeight = FontWeight.Bold)
                         Text(
-                            "Los usuarios de esta pantalla controlan el acceso real a la aplicación."
+                            if(cloudMode) "Crea cuentas con internet. El trabajador usará su correo para ingresar. La edición de cuentas existentes se realiza en Supabase por ahora." else "Los usuarios de esta pantalla controlan el acceso real a la aplicación."
                         )
                     }
                 }
@@ -196,8 +205,8 @@ fun UserManagementScreen(
                             modifier = Modifier.padding(20.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Aún no existen usuarios", fontWeight = FontWeight.Bold)
-                            Text("Cree la primera cuenta administrativa.")
+                            Text(if(cloudMode) "No hay cuentas cargadas" else "Aún no existen usuarios", fontWeight = FontWeight.Bold)
+                            Text(if(cloudMode) "Conéctate y pulsa Actualizar lista." else "Cree la primera cuenta administrativa.")
                             if (canManageUsers) {
                                 OutlinedButton(onClick = onCreateUser) { Text("Crear usuario") }
                             }
@@ -219,7 +228,7 @@ fun UserManagementScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(user.fullName, fontWeight = FontWeight.Bold)
-                                Text("@${user.username}", style = MaterialTheme.typography.bodySmall)
+                                Text(if(cloudMode) user.username else "@${user.username}", style = MaterialTheme.typography.bodySmall)
                                 Text(user.roleName, color = MaterialTheme.colorScheme.primary)
                                 Text(
                                     if (user.hasCustomPermissions) {
@@ -246,7 +255,7 @@ fun UserManagementScreen(
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold
                                 )
-                                if (canManageUsers) {
+                                if (canManageUsers && !cloudMode) {
                                     IconButton(onClick = { onEditUser(user.id) }) {
                                         Icon(
                                             Icons.Default.Edit,
@@ -276,7 +285,8 @@ fun UserFormScreen(
     protectOwnAccount: Boolean = false,
     isSaving: Boolean = false,
     saveError: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cloudMode: Boolean = false
 ) {
     val isEditing = initialUser != null
     var fullName by rememberSaveable(initialUser?.id) {
@@ -285,14 +295,14 @@ fun UserFormScreen(
     var username by rememberSaveable(initialUser?.id) {
         mutableStateOf(initialUser?.username.orEmpty())
     }
-    var password by rememberSaveable(initialUser?.id) { mutableStateOf("") }
+    var password by remember(initialUser?.id) { mutableStateOf("") }
     var selectedRoleName by rememberSaveable(initialUser?.id) {
-        mutableStateOf(initialUser?.roleName ?: definedRoles.first().name)
+        mutableStateOf(initialUser?.roleName ?: if(cloudMode) "Operario" else definedRoles.first().name)
     }
     // Se serializa como texto para que la selección sobreviva al giro de la tableta.
     var selectedPermissionsValue by rememberSaveable(initialUser?.id) {
         mutableStateOf(
-            (initialUser?.permissionIds ?: definedRoles.first().permissionIds)
+            (initialUser?.permissionIds ?: definedRoles.first { it.name==selectedRoleName }.permissionIds)
                 .sorted()
                 .joinToString(",")
         )
@@ -310,9 +320,9 @@ fun UserFormScreen(
     val selectedPermissionIds = selectedPermissionsValue
         .split(',')
         .filterTo(linkedSetOf()) { it.isNotBlank() }
-    val usernameValid = normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
+    val usernameValid = if(cloudMode) com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft.validEmail(normalizedUsername) else normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
     val passwordValid = if (isEditing) password.isBlank() || password.length >= 8
-    else password.length >= 8
+    else if(cloudMode) com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft.validPassword(password) else password.length >= 8
     val formValid = fullName.isNotBlank() && usernameValid &&
         !usernameExists && passwordValid
 
@@ -346,7 +356,7 @@ fun UserFormScreen(
                     if (isEditing) {
                         "Actualice los datos, el rol y los permisos de la cuenta."
                     } else {
-                        "Defina las credenciales iniciales y seleccione el rol del trabajador."
+                        if(cloudMode) "Necesitas internet. Guarda el nombre, correo, contraseña y rol del trabajador en la nube." else "Defina las credenciales iniciales y seleccione el rol del trabajador."
                     },
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -372,12 +382,12 @@ fun UserFormScreen(
                         username = it.replace(" ", "")
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Usuario *") },
-                    prefix = { Text("@") },
+                    label = { Text(if(cloudMode) "Correo electrónico *" else "Usuario *") },
+                    prefix = if(cloudMode) null else { { Text("@") } },
                     isError = attemptedSave && (!usernameValid || usernameExists),
                     supportingText = when {
                         attemptedSave && !usernameValid -> {
-                            { Text("Use de 3 a 30 letras, números, punto, guion o guion bajo.") }
+                            { Text(if(cloudMode) "Escribe un correo electrónico válido." else "Use de 3 a 30 letras, números, punto, guion o guion bajo.") }
                         }
                         attemptedSave && usernameExists -> {
                             { Text("Ese usuario ya está registrado.") }
@@ -393,7 +403,7 @@ fun UserFormScreen(
                     onValueChange = { password = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = {
-                        Text(if (isEditing) "Nueva contraseña (opcional)" else "Contraseña temporal *")
+                        Text(if (isEditing) "Nueva contraseña (opcional)" else if (cloudMode) "Contraseña inicial *" else "Contraseña temporal *")
                     },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation(),
@@ -562,6 +572,7 @@ fun UserFormScreen(
                                     permissionIds = selectedPermissionIds
                                 )
                             )
+                            password = ""
                         }
                     },
                     modifier = Modifier

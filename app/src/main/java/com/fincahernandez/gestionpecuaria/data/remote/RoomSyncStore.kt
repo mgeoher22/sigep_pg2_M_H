@@ -109,7 +109,7 @@ class RoomSyncStore(private val database: GestionPecuariaDatabase, private val p
                 if(current != null) {
                     val merged = change.data.toMutableMap()
                     current.forEach { (field,value) -> if(value != change.original[field]) merged[field]=value }
-                    writeRow(db,change.key,merged)
+                    if (merged != current) writeRow(db,change.key,merged)
                 }
                 baseline(db,change.key,SyncVersion(change.data,versions.getValue(change.key)))
             }

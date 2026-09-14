@@ -55,7 +55,8 @@ fun AppDrawerContent(
     onLogout: () -> Unit,
     onDownload: () -> Unit = {},
     onProfile: () -> Unit = {},
-    onSync: () -> Unit = {}
+    onSync: () -> Unit = {},
+    syncStatus: String = ""
 ) {
     ModalDrawerSheet {
         // El desplazamiento permite acceder a todas las opciones en pantallas pequeñas.
@@ -94,6 +95,11 @@ fun AppDrawerContent(
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            if (syncStatus.isNotBlank()) Text(
+                text = syncStatus,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
             Spacer(modifier = Modifier.height(18.dp))
             HorizontalDivider()
