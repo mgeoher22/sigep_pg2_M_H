@@ -3,6 +3,7 @@ package com.fincahernandez.gestionpecuaria.data.repository
 import androidx.room.withTransaction
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.ParcelaEntity
+import com.fincahernandez.gestionpecuaria.data.geo.decodeParcelBoundary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -17,7 +18,8 @@ data class ParcelDraft(
     val name: String,
     val areaHectares: Double,
     val pastureType: String,
-    val capacity: Int?
+    val capacity: Int?,
+    val boundaryGeoJson: String? = null
 )
 
 /** Fuente única de verdad para crear, corregir y desactivar parcelas en Room. */
@@ -54,7 +56,8 @@ class ParcelRepository(private val database: GestionPecuariaDatabase) {
                 nombre = draft.name.trim(),
                 areaHectareas = draft.areaHectares,
                 tipoPastura = draft.pastureType,
-                capacidadAnimales = draft.capacity
+                capacidadAnimales = draft.capacity,
+                limitesGeoJson = draft.boundaryGeoJson
             )
         )
         id
@@ -76,6 +79,7 @@ class ParcelRepository(private val database: GestionPecuariaDatabase) {
                 areaHectareas = draft.areaHectares,
                 tipoPastura = draft.pastureType,
                 capacidadAnimales = draft.capacity,
+                limitesGeoJson = draft.boundaryGeoJson,
                 actualizadoEn = now
             )
         )
@@ -118,6 +122,11 @@ class ParcelRepository(private val database: GestionPecuariaDatabase) {
         require(draft.pastureType.isNotBlank()) { "Seleccione el tipo de pastura." }
         require(draft.capacity == null || draft.capacity > 0) {
             "La capacidad debe ser mayor que cero."
+        }
+        draft.boundaryGeoJson?.let { boundary ->
+            require(decodeParcelBoundary(boundary).size >= 4) {
+                "Los límites geográficos de la parcela no son válidos."
+            }
         }
     }
 }

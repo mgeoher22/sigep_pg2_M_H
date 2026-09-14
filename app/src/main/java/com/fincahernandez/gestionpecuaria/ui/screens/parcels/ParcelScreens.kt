@@ -1,6 +1,9 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.parcels
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,16 +57,25 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
+import com.fincahernandez.gestionpecuaria.data.geo.ImportedParcelBoundary
+import com.fincahernandez.gestionpecuaria.data.geo.decodeParcelBoundary
+import com.fincahernandez.gestionpecuaria.data.geo.importParcelBoundaries
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Modelo visual generado a partir del inventario persistente de parcelas. */
 data class ParcelUiModel(
@@ -73,7 +86,8 @@ data class ParcelUiModel(
     val pastureType: String,
     val status: String,
     val capacity: Int?,
-    val currentLot: String
+    val currentLot: String,
+    val boundaryGeoJson: String? = null
 )
 
 /** Valores capturados al registrar una parcela. */
@@ -81,7 +95,8 @@ data class ParcelFormData(
     val name: String,
     val areaHectares: String,
     val pastureType: String,
-    val capacity: String
+    val capacity: String,
+    val boundaryGeoJson: String? = null
 )
 
 /** Panel con mapa esquemático y listado independiente de parcelas. */
@@ -297,6 +312,14 @@ private fun ParcelCard(parcel: ParcelUiModel, onClick: () -> Unit) {
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            parcel.boundaryGeoJson?.let { boundary ->
+                ParcelSatelliteMap(
+                    boundaryGeoJson = boundary,
+                    modifier = Modifier.fillMaxWidth().height(138.dp),
+                    liteMode = true,
+                    onMapClick = onClick
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -362,7 +385,67 @@ fun ParcelFormScreen(
     var capacity by rememberSaveable(initialData?.capacity) {
         mutableStateOf(initialData?.capacity.orEmpty())
     }
+    var boundaryGeoJson by rememberSaveable(initialData?.boundaryGeoJson) {
+        mutableStateOf(initialData?.boundaryGeoJson)
+    }
+    var importError by remember { mutableStateOf<String?>(null) }
+    var pendingBoundaries by remember {
+        mutableStateOf<List<ImportedParcelBoundary>>(emptyList())
+    }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val boundaryPointCount = remember(boundaryGeoJson) {
+        boundaryGeoJson?.let { encoded ->
+            runCatching { decodeParcelBoundary(encoded).size - 1 }.getOrNull()
+        }
+    }
+    val kmlLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            importError = null
+            coroutineScope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) { importParcelBoundaries(context, uri) }
+                }.onSuccess { imported ->
+                    if (imported.size == 1) boundaryGeoJson = imported.first().geoJson
+                    else pendingBoundaries = imported
+                }.onFailure { error ->
+                    importError = error.message ?: "No se pudo leer el archivo KML/KMZ."
+                }
+            }
+        }
+    }
+
+    if (pendingBoundaries.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { pendingBoundaries = emptyList() },
+            title = { Text("Seleccionar límite") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(pendingBoundaries) { imported ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                boundaryGeoJson = imported.geoJson
+                                pendingBoundaries = emptyList()
+                            }
+                        ) {
+                            Column(Modifier.padding(14.dp)) {
+                                Text(imported.name, fontWeight = FontWeight.Bold)
+                                Text("${imported.pointCount} puntos geográficos")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pendingBoundaries = emptyList() }) { Text("Cancelar") }
+            }
+        )
+    }
 
     val areaValue = area.replace(',', '.').toDoubleOrNull()
     val areaInvalid = area.isBlank() || areaValue == null || areaValue <= 0
@@ -451,6 +534,44 @@ fun ParcelFormScreen(
                     singleLine = true
                 )
             }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Ubicación satelital", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Exporta el límite de la parcela desde Google Earth como KML o KMZ y selecciónalo aquí.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (boundaryGeoJson != null) {
+                            ParcelSatelliteMap(
+                                boundaryGeoJson = boundaryGeoJson!!,
+                                modifier = Modifier.fillMaxWidth().height(180.dp)
+                            )
+                            Text("Límite cargado · ${boundaryPointCount ?: 0} puntos")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                // Storage Access Framework entrega acceso solo al archivo elegido.
+                                kmlLauncher.launch(arrayOf("*/*"))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Landscape, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (boundaryGeoJson == null) "Importar KML/KMZ" else "Cambiar KML/KMZ")
+                        }
+                        if (boundaryGeoJson != null) {
+                            TextButton(onClick = { boundaryGeoJson = null }) {
+                                Text("Quitar límites importados")
+                            }
+                        }
+                        importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
             item { saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {
                 Button(
@@ -462,7 +583,8 @@ fun ParcelFormScreen(
                                     name = name.trim(),
                                     areaHectares = area,
                                     pastureType = pastureType,
-                                    capacity = capacity
+                                    capacity = capacity,
+                                    boundaryGeoJson = boundaryGeoJson
                                 )
                             )
                         }
@@ -537,6 +659,7 @@ fun ParcelDetailScreen(
     parcel: ParcelUiModel,
     onBack: () -> Unit,
     onEdit: () -> Unit,
+    onOpenMap: () -> Unit,
     onSetResting: (Boolean) -> Unit,
     onDeactivate: () -> Unit,
     onNavigateMain: (String) -> Unit,
@@ -632,30 +755,23 @@ fun ParcelDetailScreen(
                 }
             }
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(210.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = parcelStatusColor(parcel.status)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Landscape,
-                            contentDescription = null,
-                            tint = parcelStatusContentColor(parcel.status),
-                            modifier = Modifier.size(52.dp)
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        parcel.boundaryGeoJson?.let { boundary ->
+                            ParcelSatelliteMap(
+                                boundaryGeoJson = boundary,
+                                modifier = Modifier.fillMaxWidth().height(240.dp),
+                                onMapClick = onOpenMap
+                            )
+                        } ?: ParcelMapUnavailable(
+                            message = "Importa un KML/KMZ al editar la parcela",
+                            modifier = Modifier.fillMaxWidth().height(180.dp)
                         )
-                        Text(
-                            "Representación de ${parcel.code}",
-                            color = parcelStatusContentColor(parcel.status),
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (parcel.boundaryGeoJson != null) {
+                            TextButton(onClick = onOpenMap, modifier = Modifier.fillMaxWidth()) {
+                                Text("Abrir mapa satelital")
+                            }
+                        }
                     }
                 }
             }

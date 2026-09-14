@@ -33,6 +33,7 @@ object CloudTables {
             CloudColumn("areaHectareas", "Double", false),
             CloudColumn("tipoPastura", "String", false),
             CloudColumn("capacidadAnimales", "Int", true),
+            CloudColumn("limitesGeoJson", "String", true),
             CloudColumn("estado", "String", false),
             CloudColumn("creadoEn", "Long", false),
             CloudColumn("actualizadoEn", "Long", false)

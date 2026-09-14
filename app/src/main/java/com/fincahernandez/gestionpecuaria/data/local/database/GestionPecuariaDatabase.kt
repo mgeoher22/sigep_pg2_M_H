@@ -52,7 +52,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -418,6 +418,13 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Añade límites satelitales opcionales sin modificar las parcelas existentes. */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE parcelas ADD COLUMN limitesGeoJson TEXT")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -444,7 +451,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_12_13,
                     MIGRATION_13_14,
                     MIGRATION_14_15,
-                    MIGRATION_15_16
+                    MIGRATION_15_16,
+                    MIGRATION_16_17
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

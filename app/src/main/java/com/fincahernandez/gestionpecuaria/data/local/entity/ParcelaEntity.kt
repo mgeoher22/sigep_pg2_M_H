@@ -21,6 +21,8 @@ data class ParcelaEntity(
     val areaHectareas: Double,
     val tipoPastura: String,
     val capacidadAnimales: Int? = null,
+    /** Polígono WGS84 en formato GeoJSON importado desde Google Earth. */
+    val limitesGeoJson: String? = null,
     val estado: String = "DISPONIBLE",
     val creadoEn: Long = System.currentTimeMillis(),
     val actualizadoEn: Long = System.currentTimeMillis()

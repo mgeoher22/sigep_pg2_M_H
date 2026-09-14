@@ -36,6 +36,7 @@ android {
 
         buildConfigField("String", "SUPABASE_URL", publicConfigString("SUPABASE_URL"))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", publicConfigString("SUPABASE_PUBLISHABLE_KEY"))
+        buildConfigField("String", "MAPTILER_API_KEY", publicConfigString("MAPTILER_API_KEY"))
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -79,6 +80,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.maplibre.android)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

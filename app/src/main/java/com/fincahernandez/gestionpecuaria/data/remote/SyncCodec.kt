@@ -11,11 +11,16 @@ object SyncCodec {
             // Los baselines creados antes de Room 16 no incluían esta marca. Se interpretan
             // como false para poder migrar sin descartar el historial de sincronización.
             val legacyNearCalving = field.name == "proximaParto" && !json.has(field.name)
-            require(json.has(field.name) || legacyNearCalving) {
+            // Room 17 añadió un límite opcional; los baselines anteriores equivalen a null.
+            val legacyParcelBoundary = table == "parcelas" &&
+                field.name == "limitesGeoJson" && !json.has(field.name)
+            require(json.has(field.name) || legacyNearCalving || legacyParcelBoundary) {
                 "Falta ${table}.${field.name} en la nube."
             }
             val value: Any? = if (legacyNearCalving) {
                 false
+            } else if (legacyParcelBoundary) {
+                null
             } else if (json.isNull(field.name)) {
                 require(field.nullable) { "Campo obligatorio vacío en $table." }; null
             } else when (field.kind) {

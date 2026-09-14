@@ -88,6 +88,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelMapScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportDashboardData
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportRecord
@@ -263,7 +264,8 @@ fun AppNavigation() {
                 pastureType = parcel.tipoPastura,
                 status = if (record.currentLotName == null) parcel.estado else "OCUPADA",
                 capacity = parcel.capacidadAnimales,
-                currentLot = record.currentLotName.orEmpty()
+                currentLot = record.currentLotName.orEmpty(),
+                boundaryGeoJson = parcel.limitesGeoJson
             )
         }
     }
@@ -742,7 +744,8 @@ fun AppNavigation() {
         Routes.LOT_ANIMAL_SELECTION,
         Routes.LOT_DETAIL -> Routes.LOTS
         Routes.PARCEL_FORM,
-        Routes.PARCEL_DETAIL -> Routes.PARCELS
+        Routes.PARCEL_DETAIL,
+        Routes.PARCEL_MAP -> Routes.PARCELS
         Routes.WEIGHING_FORM,
         Routes.WEIGHING_ANIMAL_DETAIL -> Routes.WEIGHINGS
         Routes.MILK_PRODUCTION_FORM,
@@ -1471,6 +1474,7 @@ fun AppNavigation() {
                     parcel = parcel,
                     canEditRecords = canEditRecords,
                     onBack = { navController.popBackStack() },
+                    onOpenMap = { navController.navigate(Routes.PARCEL_MAP) },
                     onEdit = {
                         if (canEditRecords) {
                             parcelEditingId = parcel.id
@@ -1515,6 +1519,17 @@ fun AppNavigation() {
                     onNavigateMain = navigateMain,
                     isSaving = parcelIsSaving,
                     saveError = parcelSaveError
+                )
+            }
+            composable(Routes.PARCEL_MAP) {
+                val parcel = selectedParcel
+                if (parcel == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.PARCELS) }
+                    return@composable
+                }
+                ParcelMapScreen(
+                    parcel = parcel,
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Routes.WEIGHINGS) {
@@ -2301,14 +2316,16 @@ private fun ParcelFormData.toParcelDraft() = ParcelDraft(
     name = name,
     areaHectares = areaHectares.replace(',', '.').toDoubleOrNull() ?: 0.0,
     pastureType = pastureType,
-    capacity = capacity.toIntOrNull()
+    capacity = capacity.toIntOrNull(),
+    boundaryGeoJson = boundaryGeoJson
 )
 
 private fun ParcelUiModel.toFormData() = ParcelFormData(
     name = name,
     areaHectares = areaHectares.toString(),
     pastureType = pastureType,
-    capacity = capacity?.toString().orEmpty()
+    capacity = capacity?.toString().orEmpty(),
+    boundaryGeoJson = boundaryGeoJson
 )
 
 private fun parseDate(value: String): Long? = runCatching {
