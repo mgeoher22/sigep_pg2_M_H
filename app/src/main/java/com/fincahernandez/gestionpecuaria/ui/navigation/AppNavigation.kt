@@ -852,7 +852,8 @@ fun AppNavigation() {
                     },
                     onLogout = logout,
                     onDownload = { cloudAction = "download"; coroutineScope.launch { drawerState.close() } },
-                    onProfile = { cloudAction = "profile"; coroutineScope.launch { drawerState.close() } }
+                    onProfile = { cloudAction = "profile"; coroutineScope.launch { drawerState.close() } },
+                    onSync = { cloudAction = "sync"; coroutineScope.launch { drawerState.close() } }
                 )
             }
         ) {

@@ -13,6 +13,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun CloudToolsDialog(action: String, user: AuthenticatedUser, manager: CloudSessionManager,
     onClose: () -> Unit, onProfileSaved: suspend () -> Unit) {
+    if(action=="sync") {
+        CloudSyncDialog(user,manager,onClose)
+        return
+    }
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }

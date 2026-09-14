@@ -180,7 +180,7 @@ class CloudSessionManager(
         if(generation!=snapshot.generation || s?.optString("uid")!=snapshot.account.userId)
             throw CancellationException("La sesión cambió durante la descarga.")
     }
-    suspend fun download(localId: String): CloudDownloadSnapshot = withContext(Dispatchers.IO) {
+    suspend fun download(localId: String, forSync: Boolean = false): CloudDownloadSnapshot = withContext(Dispatchers.IO) {
         restore(localId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet para descargar.")
         mutex.withLock {
             val epoch=synchronized(stateLock) { generation }
@@ -198,8 +198,8 @@ class CloudSessionManager(
                 var last:String?=null
                 while(true) {
                     coroutineContext.ensureActive()
-                    val fields=table.columns.joinToString(",") { it.name }
-                    val page=JSONArray(request("/rest/v1/"+table.name+"?select="+fields+"&syncEliminado=eq.false&order=id.asc&limit=500"+(last?.let { "&id=gt."+it } ?: ""),token))
+                    val fields=table.columns.joinToString(",") { it.name } + if(forSync) ",syncVersion,syncEliminado" else ""
+                    val page=JSONArray(request("/rest/v1/"+table.name+"?select="+fields+(if(forSync) "" else "&syncEliminado=eq.false")+"&order=id.asc&limit=500"+(last?.let { "&id=gt."+it } ?: ""),token))
                     if(page.length()==0)break
                     for(i in 0 until page.length()) {
                         val row=page.getJSONObject(i)
@@ -219,6 +219,41 @@ class CloudSessionManager(
             val finalProfile=account(s,member(s))
             require(profile==finalProfile) { "Tus permisos cambiaron; vuelve a ingresar." }
             CloudDownloadSnapshot(rows,profile,epoch).also(::validateSnapshot)
+        }
+    }
+
+
+    fun syncProject(): String = root()
+    suspend fun sendSync(operation: SyncOperation, snapshot: CloudDownloadSnapshot): Map<SyncKey, Long> = withContext(Dispatchers.IO) {
+        validateSnapshot(snapshot)
+        restore(snapshot.account.localUserId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet.")
+        mutex.withLock {
+            validateSnapshot(snapshot)
+            require(operation.owner == snapshot.account.userId)
+            val s = load(snapshot.account.localUserId) ?: throw CloudAccessDenied("La sesión se cerró.")
+            val current = account(s, member(s))
+            require(current.userId == operation.owner && current.permissions == snapshot.account.permissions && current.role == snapshot.account.role) {
+                "Tus permisos cambiaron. Vuelve a ingresar antes de sincronizar."
+            }
+            val response = try {
+                request("/rest/v1/rpc/sincronizar_cambios", s.getString("access"), SyncCodec.request(operation))
+            } catch (e: CloudHttpException) {
+                // Only definitive transaction rejection releases the saved UUID.
+                // Timeouts and 5xx responses keep it for an identical retry.
+                if(e.status in setOf(400,403,404,409,413,422)) throw SyncRejected(
+                    if(e.status==409) "Los datos cambiaron en la nube o hay un código repetido. Pulsa Sincronizar otra vez para revisar."
+                    else "La nube rechazó el envío. Revisa los permisos y los datos del registro; tus cambios siguen guardados en el dispositivo.")
+                throw e
+            }
+            val list = JSONArray(response)
+            val versions = linkedMapOf<SyncKey, Long>()
+            for(i in 0 until list.length()) {
+                val row = list.getJSONObject(i)
+                val key = SyncKey(row.getString("tabla"),row.get("id").toString())
+                require(!versions.containsKey(key)) { "Recibo duplicado." }
+                versions[key]=row.getLong("version").also { require(it>0) }
+            }
+            versions
         }
     }
 

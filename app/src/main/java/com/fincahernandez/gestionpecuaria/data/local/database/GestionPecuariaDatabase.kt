@@ -48,9 +48,11 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         MovimientoFinancieroEntity::class,
         EmpleadoEntity::class,
         PagoEmpleadoEntity::class,
-        ConfiguracionLecheEntity::class
+        ConfiguracionLecheEntity::class,
+        com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
+        com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -398,6 +400,15 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+
+        /** Adds only synchronization bookkeeping; product tables and rows stay intact. */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS cloud_sync_baseline (project TEXT NOT NULL, tableName TEXT NOT NULL, recordId TEXT NOT NULL, payload TEXT NOT NULL, version INTEGER NOT NULL, deleted INTEGER NOT NULL, PRIMARY KEY(project,tableName,recordId))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS cloud_sync_pending (project TEXT NOT NULL PRIMARY KEY, operationId TEXT NOT NULL, owner TEXT NOT NULL, payload TEXT NOT NULL)")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -422,7 +433,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                     MIGRATION_12_13,
-                    MIGRATION_13_14
+                    MIGRATION_13_14,
+                    MIGRATION_14_15
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia
