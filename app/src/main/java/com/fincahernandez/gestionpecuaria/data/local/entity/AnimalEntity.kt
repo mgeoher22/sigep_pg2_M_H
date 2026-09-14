@@ -31,6 +31,8 @@ data class AnimalEntity(
     val tipoOrigen: String = "NACIDO_EN_FINCA",
     /** Animal hembra registrado como madre; es nulo cuando el parentesco se desconoce. */
     val madreId: String? = null,
+    /** Marca manual que separa las vacas disponibles al registrar un nacimiento. */
+    val proximaParto: Boolean = false,
     val procedencia: String? = null,
     val estadoSalud: String = "EXCELENTE",
     val estado: String = "ACTIVO",

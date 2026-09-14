@@ -91,7 +91,7 @@ class CloudDownloadTest {
         val m=manager {url,method,headers,_ ->
             assertEquals("Bearer test",headers["Authorization"])
             when {
-                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20260913_room14_completo"}"""
+                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20260914_room16_partos"}"""
                 url.contains("/animales?") -> {assertEquals("GET",method);pages++;when(pages){1->"""[{"id":"$id"}]""";2->{assertTrue(url.contains("id=gt.$id"));"""[{"id":"$other"}]"""};else->"[]"}}
                 else -> "[]"
             }
@@ -104,7 +104,7 @@ class CloudDownloadTest {
     }
     @Test fun movingCloudCursorRejectsDownload()=runBlocking {
         var cursor=0
-        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20260913_room14_completo"}""" else "[]"}
+        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20260914_room16_partos"}""" else "[]"}
         m.signInCloud("test@example.com","123456")
         fails {m.download(id)}
     }

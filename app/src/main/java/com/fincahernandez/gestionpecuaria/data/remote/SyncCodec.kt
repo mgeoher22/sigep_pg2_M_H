@@ -8,8 +8,15 @@ object SyncCodec {
     fun data(table: String, json: JSONObject): SyncData {
         val columns = CloudTables.all.first { it.name == table }.columns
         return columns.filter { it.name != "fotoUri" }.associate { field ->
-            require(json.has(field.name)) { "Falta ${table}.${field.name} en la nube." }
-            val value: Any? = if (json.isNull(field.name)) {
+            // Los baselines creados antes de Room 16 no incluían esta marca. Se interpretan
+            // como false para poder migrar sin descartar el historial de sincronización.
+            val legacyNearCalving = field.name == "proximaParto" && !json.has(field.name)
+            require(json.has(field.name) || legacyNearCalving) {
+                "Falta ${table}.${field.name} en la nube."
+            }
+            val value: Any? = if (legacyNearCalving) {
+                false
+            } else if (json.isNull(field.name)) {
                 require(field.nullable) { "Campo obligatorio vacío en $table." }; null
             } else when (field.kind) {
                 "String" -> json.get(field.name).also { require(it is String) }

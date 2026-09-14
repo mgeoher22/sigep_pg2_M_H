@@ -189,7 +189,9 @@ class CloudSessionManager(
             val token=s.getString("access")
             fun state()=JSONObject(request("/rest/v1/rpc/estado_sincronizacion",token,JSONObject()))
             val before=state()
-            require(before.getString("versionEsquema")=="20260913_room14_completo") { "La versión de la nube no es compatible." }
+            require(before.getString("versionEsquema")=="20260914_room16_partos") {
+                "La nube requiere ejecutar 16_agregar_control_partos.sql antes de sincronizar."
+            }
             val rows=linkedMapOf<String,List<JSONObject>>()
             var total=0
             for(table in CloudTables.readable(profile.permissions)) {

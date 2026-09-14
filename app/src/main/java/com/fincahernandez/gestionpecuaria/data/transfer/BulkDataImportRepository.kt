@@ -74,6 +74,7 @@ internal data class BulkAnimalRow(
     val code: String,
     val name: String?,
     val motherCode: String?,
+    val nearCalving: Boolean,
     val sex: String,
     val breed: String?,
     val birthDate: Long?,
@@ -376,6 +377,7 @@ private fun BulkAnimalRow.toEntity(resolvedId: String, resolvedMotherId: String?
     categoria = category,
     tipoOrigen = originType,
     madreId = resolvedMotherId,
+    proximaParto = nearCalving,
     procedencia = origin,
     estadoSalud = healthStatus,
     estado = inventoryStatus,
@@ -396,6 +398,7 @@ private fun AnimalEntity.withImportedValues(
     categoria = row.category,
     tipoOrigen = row.originType,
     madreId = resolvedMotherId,
+    proximaParto = row.nearCalving,
     procedencia = row.origin,
     estadoSalud = row.healthStatus,
     estado = row.inventoryStatus,
@@ -450,7 +453,8 @@ private const val MAX_BULK_IMPORT_CHARS = 5_000_000
 
 private val bulkHeaders = listOf(
     "tipo", "idInternoNoEditar", "idRegistroNoEditar", "codigoAnimal", "nombre",
-    "codigoMadre", "sexo", "raza", "fechaNacimiento", "fechaIngreso", "categoria", "tipoOrigen",
+    "codigoMadre", "proximaParto", "sexo", "raza", "fechaNacimiento", "fechaIngreso",
+    "categoria", "tipoOrigen",
     "procedencia", "estadoSalud", "estado", "fotoUriNoEditar", "idPesoActualNoEditar",
     "pesoActualLibras", "fechaPesoActual", "pesoLibras", "fechaPesaje", "tipoEvento",
     "fechaEvento", "diagnostico", "medicamento", "dosis", "proximoControl",
@@ -475,7 +479,7 @@ private fun animalExampleRow() = templateRow(
     "sexo" to "HEMBRA", "raza" to "Criolla", "fechaNacimiento" to "01/01/2024",
     "fechaIngreso" to "01/01/2024", "categoria" to "LECHERO",
     "tipoOrigen" to "NACIDO_EN_FINCA", "procedencia" to "Finca Hernández",
-    "estadoSalud" to "EXCELENTE", "estado" to "ACTIVO",
+    "estadoSalud" to "EXCELENTE", "estado" to "ACTIVO", "proximaParto" to "NO",
     "pesoActualLibras" to "550.5", "fechaPesoActual" to "09/09/2026",
     "observaciones" to "Fila de ejemplo; puede eliminarla"
 )
@@ -518,6 +522,7 @@ internal fun buildBulkExportCsv(
                         ?.let(animalById::get)
                         ?.codigoIdentificacion
                         .orEmpty(),
+                    "proximaParto" to if (animal.proximaParto) "SI" else "NO",
                     "sexo" to animal.sexo,
                     "raza" to animal.raza.orEmpty(),
                     "fechaNacimiento" to formatCsvDate(animal.fechaNacimiento),
@@ -586,9 +591,9 @@ internal fun parseBulkImportCsv(
     val lines = csv.removePrefix("\uFEFF").lineSequence().filter { it.isNotBlank() }.toList()
     require(lines.size >= 2) { "El archivo no contiene registros para importar." }
     val receivedHeaders = parseCsvLine(lines.first()).map(String::trim)
-    // codigoMadre se añadió después de la primera versión del formato; los archivos
-    // anteriores siguen siendo válidos y simplemente se importan sin parentesco.
-    val optionalHeaders = setOf("codigoMadre")
+    // Los campos reproductivos se añadieron después de la primera versión del formato;
+    // los archivos anteriores siguen siendo válidos y usan sus valores predeterminados.
+    val optionalHeaders = setOf("codigoMadre", "proximaParto")
     val missingHeaders = bulkHeaders.filterNot { it in receivedHeaders || it in optionalHeaders }
     require(missingHeaders.isEmpty()) {
         "Faltan columnas obligatorias: ${missingHeaders.joinToString()}."
@@ -631,6 +636,12 @@ internal fun parseBulkImportCsv(
                 require(sex in setOf("MACHO", "HEMBRA")) {
                     "Fila $rowNumber: sexo debe ser MACHO o HEMBRA."
                 }
+                val nearCalving = parseOptionalYesNo(
+                    cell("proximaParto"), rowNumber, "proximaParto"
+                ) ?: false
+                require(!nearCalving || sex == "HEMBRA") {
+                    "Fila $rowNumber: solo una HEMBRA puede marcarse próxima a dar a luz."
+                }
                 val category = required("categoria").uppercase(Locale.ROOT)
                 require(category in setOf("LECHERO", "ENGORDE", "AMBOS")) {
                     "Fila $rowNumber: categoría debe ser LECHERO, ENGORDE o AMBOS."
@@ -651,6 +662,7 @@ internal fun parseBulkImportCsv(
                     code = required("codigoAnimal"),
                     name = cell("nombre").ifBlank { null },
                     motherCode = cell("codigoMadre").ifBlank { null },
+                    nearCalving = nearCalving,
                     sex = sex,
                     breed = cell("raza").ifBlank { null },
                     birthDate = birthDate,
@@ -745,6 +757,16 @@ private fun normalizeHealth(value: String, rowNumber: Int): String {
         "Fila $rowNumber: estadoSalud no válido."
     }
     return normalized
+}
+
+/** Acepta los valores fáciles de escribir en Excel sin depender de mayúsculas o tildes. */
+private fun parseOptionalYesNo(value: String, rowNumber: Int, field: String): Boolean? {
+    if (value.isBlank()) return null
+    return when (value.trim().uppercase(Locale.ROOT)) {
+        "SI", "SÍ", "TRUE", "1" -> true
+        "NO", "FALSE", "0" -> false
+        else -> throw IllegalArgumentException("Fila $rowNumber: $field debe ser SI o NO.")
+    }
 }
 
 private fun parseRequiredPositiveDouble(value: String, rowNumber: Int, field: String): Double =

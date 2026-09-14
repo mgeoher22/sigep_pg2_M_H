@@ -48,6 +48,16 @@ class AnimalRepository(
     suspend fun saveAnimal(animal: AnimalEntity, weightPounds: Double?) {
         database.withTransaction {
             val current = animalDao.buscarPorId(animal.id)
+            val newMotherId = animal.madreId.takeIf { it != current?.madreId }
+            val mother = newMotherId?.let { animalDao.buscarPorId(it) }
+            if (newMotherId != null) {
+                require(
+                    mother != null && mother.sexo == "HEMBRA" &&
+                        mother.estado == "ACTIVO" && mother.proximaParto
+                ) {
+                    "La madre debe ser una vaca activa marcada como próxima a dar a luz."
+                }
+            }
             if (current == null) {
                 animalDao.insertar(animal)
             } else {

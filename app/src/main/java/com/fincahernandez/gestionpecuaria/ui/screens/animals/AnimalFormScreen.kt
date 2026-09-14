@@ -76,7 +76,8 @@ data class AnimalFormData(
     val procedencia: String,
     val observaciones: String,
     val fotoUri: String = "",
-    val madreId: String = ""
+    val madreId: String = "",
+    val proximaParto: Boolean = false
 )
 
 /** Vaca disponible para registrar la relación de maternidad. */
@@ -115,6 +116,7 @@ fun AnimalFormScreen(
         mutableStateOf(initialData?.tipoOrigen?.ifBlank { "NACIDO_EN_FINCA" } ?: "NACIDO_EN_FINCA")
     }
     var madreId by rememberSaveable { mutableStateOf(initialData?.madreId.orEmpty()) }
+    var proximaParto by rememberSaveable { mutableStateOf(initialData?.proximaParto ?: false) }
     var fechaNacimiento by rememberSaveable {
         mutableStateOf(initialData?.fechaNacimiento.orEmpty())
     }
@@ -248,7 +250,31 @@ fun AnimalFormScreen(
                 )
             }
 
-            item { SelectorDosOpciones("Sexo", "MACHO", "HEMBRA", sexo) { sexo = it } }
+            item {
+                SelectorDosOpciones("Sexo", "MACHO", "HEMBRA", sexo) { selectedSex ->
+                    sexo = selectedSex
+                    // La condición reproductiva solo corresponde a animales hembra.
+                    if (selectedSex != "HEMBRA") proximaParto = false
+                }
+            }
+
+            if (sexo == "HEMBRA") {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = proximaParto,
+                            onClick = { proximaParto = !proximaParto },
+                            label = { Text("Próxima a dar a luz") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "Activa esta opción para incluir la vaca al registrar una nueva cría.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             item {
                 Text("Categoría", fontWeight = FontWeight.SemiBold)
@@ -419,7 +445,8 @@ fun AnimalFormScreen(
                                     procedencia = procedencia,
                                     observaciones = observaciones,
                                     fotoUri = fotoUri,
-                                    madreId = if (tipoOrigen == "NACIDO_EN_FINCA") madreId else ""
+                                    madreId = if (tipoOrigen == "NACIDO_EN_FINCA") madreId else "",
+                                    proximaParto = sexo == "HEMBRA" && proximaParto
                                 )
                             )
                         }
@@ -449,8 +476,8 @@ fun AnimalFormScreen(
 }
 
 /**
- * Lista únicamente las vacas activas recibidas desde Room. La opción vacía permite
- * registrar nacimientos cuyo parentesco todavía no se conoce.
+ * Lista únicamente las vacas activas marcadas como próximas a parto. La opción vacía
+ * permite registrar nacimientos cuyo parentesco todavía no se conoce.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -475,7 +502,10 @@ private fun MotherDropdownField(
             readOnly = true,
             label = { Text("Vaca madre") },
             placeholder = {
-                Text(if (options.isEmpty()) "No hay vacas activas registradas" else "Seleccione la madre")
+                Text(
+                    if (options.isEmpty()) "No hay vacas próximas a dar a luz"
+                    else "Seleccione la madre"
+                )
             },
             supportingText = { Text("Opcional si todavía no se conoce el parentesco.") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },

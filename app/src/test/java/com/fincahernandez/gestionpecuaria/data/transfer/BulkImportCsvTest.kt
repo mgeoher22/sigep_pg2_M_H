@@ -90,7 +90,8 @@ class BulkImportCsvTest {
             sexo = "HEMBRA",
             fechaNacimiento = 1_704_067_200_000,
             fechaIngreso = 1_704_067_200_000,
-            categoria = "LECHERO"
+            categoria = "LECHERO",
+            proximaParto = true
         )
         val calf = AnimalEntity(
             id = "calf-1",
@@ -113,18 +114,20 @@ class BulkImportCsvTest {
 
         assertEquals("FH-010", imported.animals.first { it.code == "FH-011" }.motherCode)
         assertEquals(null, imported.animals.first { it.code == "FH-010" }.motherCode)
+        assertTrue(imported.animals.first { it.code == "FH-010" }.nearCalving)
     }
 
     @Test
-    fun previousCsvWithoutMotherColumnRemainsCompatible() {
+    fun previousCsvWithoutReproductiveColumnsRemainsCompatible() {
         val currentCsv = bulkImportTemplateCsv(setOf(DataTransferModule.ANIMALS))
         val previousCsv = currentCsv
-            .replace(";codigoMadre;", ";")
-            .replace(";Ejemplo;;HEMBRA;", ";Ejemplo;HEMBRA;")
+            .replace(";codigoMadre;proximaParto;", ";")
+            .replace(";Ejemplo;;NO;HEMBRA;", ";Ejemplo;HEMBRA;")
 
         val imported = parseBulkImportCsv(previousCsv, setOf(DataTransferModule.ANIMALS))
 
         assertEquals(1, imported.animals.size)
         assertEquals(null, imported.animals.single().motherCode)
+        assertEquals(false, imported.animals.single().nearCalving)
     }
 }

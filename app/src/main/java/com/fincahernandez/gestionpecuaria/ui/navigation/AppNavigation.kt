@@ -1053,7 +1053,10 @@ fun AppNavigation() {
                 val animalEnEdicion = animales.firstOrNull { it.id == animalEnEdicionId }
                 val motherOptions = remember(animales, animalEnEdicion, animalItemsById) {
                     val eligible = animales
-                        .filter { it.sexo == "HEMBRA" && it.id != animalEnEdicion?.id }
+                        .filter {
+                            it.sexo == "HEMBRA" && it.proximaParto &&
+                                it.id != animalEnEdicion?.id
+                        }
                         .toMutableList()
                     // Conserva visible una madre ya asignada aunque luego haya sido retirada.
                     animalEnEdicion?.madreId
@@ -1118,6 +1121,8 @@ fun AppNavigation() {
                                     error.message.orEmpty().contains("UNIQUE", ignoreCase = true)
                                 ) {
                                     "Ese código de identificación ya existe. Intente nuevamente."
+                                } else if (error.message.orEmpty().contains("madre", ignoreCase = true)) {
+                                    error.message.orEmpty()
                                 } else {
                                     "No fue posible guardar el animal. Verifique los datos e inténtelo otra vez."
                                 }
@@ -2179,6 +2184,7 @@ private fun AnimalFormData.toListItem(id: String) = AnimalListItem(
     sexo = sexo,
     tipoOrigen = tipoOrigen,
     madreId = madreId,
+    proximaParto = proximaParto,
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     procedencia = procedencia.trim(),
@@ -2200,6 +2206,7 @@ private fun AnimalFormData.toEntity(id: String) = AnimalEntity(
     categoria = categoria,
     tipoOrigen = tipoOrigen,
     madreId = madreId.ifBlank { null },
+    proximaParto = proximaParto,
     procedencia = procedencia.trim().ifBlank { null },
     estadoSalud = estadoSalud,
     estado = "ACTIVO",
@@ -2219,6 +2226,7 @@ private fun AnimalStoredRecord.toListItem() = AnimalListItem(
     sexo = animal.sexo,
     tipoOrigen = animal.tipoOrigen,
     madreId = animal.madreId.orEmpty(),
+    proximaParto = animal.proximaParto,
     fechaNacimiento = formatDate(animal.fechaNacimiento),
     fechaIngreso = formatDate(animal.fechaIngreso),
     procedencia = animal.procedencia.orEmpty(),
@@ -2258,6 +2266,7 @@ private fun AnimalListItem.toFormData() = AnimalFormData(
     categoria = categoria,
     tipoOrigen = tipoOrigen,
     madreId = madreId,
+    proximaParto = proximaParto,
     fechaNacimiento = fechaNacimiento,
     fechaIngreso = fechaIngreso,
     estadoSalud = estado,

@@ -52,7 +52,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -409,6 +409,15 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Añade la marca de próximas a parto sin cambiar ningún registro existente. */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE animales ADD COLUMN proximaParto INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -434,7 +443,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
-                    MIGRATION_14_15
+                    MIGRATION_14_15,
+                    MIGRATION_15_16
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

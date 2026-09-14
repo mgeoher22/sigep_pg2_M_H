@@ -3,7 +3,7 @@ package com.fincahernandez.gestionpecuaria.data.remote
 data class CloudColumn(val name: String, val kind: String, val nullable: Boolean)
 data class CloudTable(val name: String, val columns: List<CloudColumn>)
 
-/** Campos Room 14; se excluyen usuarios, credenciales y metadatos exclusivos del servidor. */
+/** Campos productivos de Room; se excluyen credenciales y metadatos exclusivos del servidor. */
 object CloudTables {
     val all = listOf(
         CloudTable("animales", listOf(
@@ -17,6 +17,7 @@ object CloudTables {
             CloudColumn("categoria", "String", false),
             CloudColumn("tipoOrigen", "String", false),
             CloudColumn("madreId", "String", true),
+            CloudColumn("proximaParto", "Boolean", false),
             CloudColumn("procedencia", "String", true),
             CloudColumn("estadoSalud", "String", false),
             CloudColumn("estado", "String", false),

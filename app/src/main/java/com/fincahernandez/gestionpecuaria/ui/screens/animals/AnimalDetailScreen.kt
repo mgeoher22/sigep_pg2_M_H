@@ -232,6 +232,12 @@ private fun AnimalRegisteredInformation(animal: AnimalListItem, motherLabel: Str
             )
             AnimalInformationRow("Raza", animal.raza.ifBlank { "Sin registro" })
             AnimalInformationRow("Sexo", animal.sexo.ifBlank { "Sin registro" })
+            if (animal.sexo == "HEMBRA") {
+                AnimalInformationRow(
+                    "Control de parto",
+                    if (animal.proximaParto) "Próxima a dar a luz" else "Sin marca activa"
+                )
+            }
             AnimalInformationRow("Origen", origen)
             if (animal.tipoOrigen == "NACIDO_EN_FINCA") {
                 AnimalInformationRow("Vaca madre", motherLabel ?: "Sin registro")

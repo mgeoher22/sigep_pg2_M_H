@@ -72,6 +72,7 @@ data class AnimalListItem(
     val fechaNacimiento: String = "",
     val fechaIngreso: String = "",
     val madreId: String = "",
+    val proximaParto: Boolean = false,
     val procedencia: String = "",
     val observaciones: String = "",
     val fotoUri: String = ""
@@ -96,10 +97,16 @@ fun AnimalListScreen(
     var busqueda by rememberSaveable { mutableStateOf("") }
     var categoriaSeleccionada by rememberSaveable { mutableStateOf(FILTER_ALL) }
     var estadoSeleccionado by rememberSaveable { mutableStateOf(FILTER_ALL) }
+    var soloProximasParto by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
 
-    val activeFilterCount = remember(categoriaSeleccionada, estadoSeleccionado) {
-        listOf(categoriaSeleccionada, estadoSeleccionado).count { it != FILTER_ALL }
+    val activeFilterCount = remember(
+        categoriaSeleccionada,
+        estadoSeleccionado,
+        soloProximasParto
+    ) {
+        listOf(categoriaSeleccionada, estadoSeleccionado).count { it != FILTER_ALL } +
+            if (soloProximasParto) 1 else 0
     }
 
     // Combina la búsqueda de texto con categoría y estado de salud.
@@ -107,7 +114,8 @@ fun AnimalListScreen(
         animales,
         busqueda,
         categoriaSeleccionada,
-        estadoSeleccionado
+        estadoSeleccionado,
+        soloProximasParto
     ) {
         animales.filter { animal ->
             val coincideBusqueda = busqueda.isBlank() ||
@@ -118,8 +126,9 @@ fun AnimalListScreen(
                 animal.categoria.equals(categoriaSeleccionada, ignoreCase = true)
             val coincideEstado = estadoSeleccionado == FILTER_ALL ||
                 animal.estado.equals(estadoSeleccionado, ignoreCase = true)
+            val coincideParto = !soloProximasParto || animal.proximaParto
 
-            coincideBusqueda && coincideCategoria && coincideEstado
+            coincideBusqueda && coincideCategoria && coincideEstado && coincideParto
         }
     }
 
@@ -131,6 +140,7 @@ fun AnimalListScreen(
             onClear = {
                 categoriaSeleccionada = FILTER_ALL
                 estadoSeleccionado = FILTER_ALL
+                soloProximasParto = false
                 showFilters = false
             },
             onApply = { category, status ->
@@ -180,6 +190,18 @@ fun AnimalListScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+                )
+            }
+
+            // Acceso directo para separar del inventario las vacas pendientes de parto.
+            item {
+                FilterChip(
+                    selected = soloProximasParto,
+                    onClick = { soloProximasParto = !soloProximasParto },
+                    label = {
+                        Text("Próximas a dar a luz (${animales.count { it.proximaParto }})")
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -448,6 +470,20 @@ private fun AnimalCard(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     StatusBadge(estado = animal.estado)
+                }
+                if (animal.proximaParto) {
+                    Surface(
+                        color = Color(0xFFFFE7A8),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            "Próxima a dar a luz",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            color = Color(0xFF6B4E00),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
 
                 Row(
