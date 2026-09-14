@@ -824,6 +824,14 @@ fun AppNavigation() {
         }
     }
 
+    var cloudAction by remember { mutableStateOf<String?>(null) }
+    if (cloudAction != null && currentUser != null) {
+        com.fincahernandez.gestionpecuaria.ui.screens.auth.CloudToolsDialog(
+            action = cloudAction!!, user = currentUser, manager = cloudSessionManager,
+            onClose = { cloudAction = null },
+            onProfileSaved = { unifiedAuth.remembered(currentUser.id)?.let(updateCurrentUser) }
+        )
+    }
     CompositionLocalProvider(
         LocalAllowedMainRoutes provides allowedMainRoutes,
         LocalLogoutAction provides logout
@@ -842,7 +850,9 @@ fun AppNavigation() {
                         if (route == Routes.SANITARY) sanitaryInitialAnimalId = ""
                         navigateMain(route)
                     },
-                    onLogout = logout
+                    onLogout = logout,
+                    onDownload = { cloudAction = "download"; coroutineScope.launch { drawerState.close() } },
+                    onProfile = { cloudAction = "profile"; coroutineScope.launch { drawerState.close() } }
                 )
             }
         ) {

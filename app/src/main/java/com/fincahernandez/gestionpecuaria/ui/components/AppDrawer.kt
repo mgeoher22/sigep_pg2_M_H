@@ -52,7 +52,9 @@ fun AppDrawerContent(
     userName: String,
     roleName: String,
     onDestinationClick: (String) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onDownload: () -> Unit = {},
+    onProfile: () -> Unit = {}
 ) {
     ModalDrawerSheet {
         // El desplazamiento permite acceder a todas las opciones en pantallas pequeñas.
@@ -108,6 +110,8 @@ fun AppDrawerContent(
             }
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
+            NavigationDrawerItem(label = { Text("Descargar de la nube") }, selected = false, onClick = onDownload)
+            NavigationDrawerItem(label = { Text("Mi perfil") }, selected = false, onClick = onProfile)
             NavigationDrawerItem(
                 label = { Text("Cerrar sesión") },
                 selected = false,
