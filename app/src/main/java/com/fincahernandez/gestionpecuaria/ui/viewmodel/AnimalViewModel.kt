@@ -34,6 +34,14 @@ class AnimalViewModel(application: Application) : AndroidViewModel(application) 
 
     suspend fun removeAnimal(id: String) = repository.removeAnimal(id)
 
+    /** Permite actualizar la foto sin exponer la edición completa del animal. */
+    suspend fun updatePhoto(animalId: String, photoUri: String) =
+        repository.updatePhoto(animalId, photoUri)
+
+    /** Permite actualizar únicamente la condición de próxima a parto. */
+    suspend fun updateNearCalving(animalId: String, nearCalving: Boolean) =
+        repository.updateNearCalving(animalId, nearCalving)
+
     suspend fun registerWeight(
         animalId: String,
         weightPounds: Double,

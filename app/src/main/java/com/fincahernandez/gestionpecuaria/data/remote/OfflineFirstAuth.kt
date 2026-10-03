@@ -93,5 +93,34 @@ class OfflineFirstAuth(
             user
         }
     }
+
+    /**
+     * Revalida una acción sensible con la prueba local creada durante el último
+     * acceso correcto. No envía la contraseña, no renueva la sesión y no la guarda.
+     */
+    suspend fun verifyCurrentPassword(
+        userId: String,
+        email: String,
+        password: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (password.isEmpty()) return@withLock false
+            val cachedProfile = cached() ?: return@withLock false
+            if (cachedProfile.optString("id") != userId ||
+                !cachedProfile.optString("email").equals(email.trim(), ignoreCase = true)
+            ) {
+                return@withLock false
+            }
+            val proof = runCatching { verifier(cachedProfile) }.getOrNull()
+                ?: return@withLock false
+            PasswordHasher.verify(
+                password,
+                proof.hash,
+                proof.salt,
+                proof.algorithm,
+                proof.iterations
+            )
+        }
+    }
     fun signOut(): () -> Boolean = gateway.clear()
 }

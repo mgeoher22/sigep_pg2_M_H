@@ -150,7 +150,9 @@ fun ParcelListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateParcel,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar parcela") }
+                text = { Text("Registrar parcela") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

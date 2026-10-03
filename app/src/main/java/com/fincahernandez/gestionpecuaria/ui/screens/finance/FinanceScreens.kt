@@ -17,8 +17,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,11 +38,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
@@ -65,7 +71,8 @@ data class FinancialMovementUiModel(
     val date: String,
     val notes: String,
     val sourceLabel: String = "Registro manual",
-    val automatic: Boolean = false
+    val automatic: Boolean = false,
+    val deletableRecordId: String? = null
 )
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
@@ -85,11 +92,28 @@ fun FinanceListScreen(
     onMenuClick: () -> Unit,
     onCreateMovement: () -> Unit,
     onNavigateMain: (String) -> Unit,
+    canDeleteMovements: Boolean = false,
+    isDeletingMovement: Boolean = false,
+    deleteError: String? = null,
+    onClearDeleteError: () -> Unit = {},
+    onDeleteMovement: (movementId: String, password: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val income = movements.filter { it.type == "INGRESO" }.sumOf { it.amount }
     val expenses = movements.filter { it.type == "EGRESO" }.sumOf { it.amount }
     val balance = income - expenses
+    val balanceSignal = financeBalanceSignal(income, expenses)
+    var pendingDeletion by remember { mutableStateOf<FinancialMovementUiModel?>(null) }
+    var confirmationPassword by remember { mutableStateOf("") }
+
+    // Cuando Room deja de emitir el movimiento eliminado se cierra la confirmación.
+    LaunchedEffect(movements, pendingDeletion?.id) {
+        val pending = pendingDeletion ?: return@LaunchedEffect
+        if (movements.none { it.id == pending.id }) {
+            pendingDeletion = null
+            confirmationPassword = ""
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -119,7 +143,9 @@ fun FinanceListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateMovement,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Nuevo movimiento") }
+                text = { Text("Nuevo movimiento") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->
@@ -133,20 +159,23 @@ fun FinanceListScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = CardDefaults.cardColors(containerColor = balanceSignal.color)
                 ) {
                     Column(
                         modifier = Modifier.padding(22.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("BALANCE ACTUAL", color = Color.White.copy(alpha = 0.8f))
+                        Text(
+                            "BALANCE ACTUAL · ${balanceSignal.label}",
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
                         Text(
                             formatQuetzales(balance),
                             color = Color.White,
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        Text("Ingresos menos egresos registrados", color = Color.White)
+                        Text(balanceSignal.description, color = Color.White)
                     }
                 }
             }
@@ -190,11 +219,111 @@ fun FinanceListScreen(
                 }
             } else {
                 items(movements.sortedByDescending { it.dateMillis }, key = { it.id }) { movement ->
-                    FinancialMovementCard(movement)
+                    FinancialMovementCard(
+                        movement = movement,
+                        canDelete = canDeleteMovements && movement.deletableRecordId != null,
+                        onDelete = {
+                            confirmationPassword = ""
+                            onClearDeleteError()
+                            pendingDeletion = movement
+                        }
+                    )
                 }
             }
             item { Spacer(modifier = Modifier.height(76.dp)) }
         }
+    }
+
+    pendingDeletion?.let { movement ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!isDeletingMovement) {
+                    confirmationPassword = ""
+                    pendingDeletion = null
+                    onClearDeleteError()
+                }
+            },
+            title = { Text("Eliminar movimiento contable") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Se eliminará ${movement.category} por ${formatQuetzales(movement.amount)}. " +
+                            "Esta acción requiere la contraseña del Administrador General."
+                    )
+                    OutlinedTextField(
+                        value = confirmationPassword,
+                        onValueChange = {
+                            confirmationPassword = it
+                            onClearDeleteError()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Contraseña actual") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = PasswordVisualTransformation(),
+                        enabled = !isDeletingMovement,
+                        singleLine = true
+                    )
+                    deleteError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isDeletingMovement,
+                    onClick = {
+                        confirmationPassword = ""
+                        pendingDeletion = null
+                        onClearDeleteError()
+                    }
+                ) { Text("Cancelar") }
+            },
+            confirmButton = {
+                Button(
+                    enabled = confirmationPassword.isNotBlank() && !isDeletingMovement,
+                    onClick = {
+                        val password = confirmationPassword
+                        confirmationPassword = ""
+                        movement.deletableRecordId?.let { id -> onDeleteMovement(id, password) }
+                    }
+                ) {
+                    Text(if (isDeletingMovement) "Verificando…" else "Confirmar y eliminar")
+                }
+            }
+        )
+    }
+}
+
+private data class FinanceBalanceSignal(
+    val label: String,
+    val description: String,
+    val color: Color
+)
+
+/** El margen disponible se evalúa respecto de los ingresos, no con montos fijos. */
+private fun financeBalanceSignal(income: Double, expenses: Double): FinanceBalanceSignal {
+    val balance = income - expenses
+    return when {
+        income == 0.0 && expenses == 0.0 -> FinanceBalanceSignal(
+            "SIN DATOS",
+            "Registre ingresos y egresos para evaluar el balance.",
+            Color(0xFF5F6368)
+        )
+        balance < 0.0 -> FinanceBalanceSignal(
+            "CRÍTICO",
+            "Los egresos superan los ingresos registrados.",
+            Color(0xFFB3261E)
+        )
+        income > 0.0 && balance / income < 0.25 -> FinanceBalanceSignal(
+            "POCO",
+            "Queda menos del 25 % de los ingresos disponibles.",
+            Color(0xFF9A6700)
+        )
+        else -> FinanceBalanceSignal(
+            "BASTANTE",
+            "El margen disponible es al menos el 25 % de los ingresos.",
+            Color(0xFF147A36)
+        )
     }
 }
 
@@ -218,7 +347,11 @@ private fun FinanceSummaryCard(
 
 /** Tarjeta que diferencia visualmente ingresos y egresos. */
 @Composable
-private fun FinancialMovementCard(movement: FinancialMovementUiModel) {
+private fun FinancialMovementCard(
+    movement: FinancialMovementUiModel,
+    canDelete: Boolean,
+    onDelete: () -> Unit
+) {
     val isIncome = movement.type == "INGRESO"
     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
         Row(
@@ -237,11 +370,22 @@ private fun FinancialMovementCard(movement: FinancialMovementUiModel) {
                     Text(movement.notes, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Text(
-                (if (isIncome) "+" else "-") + formatQuetzales(movement.amount),
-                color = if (isIncome) Color(0xFF0B6B2A) else MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.Bold
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    (if (isIncome) "+" else "-") + formatQuetzales(movement.amount),
+                    color = if (isIncome) Color(0xFF0B6B2A) else MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+                if (canDelete) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Eliminar movimiento",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
         }
     }
 }

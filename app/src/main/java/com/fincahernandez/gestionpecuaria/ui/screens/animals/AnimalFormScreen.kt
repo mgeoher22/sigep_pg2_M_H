@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -60,6 +62,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /** Valores capturados en la pantalla de registro. */
 data class AnimalFormData(
@@ -147,13 +151,43 @@ fun AnimalFormScreen(
 
     // HU-03 requiere señalar visualmente los campos obligatorios o inválidos.
     val codigoInvalido = codigo.isBlank()
-    val fechaObligatoriaInvalida = if (tipoOrigen == "NACIDO_EN_FINCA") {
-        fechaNacimiento.isBlank()
-    } else {
-        fechaIngreso.isBlank()
+    val fechaNacimientoMillis = parseAnimalFormDate(fechaNacimiento)
+    val fechaIngresoMillis = parseAnimalFormDate(fechaIngreso)
+    val ahora = System.currentTimeMillis()
+    val errorFechaNacimiento = when {
+        tipoOrigen == "NACIDO_EN_FINCA" && fechaNacimiento.isBlank() ->
+            "Seleccione la fecha de nacimiento."
+        fechaNacimiento.isNotBlank() && fechaNacimientoMillis == null ->
+            "La fecha de nacimiento no tiene un formato válido."
+        fechaNacimientoMillis != null && fechaNacimientoMillis > ahora ->
+            "La fecha de nacimiento no puede ser futura."
+        else -> null
     }
-    val pesoInvalido = pesoInicial.isNotBlank() && pesoInicial.toDoubleOrNull() == null
-    val formularioValido = !codigoInvalido && !fechaObligatoriaInvalida && !pesoInvalido
+    val errorFechaIngreso = when {
+        tipoOrigen != "INGRESADO_A_FINCA" -> null
+        fechaIngreso.isBlank() -> "Seleccione la fecha de llegada."
+        fechaIngresoMillis == null -> "La fecha de llegada no tiene un formato válido."
+        fechaIngresoMillis > ahora -> "La fecha de llegada no puede ser futura."
+        fechaNacimientoMillis != null && fechaIngresoMillis < fechaNacimientoMillis ->
+            "La fecha de llegada no puede ser anterior al nacimiento."
+        else -> null
+    }
+    val pesoInvalido = pesoInicial.isNotBlank() &&
+        (pesoInicial.toDoubleOrNull() == null || pesoInicial.toDouble() <= 0.0)
+    val formularioValido = codigoInvalido.not() &&
+        errorFechaNacimiento == null &&
+        errorFechaIngreso == null &&
+        pesoInvalido.not()
+
+    // Si la capa de datos devuelve una validación conocida, también se relaciona
+    // con el campo correspondiente para que el usuario no tenga que adivinarla.
+    val errorNacimientoGuardado = saveError?.takeIf { message ->
+        message.contains("nacimiento", ignoreCase = true) &&
+            message.contains("llegada", ignoreCase = true).not()
+    }
+    val errorIngresoGuardado = saveError?.takeIf { message ->
+        message.contains("llegada", ignoreCase = true)
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -331,9 +365,11 @@ fun AnimalFormScreen(
                     },
                     value = fechaNacimiento,
                     onDateSelected = { fechaNacimiento = it },
-                    showError = intentoGuardar &&
-                        tipoOrigen == "NACIDO_EN_FINCA" &&
-                        fechaNacimiento.isBlank()
+                    errorMessage = if (intentoGuardar) {
+                        errorFechaNacimiento ?: errorNacimientoGuardado
+                    } else {
+                        errorNacimientoGuardado
+                    }
                 )
             }
 
@@ -344,7 +380,11 @@ fun AnimalFormScreen(
                         label = "Fecha de llegada *",
                         value = fechaIngreso,
                         onDateSelected = { fechaIngreso = it },
-                        showError = intentoGuardar && fechaIngreso.isBlank()
+                        errorMessage = if (intentoGuardar) {
+                            errorFechaIngreso ?: errorIngresoGuardado
+                        } else {
+                            errorIngresoGuardado
+                        }
                     )
                 }
             }
@@ -372,7 +412,7 @@ fun AnimalFormScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     isError = intentoGuardar && pesoInvalido,
                     supportingText = if (intentoGuardar && pesoInvalido) {
-                        { Text("Ingrese un peso numérico válido.") }
+                        { Text("Ingrese un peso numérico mayor que cero.") }
                     } else {
                         null
                     },
@@ -409,11 +449,17 @@ fun AnimalFormScreen(
             // Presenta errores de Room, por ejemplo un código duplicado, sin cerrar el formulario.
             item {
                 if (saveError != null) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
                         Text(
                             saveError,
                             modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.error
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -675,7 +721,7 @@ private fun DateSelectorField(
     label: String,
     value: String,
     onDateSelected: (String) -> Unit,
-    showError: Boolean = false
+    errorMessage: String? = null
 ) {
     var showDialog by rememberSaveable { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState()
@@ -686,7 +732,15 @@ private fun DateSelectorField(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp),
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(
+                width = if (errorMessage == null) 1.dp else 2.dp,
+                color = if (errorMessage == null) {
+                    MaterialTheme.colorScheme.outline
+                } else {
+                    MaterialTheme.colorScheme.error
+                }
+            )
         ) {
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
                 Text(label, style = MaterialTheme.typography.labelMedium)
@@ -697,9 +751,9 @@ private fun DateSelectorField(
             }
             Icon(Icons.Default.CalendarMonth, contentDescription = "Abrir calendario")
         }
-        if (showError) {
+        if (errorMessage != null) {
             Text(
-                text = "Seleccione la fecha obligatoria.",
+                text = errorMessage,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp)
@@ -741,6 +795,16 @@ private fun DateSelectorField(
             )
         }
     }
+}
+
+/** Convierte las fechas visibles del formulario sin aceptar valores ambiguos. */
+private fun parseAnimalFormDate(value: String): Long? {
+    if (value.isBlank()) return null
+    return runCatching {
+        SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
+            isLenient = false
+        }.parse(value)?.time
+    }.getOrNull()
 }
 
 /** Selector reutilizable para dos valores mutuamente excluyentes. */

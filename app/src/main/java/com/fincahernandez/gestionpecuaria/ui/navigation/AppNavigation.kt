@@ -39,6 +39,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
+import com.fincahernandez.gestionpecuaria.data.security.canUpdateAnimalFieldStatus
 import com.fincahernandez.gestionpecuaria.data.security.canConfirmMilkPayments
 import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
@@ -350,7 +351,8 @@ fun AppNavigation() {
                 amount = movement.monto,
                 dateMillis = movement.fecha,
                 date = formatDate(movement.fecha),
-                notes = movement.observaciones.orEmpty()
+                notes = movement.observaciones.orEmpty(),
+                deletableRecordId = movement.id
             )
         } + milkProductionRecords
             .filter { it.paymentConfirmedAtMillis != null }
@@ -549,6 +551,8 @@ fun AppNavigation() {
     var animalEnEdicionId by remember { mutableStateOf<String?>(null) }
     var animalSaveError by remember { mutableStateOf<String?>(null) }
     var animalIsSaving by remember { mutableStateOf(false) }
+    var animalFieldUpdateError by remember { mutableStateOf<String?>(null) }
+    var animalFieldIsUpdating by remember { mutableStateOf(false) }
     var selectedLotId by rememberSaveable { mutableStateOf("") }
     var lotEditingId by rememberSaveable { mutableStateOf("") }
     var lotDraftAnimalIds by remember { mutableStateOf(emptyList<String>()) }
@@ -572,6 +576,8 @@ fun AppNavigation() {
     var milkNotificationsEnabled by remember { mutableStateOf(false) }
     var financeIsSaving by remember { mutableStateOf(false) }
     var financeSaveError by remember { mutableStateOf<String?>(null) }
+    var financeIsDeleting by remember { mutableStateOf(false) }
+    var financeDeleteError by remember { mutableStateOf<String?>(null) }
     var selectedEmployeeId by rememberSaveable { mutableStateOf("") }
     var employeeIsSaving by remember { mutableStateOf(false) }
     var employeeSaveError by remember { mutableStateOf<String?>(null) }
@@ -652,6 +658,7 @@ fun AppNavigation() {
     // Los permisos personalizados permiten entrar a módulos, pero no convierten
     // otro rol en Administrador General para modificar registros existentes.
     val canEditRecords = canEditExistingRecords(currentUser?.roleName)
+    val canUpdateAnimalFields = canUpdateAnimalFieldStatus(currentPermissionIds)
     val canConfirmMilkPayment = canConfirmMilkPayments(currentUser?.roleName)
     val canImportData = canImportApplicationData(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
@@ -768,45 +775,6 @@ fun AppNavigation() {
                 launchSingleTop = true
                 restoreState = true
             }
-        }
-    }
-
-    /** Abre directamente los formularios ofrecidos por el dashboard. */
-    val navigateQuickAction: (String) -> Unit = { destination ->
-        val requiredRoute = when (destination) {
-            Routes.ANIMAL_FORM -> Routes.ANIMAL_LIST
-            Routes.WEIGHING_FORM -> Routes.WEIGHINGS
-            Routes.MILK_PRODUCTION_FORM -> Routes.MILK_PRODUCTION
-            Routes.FINANCE_FORM -> Routes.FINANCE
-            else -> null
-        }
-        if (requiredRoute != null && requiredRoute in allowedMainRoutes) {
-            if (destination == Routes.ANIMAL_FORM) {
-                animalEnEdicionId = null
-                animalSaveError = null
-            }
-            if (destination == Routes.WEIGHING_FORM) {
-                weighingInitialAnimalId = ""
-                weighingInitialLotId = ""
-                weighingSaveError = null
-            }
-            if (destination == Routes.MILK_PRODUCTION_FORM) {
-                milkProductionSaveError = null
-            }
-            if (destination == Routes.FINANCE_FORM) {
-                financeSaveError = null
-            }
-            val resolvedDestination = when {
-                destination == Routes.MILK_PRODUCTION_FORM &&
-                    storedMilkConfiguration == null && canEditRecords -> {
-                    milkConfigurationSaveError = null
-                    Routes.MILK_CONFIGURATION
-                }
-                destination == Routes.MILK_PRODUCTION_FORM &&
-                    storedMilkConfiguration == null -> Routes.MILK_PRODUCTION
-                else -> destination
-            }
-            navController.navigate(resolvedDestination) { launchSingleTop = true }
         }
     }
 
@@ -1027,7 +995,6 @@ fun AppNavigation() {
                     roleName = currentUser?.roleName.orEmpty(),
                     onMenuClick = openDrawer,
                     onNavigate = navigateMain,
-                    onQuickAction = navigateQuickAction,
                     syncStatus = autoSyncStatus.label(),
                     onSyncClick = { cloudAction = "sync" }
                 )
@@ -1044,6 +1011,7 @@ fun AppNavigation() {
                     onAnimalClick = { animalId ->
                         animales.firstOrNull { it.id == animalId }?.let {
                             animalSeleccionado = it
+                            animalFieldUpdateError = null
                             navController.navigate(Routes.ANIMAL_DETAIL)
                         }
                     },
@@ -1120,14 +1088,17 @@ fun AppNavigation() {
                                 }
                             }.onFailure { error ->
                                 animalIsSaving = false
-                                animalSaveError = if (
-                                    error.message.orEmpty().contains("UNIQUE", ignoreCase = true)
-                                ) {
-                                    "Ese código de identificación ya existe. Intente nuevamente."
-                                } else if (error.message.orEmpty().contains("madre", ignoreCase = true)) {
-                                    error.message.orEmpty()
-                                } else {
-                                    "No fue posible guardar el animal. Verifique los datos e inténtelo otra vez."
+                                val errorMessage = error.message.orEmpty()
+                                animalSaveError = when {
+                                    errorMessage.contains("UNIQUE", ignoreCase = true) ->
+                                        "Ese código de identificación ya existe. Intente nuevamente."
+                                    error is IllegalArgumentException ||
+                                        error is IllegalStateException ->
+                                        errorMessage.ifBlank {
+                                            "No fue posible guardar el animal. Verifique los datos."
+                                        }
+                                    else ->
+                                        "No fue posible guardar el animal. Inténtelo nuevamente."
                                 }
                             }
                         }
@@ -1192,6 +1163,9 @@ fun AppNavigation() {
                                 mother.codigoIdentificacion
                         },
                     canEditRecords = canEditRecords,
+                    canUpdateFieldStatus = canUpdateAnimalFields,
+                    isUpdatingFieldStatus = animalFieldIsUpdating,
+                    fieldUpdateError = animalFieldUpdateError,
                     onBack = { navController.popBackStack() },
                     onEdit = {
                         if (canEditRecords) {
@@ -1222,6 +1196,36 @@ fun AppNavigation() {
                         weighingInitialLotId = activeLotByAnimalId[animal.id].orEmpty()
                         weighingSaveError = null
                         navController.navigate(Routes.WEIGHING_FORM)
+                    },
+                    onChangePhoto = { photoUri ->
+                        if (canUpdateAnimalFields) {
+                            animalFieldIsUpdating = true
+                            animalFieldUpdateError = null
+                            coroutineScope.launch {
+                                runCatching {
+                                    animalViewModel.updatePhoto(animal.id, photoUri)
+                                }.onFailure { error ->
+                                    animalFieldUpdateError = error.message
+                                        ?: "No fue posible actualizar la fotografía."
+                                }
+                                animalFieldIsUpdating = false
+                            }
+                        }
+                    },
+                    onChangeNearCalving = { nearCalving ->
+                        if (canUpdateAnimalFields) {
+                            animalFieldIsUpdating = true
+                            animalFieldUpdateError = null
+                            coroutineScope.launch {
+                                runCatching {
+                                    animalViewModel.updateNearCalving(animal.id, nearCalving)
+                                }.onFailure { error ->
+                                    animalFieldUpdateError = error.message
+                                        ?: "No fue posible actualizar el control de parto."
+                                }
+                                animalFieldIsUpdating = false
+                            }
+                        }
                     },
                     sanitaryEventCount = sanitaryRecords.count { it.animalId == animal.id },
                     canManageHealth = "health" in currentUser?.permissionIds.orEmpty(),
@@ -1811,10 +1815,10 @@ fun AppNavigation() {
                                 if (!navController.popBackStack(Routes.SANITARY, false)) {
                                     navigateMain(Routes.SANITARY)
                                 }
-                            }.onFailure {
+                            }.onFailure { error ->
                                 sanitaryIsSaving = false
-                                sanitarySaveError =
-                                    "No fue posible guardar el evento sanitario. Inténtelo nuevamente."
+                                sanitarySaveError = error.message
+                                    ?: "No fue posible guardar el evento sanitario. Inténtelo nuevamente."
                             }
                         }
                     }
@@ -1829,7 +1833,39 @@ fun AppNavigation() {
                         financeSaveError = null
                         navController.navigate(Routes.FINANCE_FORM)
                     },
-                    onNavigateMain = navigateMain
+                    onNavigateMain = navigateMain,
+                    canDeleteMovements = canEditRecords,
+                    isDeletingMovement = financeIsDeleting,
+                    deleteError = financeDeleteError,
+                    onClearDeleteError = { financeDeleteError = null },
+                    onDeleteMovement = { movementId, password ->
+                        if (canEditRecords && !financeIsDeleting) {
+                            coroutineScope.launch {
+                                financeIsDeleting = true
+                                financeDeleteError = null
+                                runCatching {
+                                    val administrator = checkNotNull(currentUser) {
+                                        "La sesión actual ya no está disponible."
+                                    }
+                                    check(canEditExistingRecords(administrator.roleName)) {
+                                        "Solo el Administrador General puede eliminar movimientos."
+                                    }
+                                    check(
+                                        unifiedAuth.verifyCurrentPassword(
+                                            userId = administrator.id,
+                                            email = administrator.username,
+                                            password = password
+                                        )
+                                    ) { "La contraseña es incorrecta." }
+                                    financeViewModel.deleteManualMovement(movementId)
+                                }.onFailure { error ->
+                                    financeDeleteError = error.message
+                                        ?: "No fue posible eliminar el movimiento."
+                                }
+                                financeIsDeleting = false
+                            }
+                        }
+                    }
                 )
             }
 

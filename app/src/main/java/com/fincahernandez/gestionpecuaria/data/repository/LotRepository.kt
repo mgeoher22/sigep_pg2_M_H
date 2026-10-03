@@ -166,6 +166,11 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
         ) {
             "La meta de peso debe ser mayor que cero."
         }
+        draft.estimatedExitDate?.let { estimatedDate ->
+            require(estimatedDate >= startOfToday()) {
+                "La fecha estimada de salida no puede estar en el pasado."
+            }
+        }
     }
 
     private suspend fun validateParcelAvailability(

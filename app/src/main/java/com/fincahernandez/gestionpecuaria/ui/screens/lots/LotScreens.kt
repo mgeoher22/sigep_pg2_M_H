@@ -181,7 +181,9 @@ fun LotListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateLot,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Crear lote") }
+                text = { Text("Crear lote") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

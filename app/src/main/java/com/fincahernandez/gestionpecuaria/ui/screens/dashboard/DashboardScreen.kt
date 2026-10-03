@@ -1,7 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,12 +31,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,13 +86,6 @@ private data class DashboardStat(
     val route: String
 )
 
-private data class QuickAction(
-    val label: String,
-    val destination: String,
-    val permissionRoute: String,
-    val icon: ImageVector
-)
-
 /**
  * Panel principal funcional. Todos los indicadores se reciben desde el estado
  * que administra AppNavigation, por lo que cambian después de cada registro.
@@ -106,7 +98,6 @@ fun DashboardScreen(
     roleName: String,
     onMenuClick: () -> Unit,
     onNavigate: (String) -> Unit,
-    onQuickAction: (String) -> Unit,
     modifier: Modifier = Modifier,
     syncStatus: String = "",
     onSyncClick: () -> Unit = {}
@@ -173,17 +164,17 @@ fun DashboardScreen(
                 }
             }
 
-            items(stats, key = { it.title }) { stat ->
-                StatCard(stat = stat, onClick = { onNavigate(stat.route) })
+            // Los montos financieros aparecen primero para facilitar decisiones inmediatas.
+            if (Routes.FINANCE in allowedRoutes) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionCard(title = "Resumen financiero") {
+                        FinancialSummary(data)
+                    }
+                }
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionCard(title = "Acciones rápidas") {
-                    QuickActions(
-                        allowedRoutes = allowedRoutes,
-                        onQuickAction = onQuickAction
-                    )
-                }
+            items(stats, key = { it.title }) { stat ->
+                StatCard(stat = stat, onClick = { onNavigate(stat.route) })
             }
 
             if (data.recentItems.any { it.route in allowedRoutes }) {
@@ -193,14 +184,6 @@ fun DashboardScreen(
                             items = data.recentItems.filter { it.route in allowedRoutes },
                             onNavigate = onNavigate
                         )
-                    }
-                }
-            }
-
-            if (Routes.FINANCE in allowedRoutes) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    SectionCard(title = "Resumen financiero") {
-                        FinancialSummary(data)
                     }
                 }
             }
@@ -266,57 +249,6 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
     }
 }
 
-/** Botones que abren directamente los formularios ya implementados. */
-@Composable
-private fun QuickActions(
-    allowedRoutes: Set<String>,
-    onQuickAction: (String) -> Unit
-) {
-    val actions = listOf(
-        QuickAction("Registrar animal", Routes.ANIMAL_FORM, Routes.ANIMAL_LIST, Icons.Default.Pets),
-        QuickAction("Registrar pesaje", Routes.WEIGHING_FORM, Routes.WEIGHINGS, Icons.Default.Scale),
-        QuickAction(
-            "Registrar producción",
-            Routes.MILK_PRODUCTION_FORM,
-            Routes.MILK_PRODUCTION,
-            Icons.Default.LocalDrink
-        ),
-        QuickAction("Registrar movimiento", Routes.FINANCE_FORM, Routes.FINANCE, Icons.Default.AccountBalanceWallet)
-    ).filter { it.permissionRoute in allowedRoutes }
-
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val columns = if (maxWidth >= 700.dp) 4 else 2
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            actions.chunked(columns).forEach { rowActions ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    rowActions.forEach { action ->
-                        OutlinedButton(
-                            onClick = { onQuickAction(action.destination) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(62.dp)
-                        ) {
-                            Icon(action.icon, contentDescription = null)
-                            Spacer(modifier = Modifier.width(7.dp))
-                            Text(
-                                action.label,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    repeat(columns - rowActions.size) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** Últimos elementos agregados en los módulos visibles para el rol actual. */
 @Composable
 private fun RecentActivity(
@@ -363,23 +295,55 @@ private fun RecentActivity(
 @Composable
 private fun FinancialSummary(data: DashboardUiData) {
     val balance = data.income - data.expenses
+    val balanceSignal = balanceSignal(data.income, data.expenses)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        FinancialValue("Ingresos", formatCurrency(data.income))
-        FinancialValue("Egresos", formatCurrency(data.expenses))
-        FinancialValue("Balance", formatCurrency(balance))
+        FinancialValue("Ingresos", formatCurrency(data.income), BalanceHealthyColor)
+        FinancialValue("Egresos", formatCurrency(data.expenses), MaterialTheme.colorScheme.error)
+        FinancialValue(
+            label = "Balance",
+            value = formatCurrency(balance),
+            valueColor = balanceSignal.color,
+            status = balanceSignal.label
+        )
     }
 }
 
 @Composable
-private fun FinancialValue(label: String, value: String) {
+private fun FinancialValue(
+    label: String,
+    value: String,
+    valueColor: Color,
+    status: String? = null
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelMedium)
-        Text(value, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Text(value, color = valueColor, fontWeight = FontWeight.Bold)
+        status?.let {
+            Text(it, color = valueColor, style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
+
+private data class BalanceSignal(val label: String, val color: Color)
+
+/** Semáforo proporcional: diferencia un margen amplio, uno bajo y un déficit crítico. */
+private fun balanceSignal(income: Double, expenses: Double): BalanceSignal {
+    val balance = income - expenses
+    return when {
+        income == 0.0 && expenses == 0.0 -> BalanceSignal("SIN DATOS", BalanceNeutralColor)
+        balance < 0.0 -> BalanceSignal("CRÍTICO", BalanceCriticalColor)
+        income > 0.0 && balance / income < 0.25 -> BalanceSignal("POCO", BalanceLowColor)
+        else -> BalanceSignal("BASTANTE", BalanceHealthyColor)
+    }
+}
+
+private val BalanceHealthyColor = Color(0xFF147A36)
+private val BalanceLowColor = Color(0xFF9A6700)
+private val BalanceCriticalColor = Color(0xFFB3261E)
+private val BalanceNeutralColor = Color(0xFF5F6368)
 
 private fun dashboardStats(data: DashboardUiData): List<DashboardStat> = listOf(
     DashboardStat(
@@ -486,8 +450,7 @@ private fun DashboardTabletPreview() {
             userName = "Administrador",
             roleName = "Administrador General",
             onMenuClick = {},
-            onNavigate = {},
-            onQuickAction = {}
+            onNavigate = {}
         )
     }
 }

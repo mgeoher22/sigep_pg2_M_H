@@ -132,7 +132,9 @@ fun UserManagementScreen(
                 ExtendedFloatingActionButton(
                     onClick = onCreateUser,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Crear usuario") }
+                    text = { Text("Crear usuario") },
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
                 )
             }
         }

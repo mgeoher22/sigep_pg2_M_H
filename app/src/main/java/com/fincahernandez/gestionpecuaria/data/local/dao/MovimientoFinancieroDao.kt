@@ -15,4 +15,11 @@ interface MovimientoFinancieroDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertar(movimiento: MovimientoFinancieroEntity)
+
+    @Query("SELECT * FROM movimientos_financieros WHERE id = :id LIMIT 1")
+    suspend fun buscarPorId(id: String): MovimientoFinancieroEntity?
+
+    /** Elimina únicamente un movimiento capturado directamente en Finanzas. */
+    @Query("DELETE FROM movimientos_financieros WHERE id = :id")
+    suspend fun eliminarPorId(id: String): Int
 }

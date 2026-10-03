@@ -41,6 +41,34 @@ interface AnimalDao {
     @Query("SELECT * FROM animales WHERE codigoIdentificacion = :codigoIdentificacion LIMIT 1")
     suspend fun buscarPorCodigoIdentificacion(codigoIdentificacion: String): AnimalEntity?
 
+    /** Cambia únicamente la fotografía sin permitir alterar los demás datos del animal. */
+    @Query(
+        """
+        UPDATE animales
+        SET fotoUri = :fotoUri, actualizadoEn = :fechaActualizacion
+        WHERE id = :id AND estado = 'ACTIVO'
+        """
+    )
+    suspend fun actualizarFoto(
+        id: String,
+        fotoUri: String,
+        fechaActualizacion: Long = System.currentTimeMillis()
+    ): Int
+
+    /** Actualiza solo el indicador operativo de parto de una hembra activa. */
+    @Query(
+        """
+        UPDATE animales
+        SET proximaParto = :proximaParto, actualizadoEn = :fechaActualizacion
+        WHERE id = :id AND sexo = 'HEMBRA' AND estado = 'ACTIVO'
+        """
+    )
+    suspend fun actualizarProximaParto(
+        id: String,
+        proximaParto: Boolean,
+        fechaActualizacion: Long = System.currentTimeMillis()
+    ): Int
+
     /**
      * Cambia el estado a inactivo sin borrar el animal ni su historial.
      * Devuelve cuántas filas fueron modificadas.

@@ -10,7 +10,8 @@ private val DarkColorScheme = darkColorScheme(
     primary = GreenLight,
     onPrimary = GreenDark,
     secondary = GreenLight,
-    tertiary = AmberAccent
+    tertiary = AmberAccent,
+    onTertiary = Color(0xFF211B00)
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -20,6 +21,7 @@ private val LightColorScheme = lightColorScheme(
     onPrimaryContainer = GreenDark,
     secondary = GreenDark,
     tertiary = AmberAccent,
+    onTertiary = Color(0xFF211B00),
     background = CreamBackground,
     surface = NeutralSurface,
     surfaceVariant = NeutralVariant,

@@ -147,7 +147,9 @@ fun WeighingListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateWeighing,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar pesaje") }
+                text = { Text("Registrar pesaje") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->
@@ -308,7 +310,9 @@ fun WeighingAnimalDetailScreen(
             ExtendedFloatingActionButton(
                 onClick = onRegisterWeight,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Nuevo pesaje") }
+                text = { Text("Nuevo pesaje") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

@@ -76,4 +76,11 @@ class OfflineFirstAuthTest {
         val s=Setup();s.store.value="corrupto";s.connected=false
         denied{s.auth.login(email,"123456")};assertNull(s.store.value)
     }
+    @Test fun sensitiveActionRevalidatesCachedPasswordWithoutCallingCloud()=runBlocking {
+        val s=Setup();s.auth.login(email,"123456");val callsAfterLogin=s.calls
+        assertTrue(s.auth.verifyCurrentPassword(id,email,"123456"))
+        assertFalse(s.auth.verifyCurrentPassword(id,email,"incorrecta"))
+        assertFalse(s.auth.verifyCurrentPassword("otro-id",email,"123456"))
+        assertEquals(callsAfterLogin,s.calls)
+    }
 }

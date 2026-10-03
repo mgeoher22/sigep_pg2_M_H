@@ -165,7 +165,9 @@ fun AnimalListScreen(
             ExtendedFloatingActionButton(
                 onClick = onRegistrarAnimal,
                 text = { Text("Registrar animal") },
-                icon = { Icon(Icons.Default.Add, contentDescription = null) }
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

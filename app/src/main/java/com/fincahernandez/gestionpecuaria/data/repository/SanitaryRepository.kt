@@ -33,6 +33,22 @@ class SanitaryRepository(
 
     suspend fun register(record: SanitaryStoredRecord) {
         database.withTransaction {
+            requireNotFuture(record.eventDate, "La fecha del evento sanitario")
+            val animal = checkNotNull(database.animalDao().buscarPorId(record.animalId)) {
+                "No se encontró el animal seleccionado."
+            }
+            requireOnOrAfter(
+                date = record.eventDate,
+                minimumDate = animalAvailableFrom(animal),
+                message = "El evento sanitario no puede ser anterior al nacimiento o llegada del animal."
+            )
+            record.nextControlDate?.let { nextDate ->
+                requireOnOrAfter(
+                    date = nextDate,
+                    minimumDate = record.eventDate,
+                    message = "El próximo control no puede ser anterior al evento sanitario."
+                )
+            }
             check(
                 sanitaryDao.actualizarEstadoDelAnimal(
                     animalId = record.animalId,

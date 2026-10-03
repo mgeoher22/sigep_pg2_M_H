@@ -160,7 +160,9 @@ fun MilkProductionListScreen(
                 ExtendedFloatingActionButton(
                     onClick = onCreateRecord,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Registrar producción") }
+                    text = { Text("Registrar producción") },
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
                 )
             }
         }

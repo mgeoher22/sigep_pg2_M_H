@@ -19,4 +19,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     )
 
     suspend fun saveMovement(draft: FinancialMovementDraft) = repository.saveMovement(draft)
+
+    suspend fun deleteManualMovement(id: String) = repository.deleteManualMovement(id)
 }

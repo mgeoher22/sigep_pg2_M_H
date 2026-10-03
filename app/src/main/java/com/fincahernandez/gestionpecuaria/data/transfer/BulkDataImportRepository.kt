@@ -7,6 +7,9 @@ import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDat
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
+import com.fincahernandez.gestionpecuaria.data.repository.animalAvailableFrom
+import com.fincahernandez.gestionpecuaria.data.repository.requireNotFuture
+import com.fincahernandez.gestionpecuaria.data.repository.requireOnOrAfter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -173,6 +176,7 @@ class BulkDataImportRepository(
             val animalDao = database.animalDao()
             val weighingDao = database.pesajeDao()
             val sanitaryDao = database.eventoSanitarioDao()
+            val newCalfMotherIds = mutableSetOf<String>()
 
             // Primero resuelve todos los identificadores. Así una cría puede referirse
             // a su madre aunque ambas estén en el CSV y la madre aparezca después.
@@ -211,6 +215,7 @@ class BulkDataImportRepository(
                 val storedAnimal = if (existing == null) {
                     row.toEntity(resolvedAnimalId, resolvedMotherId).also {
                         animalDao.insertar(it)
+                        resolvedMotherId?.let(newCalfMotherIds::add)
                         createdAnimals++
                     }
                 } else {
@@ -223,6 +228,14 @@ class BulkDataImportRepository(
                     weighingDao.insertarImportado(it)
                     animalWeightsImported++
                 }
+            }
+
+            // La importación de una cría nueva aplica la misma regla que el formulario:
+            // si la madre estaba marcada, el nacimiento completa automáticamente el control.
+            newCalfMotherIds.forEach { motherId ->
+                animalDao.buscarPorId(motherId)
+                    ?.takeIf { mother -> mother.proximaParto }
+                    ?.let { mother -> animalDao.actualizarProximaParto(mother.id, false) }
             }
 
             payload.weighings.forEach { row ->
@@ -273,6 +286,15 @@ class BulkDataImportRepository(
         val importedByCode = payload.animals.associateBy { it.code }
         val storedByCode = storedAnimals.associateBy { it.codigoIdentificacion }
         payload.animals.forEach { row ->
+            requireNotFuture(row.arrivalDate, "La fecha de llegada de ${row.code}")
+            row.birthDate?.let { birthDate ->
+                requireNotFuture(birthDate, "La fecha de nacimiento de ${row.code}")
+                requireOnOrAfter(
+                    date = row.arrivalDate,
+                    minimumDate = birthDate,
+                    message = "La llegada de ${row.code} no puede ser anterior a su nacimiento."
+                )
+            }
             val motherCode = row.motherCode ?: return@forEach
             require(row.originType == "NACIDO_EN_FINCA") {
                 "El animal ${row.code} solo puede tener madre si nació en la finca."
@@ -283,6 +305,42 @@ class BulkDataImportRepository(
             val motherSex = importedByCode[motherCode]?.sex ?: storedByCode[motherCode]?.sexo
             require(motherSex == "HEMBRA") {
                 "El código de madre $motherCode debe corresponder a una hembra."
+            }
+            val childBirth = requireNotNull(row.birthDate)
+            val motherAvailableFrom = importedByCode[motherCode]?.let { mother ->
+                maxOf(mother.arrivalDate, mother.birthDate ?: mother.arrivalDate)
+            } ?: storedByCode[motherCode]?.let(::animalAvailableFrom)
+            require(motherAvailableFrom == null || childBirth >= motherAvailableFrom) {
+                "El nacimiento de ${row.code} no puede ser anterior al nacimiento o llegada de su madre."
+            }
+        }
+
+        fun availableFrom(code: String): Long = importedByCode[code]?.let { row ->
+            maxOf(row.arrivalDate, row.birthDate ?: row.arrivalDate)
+        } ?: storedByCode[code]?.let(::animalAvailableFrom)
+            ?: error("No existe el animal $code.")
+
+        payload.weighings.forEach { row ->
+            requireNotFuture(row.date, "La fecha del pesaje de ${row.animalCode}")
+            requireOnOrAfter(
+                row.date,
+                availableFrom(row.animalCode),
+                "El pesaje de ${row.animalCode} no puede ser anterior a su nacimiento o llegada."
+            )
+        }
+        payload.sanitaryRecords.forEach { row ->
+            requireNotFuture(row.eventDate, "La fecha sanitaria de ${row.animalCode}")
+            requireOnOrAfter(
+                row.eventDate,
+                availableFrom(row.animalCode),
+                "El evento sanitario de ${row.animalCode} no puede ser anterior a su nacimiento o llegada."
+            )
+            row.nextControlDate?.let { nextDate ->
+                requireOnOrAfter(
+                    nextDate,
+                    row.eventDate,
+                    "El próximo control de ${row.animalCode} no puede ser anterior al evento."
+                )
             }
         }
 
@@ -305,13 +363,13 @@ class BulkDataImportRepository(
 
         importedAnimals.forEach { row ->
             val weightDate = row.currentWeightDate ?: return@forEach
+            requireNotFuture(weightDate, "La fecha del peso actual de ${row.code}")
             val animalLabel = row.name?.takeIf { it.isNotBlank() }?.let { "${row.code} ($it)" }
                 ?: row.code
-            row.birthDate?.let { birthDate ->
-                require(weightDate >= birthDate) {
-                    "El peso actual de $animalLabel tiene fecha ${formatCsvDate(weightDate)}, " +
-                        "anterior a su nacimiento ${formatCsvDate(birthDate)}."
-                }
+            val availableFrom = maxOf(row.arrivalDate, row.birthDate ?: row.arrivalDate)
+            require(weightDate >= availableFrom) {
+                "El peso actual de $animalLabel tiene fecha ${formatCsvDate(weightDate)}, " +
+                    "anterior a su nacimiento o llegada ${formatCsvDate(availableFrom)}."
             }
 
             val storedAnimal = row.internalId?.let(storedById::get) ?: storedByCode[row.code]

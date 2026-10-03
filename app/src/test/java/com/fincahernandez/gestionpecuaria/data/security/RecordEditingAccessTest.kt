@@ -15,6 +15,13 @@ class RecordEditingAccessTest {
     }
 
     @Test
+    fun animalPermissionAllowsOnlyOperationalAnimalUpdates() {
+        assertTrue(canUpdateAnimalFieldStatus(setOf("dashboard", "animals")))
+        assertFalse(canUpdateAnimalFieldStatus(setOf("dashboard", "reports")))
+        assertFalse(canUpdateAnimalFieldStatus(emptySet()))
+    }
+
+    @Test
     fun everyDefinedRoleCanOpenReportsButOnlyGeneralAdministratorCanImport() {
         definedRoles.forEach { role ->
             assertTrue("${role.name} debe poder consultar reportes", "reports" in role.permissionIds)

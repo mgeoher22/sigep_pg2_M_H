@@ -114,7 +114,7 @@ class MilkProductionRepository(private val database: GestionPecuariaDatabase) {
     }
 
     private fun validate(draft: MilkProductionDraft) {
-        require(draft.date > 0L) { "Seleccione la fecha de producción." }
+        requireNotFuture(draft.date, "La fecha de producción")
         require(draft.liters.isFinite() && draft.liters > 0.0) {
             "Los litros producidos deben ser mayores que cero."
         }

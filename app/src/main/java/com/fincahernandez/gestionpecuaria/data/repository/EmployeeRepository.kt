@@ -50,12 +50,19 @@ class EmployeeRepository(private val database: GestionPecuariaDatabase) {
     }
 
     suspend fun savePayment(draft: EmployeePaymentDraft): String = database.withTransaction {
-        require(draft.paymentDate > 0L) { "Seleccione una fecha de pago válida." }
+        requireNotFuture(draft.paymentDate, "La fecha de pago")
         require(draft.amount.isFinite() && draft.amount > 0.0) {
             "El monto del pago debe ser mayor que cero."
         }
         require(draft.period.isNotBlank()) { "Ingrese el período pagado." }
-        checkNotNull(dao.buscarPorId(draft.employeeId)) { "No se encontró el empleado." }
+        val employee = checkNotNull(dao.buscarPorId(draft.employeeId)) {
+            "No se encontró el empleado."
+        }
+        requireOnOrAfter(
+            date = draft.paymentDate,
+            minimumDate = employee.fechaIngreso,
+            message = "La fecha de pago no puede ser anterior al ingreso del empleado."
+        )
         val payment = PagoEmpleadoEntity(
             empleadoId = draft.employeeId,
             fechaPago = draft.paymentDate,
@@ -70,7 +77,7 @@ class EmployeeRepository(private val database: GestionPecuariaDatabase) {
     private fun validateEmployee(draft: EmployeeDraft) {
         require(draft.fullName.isNotBlank()) { "Ingrese el nombre del empleado." }
         require(draft.role.isNotBlank()) { "Seleccione el cargo del empleado." }
-        require(draft.hireDate > 0L) { "Seleccione una fecha de ingreso válida." }
+        requireNotFuture(draft.hireDate, "La fecha de ingreso laboral")
         require(draft.salary.isFinite() && draft.salary > 0.0) {
             "El salario base debe ser mayor que cero."
         }

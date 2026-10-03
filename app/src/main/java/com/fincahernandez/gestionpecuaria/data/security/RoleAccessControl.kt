@@ -84,6 +84,14 @@ fun serializePermissions(permissionIds: Set<String>): String =
  */
 fun canEditExistingRecords(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE
 
+/**
+ * La fotografía y la marca de próxima a parto son datos operativos de campo.
+ * Cualquier cuenta con acceso efectivo a Animales puede corregirlos sin recibir
+ * permiso para editar el resto de la ficha administrativa.
+ */
+fun canUpdateAnimalFieldStatus(permissionIds: Set<String>): Boolean =
+    "animals" in permissionIds
+
 /** Importar archivos puede modificar muchos registros y continúa siendo administrativo. */
 fun canImportApplicationData(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE
 

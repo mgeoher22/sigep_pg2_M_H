@@ -170,7 +170,9 @@ fun SanitaryControlScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateRecord,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar evento") }
+                text = { Text("Registrar evento") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

@@ -36,7 +36,7 @@ class MilkProductionRepositoryTest {
 
     @Test
     fun savesHistoricalPricesUpdatesSameDateAndSurvivesReopen() = runBlocking {
-        val firstDate = 1_800_000_000_000
+        val firstDate = 1_750_000_000_000
         val secondDate = firstDate + 86_400_000
 
         repository.saveDailyProduction(

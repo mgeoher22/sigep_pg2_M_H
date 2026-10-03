@@ -1,5 +1,9 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.animals
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -44,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -63,6 +69,11 @@ fun AnimalDetailScreen(
     onDelete: () -> Unit,
     onRegisterWeight: () -> Unit,
     canEditRecords: Boolean = false,
+    canUpdateFieldStatus: Boolean = false,
+    isUpdatingFieldStatus: Boolean = false,
+    fieldUpdateError: String? = null,
+    onChangePhoto: (String) -> Unit = {},
+    onChangeNearCalving: (Boolean) -> Unit = {},
     sanitaryEventCount: Int = 0,
     canManageHealth: Boolean = false,
     onOpenSanitaryControl: () -> Unit = {},
@@ -70,6 +81,21 @@ fun AnimalDetailScreen(
     modifier: Modifier = Modifier
 ) {
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { selectedUri ->
+        selectedUri?.let { uri ->
+            // Conserva el acceso a la imagen después de cerrar y volver a abrir la app.
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onChangePhoto(uri.toString())
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -106,7 +132,30 @@ fun AnimalDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { AnimalProfileCard(animal, onEdit, onRegisterWeight, canEditRecords) }
+            item {
+                AnimalProfileCard(
+                    animal = animal,
+                    onEdit = onEdit,
+                    onRegisterWeight = onRegisterWeight,
+                    canEditRecords = canEditRecords,
+                    canUpdateFieldStatus = canUpdateFieldStatus,
+                    isUpdatingFieldStatus = isUpdatingFieldStatus,
+                    onChoosePhoto = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                )
+            }
+            if (!fieldUpdateError.isNullOrBlank()) {
+                item {
+                    Text(
+                        text = fieldUpdateError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard(
@@ -121,7 +170,15 @@ fun AnimalDetailScreen(
                     )
                 }
             }
-            item { AnimalRegisteredInformation(animal, motherLabel) }
+            item {
+                AnimalRegisteredInformation(
+                    animal = animal,
+                    motherLabel = motherLabel,
+                    canUpdateFieldStatus = canUpdateFieldStatus,
+                    isUpdatingFieldStatus = isUpdatingFieldStatus,
+                    onChangeNearCalving = onChangeNearCalving
+                )
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard(
@@ -209,7 +266,13 @@ fun AnimalDetailScreen(
 
 /** Muestra los valores capturados en el formulario para cumplir HU-03. */
 @Composable
-private fun AnimalRegisteredInformation(animal: AnimalListItem, motherLabel: String?) {
+private fun AnimalRegisteredInformation(
+    animal: AnimalListItem,
+    motherLabel: String?,
+    canUpdateFieldStatus: Boolean,
+    isUpdatingFieldStatus: Boolean,
+    onChangeNearCalving: (Boolean) -> Unit
+) {
     val origen = when (animal.tipoOrigen) {
         "NACIDO_EN_FINCA" -> "Nacido en la finca/parcela"
         "INGRESADO_A_FINCA" -> "Ingresado a la finca"
@@ -233,10 +296,29 @@ private fun AnimalRegisteredInformation(animal: AnimalListItem, motherLabel: Str
             AnimalInformationRow("Raza", animal.raza.ifBlank { "Sin registro" })
             AnimalInformationRow("Sexo", animal.sexo.ifBlank { "Sin registro" })
             if (animal.sexo == "HEMBRA") {
-                AnimalInformationRow(
-                    "Control de parto",
-                    if (animal.proximaParto) "Próxima a dar a luz" else "Sin marca activa"
-                )
+                // Control operativo independiente de la edición administrativa.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Pets,
+                        contentDescription = "Animal próximo a dar a luz",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Próxima a dar a luz",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = animal.proximaParto,
+                        onCheckedChange = onChangeNearCalving,
+                        enabled = canUpdateFieldStatus && !isUpdatingFieldStatus
+                    )
+                }
             }
             AnimalInformationRow("Origen", origen)
             if (animal.tipoOrigen == "NACIDO_EN_FINCA") {
@@ -287,7 +369,10 @@ private fun AnimalProfileCard(
     animal: AnimalListItem,
     onEdit: () -> Unit,
     onRegisterWeight: () -> Unit,
-    canEditRecords: Boolean
+    canEditRecords: Boolean,
+    canUpdateFieldStatus: Boolean,
+    isUpdatingFieldStatus: Boolean,
+    onChoosePhoto: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -352,6 +437,17 @@ private fun AnimalProfileCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Editar")
                     }
+                }
+            }
+            if (canUpdateFieldStatus) {
+                OutlinedButton(
+                    onClick = onChoosePhoto,
+                    enabled = !isUpdatingFieldStatus,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (animal.fotoUri.isBlank()) "Agregar fotografía" else "Cambiar fotografía")
                 }
             }
             Button(

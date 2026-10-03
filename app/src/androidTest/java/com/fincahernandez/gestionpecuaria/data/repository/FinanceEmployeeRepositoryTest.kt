@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,7 +38,7 @@ class FinanceEmployeeRepositoryTest {
 
     @Test
     fun persistsManualMovementEmployeeAndRelatedPayment() = runBlocking {
-        val date = 1_800_000_000_000
+        val date = 1_750_000_000_000
         financeRepository.saveMovement(
             FinancialMovementDraft("EGRESO", "Alimentación", 850.0, date, "Concentrado")
         )
@@ -66,6 +67,27 @@ class FinanceEmployeeRepositoryTest {
         assertEquals("Juan Pérez", employeeRepository.observeEmployees().first().single().nombreCompleto)
         assertEquals(3_200.0, employeeRepository.observePayments().first().single().monto, 0.001)
         assertEquals("Alimentación", financeRepository.observeMovements().first().single().categoria)
+    }
+
+    @Test
+    fun deletesOnlyExistingManualMovement() = runBlocking {
+        val movementId = financeRepository.saveMovement(
+            FinancialMovementDraft(
+                type = "INGRESO",
+                category = "Venta local",
+                amount = 500.0,
+                date = 1_750_000_000_000,
+                notes = null
+            )
+        )
+
+        financeRepository.deleteManualMovement(movementId)
+
+        assertEquals(0, financeRepository.observeMovements().first().size)
+        val secondDeleteError = runCatching {
+            financeRepository.deleteManualMovement(movementId)
+        }.exceptionOrNull()
+        assertTrue(secondDeleteError is IllegalStateException)
     }
 
     private fun openDatabase() {

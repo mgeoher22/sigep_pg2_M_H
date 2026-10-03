@@ -154,7 +154,9 @@ fun EmployeeListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateEmployee,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar empleado") }
+                text = { Text("Registrar empleado") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->
@@ -525,7 +527,9 @@ fun EmployeeDetailScreen(
             ExtendedFloatingActionButton(
                 onClick = onRegisterPayment,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar pago") }
+                text = { Text("Registrar pago") },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary
             )
         }
     ) { innerPadding ->

@@ -46,6 +46,10 @@ class AnimalRepository(
 
     /** Inserta o actualiza el animal y registra un pesaje solo cuando cambió. */
     suspend fun saveAnimal(animal: AnimalEntity, weightPounds: Double?) {
+        validateAnimalChronology(animal)
+        require(weightPounds == null || (weightPounds.isFinite() && weightPounds > 0.0)) {
+            "El peso debe ser mayor que cero."
+        }
         database.withTransaction {
             val current = animalDao.buscarPorId(animal.id)
             val newMotherId = animal.madreId.takeIf { it != current?.madreId }
@@ -57,9 +61,25 @@ class AnimalRepository(
                 ) {
                     "La madre debe ser una vaca activa marcada como próxima a dar a luz."
                 }
+                val childBirthDate = requireNotNull(animal.fechaNacimiento) {
+                    "La cría requiere fecha de nacimiento."
+                }
+                requireOnOrAfter(
+                    date = childBirthDate,
+                    minimumDate = animalAvailableFrom(requireNotNull(mother)),
+                    message = "La cría no puede nacer antes del nacimiento o llegada de su madre."
+                )
             }
             if (current == null) {
                 animalDao.insertar(animal)
+
+                // Al registrar el nacimiento, la vaca deja automáticamente la lista
+                // de próximas a dar a luz. Ambas operaciones forman una sola transacción.
+                if (mother != null) {
+                    check(animalDao.actualizarProximaParto(mother.id, false) == 1) {
+                        "No fue posible completar el control de parto de la madre."
+                    }
+                }
             } else {
                 animalDao.actualizar(
                     animal.copy(
@@ -91,7 +111,20 @@ class AnimalRepository(
         notes: String?,
         lotId: String? = null,
         recordType: String = "INDIVIDUAL"
-    ) {
+    ) = database.withTransaction {
+        require(weightPounds.isFinite() && weightPounds > 0.0) {
+            "El peso debe ser mayor que cero."
+        }
+        requireNotFuture(weighingDate, "La fecha del pesaje")
+        val animal = checkNotNull(animalDao.buscarPorId(animalId)) {
+            "No se encontró el animal seleccionado."
+        }
+        check(animal.estado == "ACTIVO") { "El animal seleccionado ya no está activo." }
+        requireOnOrAfter(
+            date = weighingDate,
+            minimumDate = animalAvailableFrom(animal),
+            message = "El pesaje no puede ser anterior al nacimiento o llegada del animal."
+        )
         weighingDao.insertar(
             PesajeEntity(
                 animalId = animalId,
@@ -102,6 +135,27 @@ class AnimalRepository(
                 observaciones = notes
             )
         )
+    }
+
+    /**
+     * Sustituye únicamente la referencia local de la fotografía. Esta operación
+     * independiente evita conceder acceso al formulario administrativo completo.
+     */
+    suspend fun updatePhoto(animalId: String, photoUri: String) {
+        require(photoUri.isNotBlank()) { "Seleccione una fotografía válida." }
+        check(animalDao.actualizarFoto(animalId, photoUri.trim()) == 1) {
+            "No se encontró un animal activo para actualizar la fotografía."
+        }
+    }
+
+    /**
+     * Marca o desmarca una hembra activa como próxima a dar a luz. El filtro del
+     * DAO impide aplicar accidentalmente esta condición a un macho o animal retirado.
+     */
+    suspend fun updateNearCalving(animalId: String, nearCalving: Boolean) {
+        check(animalDao.actualizarProximaParto(animalId, nearCalving) == 1) {
+            "Solo una hembra activa puede cambiar su control de parto."
+        }
     }
 
     /**
