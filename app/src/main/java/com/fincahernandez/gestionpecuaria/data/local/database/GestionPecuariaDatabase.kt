@@ -10,6 +10,7 @@ import com.fincahernandez.gestionpecuaria.data.local.dao.AnimalDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.ConfiguracionLecheDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EventoSanitarioDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.EmpleadoDao
+import com.fincahernandez.gestionpecuaria.data.local.dao.InsumoDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.LoteDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.PesajeDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.ParcelaDao
@@ -17,15 +18,19 @@ import com.fincahernandez.gestionpecuaria.data.local.dao.ProduccionLecheraDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.MovimientoFinancieroDao
 import com.fincahernandez.gestionpecuaria.data.local.dao.UsuarioDao
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.AsignacionInsumoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.ConfiguracionLecheEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.EmpleadoEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.ExistenciaInsumoEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.InsumoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.ParcelaEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.ProduccionLecheraEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.MovimientoFinancieroEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.MovimientoInsumoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PagoEmpleadoEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
 
@@ -49,10 +54,14 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         EmpleadoEntity::class,
         PagoEmpleadoEntity::class,
         ConfiguracionLecheEntity::class,
+        InsumoEntity::class,
+        ExistenciaInsumoEntity::class,
+        MovimientoInsumoEntity::class,
+        AsignacionInsumoEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 17,
+    version = 20,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -76,6 +85,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
     abstract fun empleadoDao(): EmpleadoDao
 
     abstract fun configuracionLecheDao(): ConfiguracionLecheDao
+
+    abstract fun insumoDao(): InsumoDao
 
     companion object {
         private const val DATABASE_NAME = "gestion_pecuaria.db"
@@ -425,6 +436,183 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Crea el inventario de insumos sin modificar ni eliminar información previa.
+         * Las existencias se separan por ingreso para conservar costos y vencimientos.
+         */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `insumos` (
+                        `id` TEXT NOT NULL,
+                        `codigo` TEXT NOT NULL,
+                        `nombre` TEXT NOT NULL,
+                        `categoria` TEXT NOT NULL,
+                        `unidadMedida` TEXT NOT NULL,
+                        `existenciaMinima` REAL NOT NULL,
+                        `activo` INTEGER NOT NULL,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_insumos_codigo` " +
+                        "ON `insumos` (`codigo`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_insumos_nombre` ON `insumos` (`nombre`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_insumos_categoria` " +
+                        "ON `insumos` (`categoria`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_insumos_activo` ON `insumos` (`activo`)"
+                )
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `existencias_insumos` (
+                        `id` TEXT NOT NULL,
+                        `insumoId` TEXT NOT NULL,
+                        `cantidadInicial` REAL NOT NULL,
+                        `cantidadDisponible` REAL NOT NULL,
+                        `costoUnitario` REAL,
+                        `fechaVencimiento` INTEGER,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`insumoId`) REFERENCES `insumos`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_existencias_insumos_insumoId` " +
+                        "ON `existencias_insumos` (`insumoId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_existencias_insumos_fechaVencimiento` " +
+                        "ON `existencias_insumos` (`fechaVencimiento`)"
+                )
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `movimientos_insumos` (
+                        `id` TEXT NOT NULL,
+                        `insumoId` TEXT NOT NULL,
+                        `existenciaId` TEXT NOT NULL,
+                        `tipo` TEXT NOT NULL,
+                        `cantidad` REAL NOT NULL,
+                        `fecha` INTEGER NOT NULL,
+                        `loteId` TEXT,
+                        `registradoPorUsuarioId` TEXT,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`insumoId`) REFERENCES `insumos`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+                        FOREIGN KEY(`existenciaId`) REFERENCES `existencias_insumos`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+                        FOREIGN KEY(`loteId`) REFERENCES `lotes`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_insumoId` " +
+                        "ON `movimientos_insumos` (`insumoId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_existenciaId` " +
+                        "ON `movimientos_insumos` (`existenciaId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_loteId` " +
+                        "ON `movimientos_insumos` (`loteId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_fecha` " +
+                        "ON `movimientos_insumos` (`fecha`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_tipo` " +
+                        "ON `movimientos_insumos` (`tipo`)"
+                )
+            }
+        }
+
+        /**
+         * Completa la trazabilidad antes de exponer el módulo: agrupa los descuentos
+         * que consumen varias existencias y conserva fecha y costo aplicados.
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE existencias_insumos " +
+                        "ADD COLUMN fechaIngreso INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE movimientos_insumos " +
+                        "ADD COLUMN operacionId TEXT NOT NULL DEFAULT ''"
+                )
+                database.execSQL(
+                    "ALTER TABLE movimientos_insumos ADD COLUMN costoUnitario REAL"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_insumos_operacionId` " +
+                        "ON `movimientos_insumos` (`operacionId`)"
+                )
+            }
+        }
+
+        /** Separa el uso temporal de herramientas y equipos de las salidas consumibles. */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `asignaciones_insumos` (
+                        `id` TEXT NOT NULL,
+                        `insumoId` TEXT NOT NULL,
+                        `loteId` TEXT,
+                        `responsable` TEXT NOT NULL,
+                        `cantidad` REAL NOT NULL,
+                        `fechaAsignacion` INTEGER NOT NULL,
+                        `fechaDevolucion` INTEGER,
+                        `estado` TEXT NOT NULL,
+                        `observaciones` TEXT,
+                        `creadoEn` INTEGER NOT NULL,
+                        `actualizadoEn` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`insumoId`) REFERENCES `insumos`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+                        FOREIGN KEY(`loteId`) REFERENCES `lotes`(`id`)
+                            ON UPDATE CASCADE ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_asignaciones_insumos_insumoId` " +
+                        "ON `asignaciones_insumos` (`insumoId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_asignaciones_insumos_loteId` " +
+                        "ON `asignaciones_insumos` (`loteId`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_asignaciones_insumos_estado` " +
+                        "ON `asignaciones_insumos` (`estado`)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_asignaciones_insumos_fechaAsignacion` " +
+                        "ON `asignaciones_insumos` (`fechaAsignacion`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -452,7 +640,10 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_13_14,
                     MIGRATION_14_15,
                     MIGRATION_15_16,
-                    MIGRATION_16_17
+                    MIGRATION_16_17,
+                    MIGRATION_17_18,
+                    MIGRATION_18_19,
+                    MIGRATION_19_20
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

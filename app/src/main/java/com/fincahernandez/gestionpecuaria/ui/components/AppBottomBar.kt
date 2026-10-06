@@ -2,8 +2,8 @@ package com.fincahernandez.gestionpecuaria.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -49,5 +49,5 @@ private val bottomDestinations = listOf(
     BottomDestination(Routes.DASHBOARD, "Inicio", Icons.Default.Home),
     BottomDestination(Routes.ANIMAL_LIST, "Ganado", Icons.AutoMirrored.Filled.List),
     BottomDestination(Routes.WEIGHINGS, "Pesajes", Icons.Default.Scale),
-    BottomDestination(Routes.FINANCE, "Finanzas", Icons.Default.AccountBalanceWallet)
+    BottomDestination(Routes.SUPPLIES, "Insumos", Icons.Default.Inventory2)
 )

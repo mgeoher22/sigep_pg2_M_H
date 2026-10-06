@@ -28,6 +28,13 @@ object Routes {
     const val SANITARY_FORM = "sanitary_form"
     const val FINANCE = "finance"
     const val FINANCE_FORM = "finance_form"
+    const val SUPPLIES = "supplies"
+    const val SUPPLY_FORM = "supply_form"
+    const val SUPPLY_ENTRY = "supply_entry"
+    const val SUPPLY_EXIT = "supply_exit"
+    const val SUPPLY_ASSIGNMENTS = "supply_assignments"
+    const val SUPPLY_DETAIL = "supply_detail"
+    const val SUPPLY_ADJUSTMENT = "supply_adjustment"
     const val EMPLOYEES = "employees"
     const val EMPLOYEE_FORM = "employee_form"
     const val EMPLOYEE_DETAIL = "employee_detail"
@@ -47,6 +54,7 @@ object Routes {
         MILK_PRODUCTION,
         SANITARY,
         FINANCE,
+        SUPPLIES,
         EMPLOYEES,
         REPORTS,
         USERS

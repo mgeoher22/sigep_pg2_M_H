@@ -37,11 +37,17 @@ import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
 import com.fincahernandez.gestionpecuaria.data.repository.MilkProductionDraft
 import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyDraft
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyAdjustmentDraft
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyAssignmentDraft
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyEntryDraft
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyExitDraft
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
 import com.fincahernandez.gestionpecuaria.data.security.canUpdateAnimalFieldStatus
 import com.fincahernandez.gestionpecuaria.data.security.canConfirmMilkPayments
 import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
+import com.fincahernandez.gestionpecuaria.data.security.canManageSupplies
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
@@ -94,6 +100,18 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportDashboardData
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportsCenterScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyListScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyAssignmentScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyAssignmentUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyDetailScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyMovementUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyAdjustmentScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyStockUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyFormData
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyFormScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyEntryScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyExitScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.users.RolePermissionsScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserManagementScreen
@@ -112,6 +130,7 @@ import com.fincahernandez.gestionpecuaria.ui.viewmodel.LotViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.MilkProductionViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.ParcelViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.SanitaryViewModel
+import com.fincahernandez.gestionpecuaria.ui.viewmodel.SupplyViewModel
 import com.fincahernandez.gestionpecuaria.ui.viewmodel.UserViewModel
 import java.util.Calendar
 import java.text.SimpleDateFormat
@@ -144,6 +163,7 @@ fun AppNavigation() {
     val milkProductionViewModel: MilkProductionViewModel = viewModel()
     val parcelViewModel: ParcelViewModel = viewModel()
     val sanitaryViewModel: SanitaryViewModel = viewModel()
+    val supplyViewModel: SupplyViewModel = viewModel()
     val userViewModel: UserViewModel = viewModel()
     val sessionManager = remember(context) { SessionManager(context) }
     val cloudSessionManager = remember(context) {
@@ -163,6 +183,10 @@ fun AppNavigation() {
     val storedParcels by parcelViewModel.parcels.collectAsStateWithLifecycle()
     val storedUsers by userViewModel.users.collectAsStateWithLifecycle()
     val storedSanitaryRecords by sanitaryViewModel.records.collectAsStateWithLifecycle()
+    val storedSupplies by supplyViewModel.supplies.collectAsStateWithLifecycle()
+    val storedSupplyAssignments by supplyViewModel.assignments.collectAsStateWithLifecycle()
+    val storedSupplyMovements by supplyViewModel.movements.collectAsStateWithLifecycle()
+    val storedSupplyStocks by supplyViewModel.stocks.collectAsStateWithLifecycle()
 
     // Estas conversiones solo se repiten cuando Room emite datos nuevos. Cambiar de
     // pantalla ya no reconstruye todas las listas de la aplicación innecesariamente.
@@ -586,6 +610,12 @@ fun AppNavigation() {
     var sanitaryIsSaving by remember { mutableStateOf(false) }
     var sanitarySaveError by remember { mutableStateOf<String?>(null) }
     var sanitaryInitialAnimalId by remember { mutableStateOf("") }
+    var supplyEditingId by rememberSaveable { mutableStateOf("") }
+    var supplyIsSaving by remember { mutableStateOf(false) }
+    var supplySaveError by remember { mutableStateOf<String?>(null) }
+    var supplyMovementId by rememberSaveable { mutableStateOf("") }
+    var supplyMovementIsSaving by remember { mutableStateOf(false) }
+    var supplyMovementSaveError by remember { mutableStateOf<String?>(null) }
     // Estos valores simples sobreviven a una recreación de la actividad, por ejemplo
     // cuando Android cambia la configuración de pantalla de la tableta.
     var currentUserId by rememberSaveable { mutableStateOf("") }
@@ -661,6 +691,7 @@ fun AppNavigation() {
     val canUpdateAnimalFields = canUpdateAnimalFieldStatus(currentPermissionIds)
     val canConfirmMilkPayment = canConfirmMilkPayments(currentUser?.roleName)
     val canImportData = canImportApplicationData(currentUser?.roleName)
+    val canManageSupplyInventory = canManageSupplies(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
             currentUserId = ""
@@ -759,6 +790,12 @@ fun AppNavigation() {
         Routes.MILK_CONFIGURATION -> Routes.MILK_PRODUCTION
         Routes.SANITARY_FORM -> Routes.SANITARY
         Routes.FINANCE_FORM -> Routes.FINANCE
+        Routes.SUPPLY_FORM,
+        Routes.SUPPLY_ENTRY,
+        Routes.SUPPLY_EXIT,
+        Routes.SUPPLY_ASSIGNMENTS,
+        Routes.SUPPLY_DETAIL,
+        Routes.SUPPLY_ADJUSTMENT -> Routes.SUPPLIES
         Routes.EMPLOYEE_FORM,
         Routes.EMPLOYEE_DETAIL,
         Routes.EMPLOYEE_PAYMENT_FORM -> Routes.EMPLOYEES
@@ -1902,6 +1939,473 @@ fun AppNavigation() {
                 )
             }
 
+            composable(Routes.SUPPLIES) {
+                SupplyListScreen(
+                    supplies = storedSupplies,
+                    canManageSupplies = canManageSupplyInventory,
+                    onMenuClick = openDrawer,
+                    onCreateSupply = {
+                        supplyEditingId = ""
+                        supplySaveError = null
+                        navController.navigate(Routes.SUPPLY_FORM)
+                    },
+                    onEditSupply = { supplyId ->
+                        supplyEditingId = supplyId
+                        supplySaveError = null
+                        navController.navigate(Routes.SUPPLY_FORM)
+                    },
+                    onRegisterEntry = { supplyId ->
+                        supplyMovementId = supplyId
+                        supplyMovementSaveError = null
+                        navController.navigate(Routes.SUPPLY_ENTRY)
+                    },
+                    onRegisterExit = { supplyId ->
+                        supplyMovementId = supplyId
+                        supplyMovementSaveError = null
+                        navController.navigate(Routes.SUPPLY_EXIT)
+                    },
+                    onManageAssignments = { supplyId ->
+                        supplyMovementId = supplyId
+                        supplyMovementSaveError = null
+                        navController.navigate(Routes.SUPPLY_ASSIGNMENTS)
+                    },
+                    onViewHistory = { supplyId ->
+                        supplyMovementId = supplyId
+                        navController.navigate(Routes.SUPPLY_DETAIL)
+                    },
+                    onReactivateSupply = { supplyId ->
+                        coroutineScope.launch {
+                            supplySaveError = null
+                            runCatching {
+                                supplyViewModel.reactivateSupply(supplyId)
+                            }.onFailure { error ->
+                                supplySaveError = error.message
+                                    ?: "No fue posible reactivar el producto."
+                            }
+                        }
+                    },
+                    actionError = supplySaveError,
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.SUPPLY_FORM) {
+                if (!canManageSupplyInventory) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val editingRecord = storedSupplies.firstOrNull {
+                    it.supply.id == supplyEditingId
+                }
+                val editingSupply = editingRecord?.supply
+                val canDeletePermanently = editingSupply != null &&
+                    storedSupplyStocks.none { it.insumoId == editingSupply.id } &&
+                    storedSupplyMovements.none { it.insumoId == editingSupply.id } &&
+                    storedSupplyAssignments.none { it.insumoId == editingSupply.id }
+                SupplyFormScreen(
+                    existingCodes = storedSupplies.map { it.supply.codigo },
+                    initialData = editingSupply?.let { supply ->
+                        SupplyFormData(
+                            id = supply.id,
+                            code = supply.codigo,
+                            name = supply.nombre,
+                            category = supply.categoria,
+                            unit = supply.unidadMedida,
+                            minimumStock = supply.existenciaMinima.toString()
+                        )
+                    },
+                    isSaving = supplyIsSaving,
+                    saveError = supplySaveError,
+                    canDeletePermanently = canDeletePermanently,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        coroutineScope.launch {
+                            supplyIsSaving = true
+                            supplySaveError = null
+                            runCatching {
+                                val draft = SupplyDraft(
+                                    name = form.name,
+                                    category = form.category,
+                                    unit = form.unit,
+                                    minimumStock = form.minimumStock
+                                        .replace(',', '.')
+                                        .toDouble()
+                                )
+                                if (editingSupply == null) {
+                                    supplyViewModel.createSupply(draft)
+                                } else {
+                                    supplyViewModel.updateSupply(editingSupply.id, draft)
+                                }
+                            }.onSuccess {
+                                supplyIsSaving = false
+                                supplyEditingId = ""
+                                if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                    navigateMain(Routes.SUPPLIES)
+                                }
+                            }.onFailure { error ->
+                                supplyIsSaving = false
+                                supplySaveError = error.message
+                                    ?: "No fue posible guardar el insumo."
+                            }
+                        }
+                    },
+                    onDeactivate = editingSupply?.let { supply ->
+                        {
+                            coroutineScope.launch {
+                                supplyIsSaving = true
+                                supplySaveError = null
+                                runCatching {
+                                    supplyViewModel.deactivateSupply(supply.id)
+                                }.onSuccess {
+                                    supplyIsSaving = false
+                                    supplyEditingId = ""
+                                    if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                        navigateMain(Routes.SUPPLIES)
+                                    }
+                                }.onFailure { error ->
+                                    supplyIsSaving = false
+                                    supplySaveError = error.message
+                                        ?: "No fue posible desactivar el producto."
+                                }
+                            }
+                        }
+                    },
+                    onDelete = editingSupply?.takeIf { canDeletePermanently }?.let { supply ->
+                        {
+                            coroutineScope.launch {
+                                supplyIsSaving = true
+                                supplySaveError = null
+                                runCatching {
+                                    supplyViewModel.deleteUnusedSupply(supply.id)
+                                }.onSuccess {
+                                    supplyIsSaving = false
+                                    supplyEditingId = ""
+                                    if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                        navigateMain(Routes.SUPPLIES)
+                                    }
+                                }.onFailure { error ->
+                                    supplyIsSaving = false
+                                    supplySaveError = error.message
+                                        ?: "No fue posible eliminar el producto."
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.SUPPLY_ENTRY) {
+                if (!canManageSupplyInventory) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val record = storedSupplies.firstOrNull { it.supply.id == supplyMovementId }
+                if (record == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                SupplyEntryScreen(
+                    record = record,
+                    isSaving = supplyMovementIsSaving,
+                    saveError = supplyMovementSaveError,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        coroutineScope.launch {
+                            supplyMovementIsSaving = true
+                            supplyMovementSaveError = null
+                            runCatching {
+                                supplyViewModel.registerEntry(
+                                    SupplyEntryDraft(
+                                        supplyId = record.supply.id,
+                                        quantity = form.quantity.replace(',', '.').toDouble(),
+                                        unitCost = form.unitCost
+                                            .takeIf(String::isNotBlank)
+                                            ?.replace(',', '.')
+                                            ?.toDouble(),
+                                        date = parseDate(form.entryDate)
+                                            ?: error("La fecha de entrada no es válida."),
+                                        expirationDate = form.expirationDate
+                                            .takeIf(String::isNotBlank)
+                                            ?.let { date ->
+                                                parseDate(date)
+                                                    ?: error("El vencimiento no es válido.")
+                                            },
+                                        userId = currentUser?.id,
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                supplyMovementIsSaving = false
+                                supplyMovementId = ""
+                                if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                    navigateMain(Routes.SUPPLIES)
+                                }
+                            }.onFailure { error ->
+                                supplyMovementIsSaving = false
+                                supplyMovementSaveError = error.message
+                                    ?: "No fue posible registrar la entrada."
+                            }
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.SUPPLY_EXIT) {
+                if (!canManageSupplyInventory) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val record = storedSupplies.firstOrNull { it.supply.id == supplyMovementId }
+                if (record == null || record.availableQuantity <= 0.0) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                SupplyExitScreen(
+                    record = record,
+                    lotOptions = lots.filter { it.status == "ACTIVO" }.map { lot ->
+                        SupplyLotOption(lot.id, "${lot.code} · ${lot.name}")
+                    },
+                    isSaving = supplyMovementIsSaving,
+                    saveError = supplyMovementSaveError,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        coroutineScope.launch {
+                            supplyMovementIsSaving = true
+                            supplyMovementSaveError = null
+                            runCatching {
+                                supplyViewModel.registerExit(
+                                    SupplyExitDraft(
+                                        supplyId = record.supply.id,
+                                        quantity = form.quantity.replace(',', '.').toDouble(),
+                                        date = parseDate(form.exitDate)
+                                            ?: error("La fecha de salida no es válida."),
+                                        lotId = form.lotId.ifBlank { null },
+                                        userId = currentUser?.id,
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                supplyMovementIsSaving = false
+                                supplyMovementId = ""
+                                if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                    navigateMain(Routes.SUPPLIES)
+                                }
+                            }.onFailure { error ->
+                                supplyMovementIsSaving = false
+                                supplyMovementSaveError = error.message
+                                    ?: "No fue posible registrar la salida."
+                            }
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.SUPPLY_ASSIGNMENTS) {
+                if (!canManageSupplyInventory) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val record = storedSupplies.firstOrNull { it.supply.id == supplyMovementId }
+                if (record == null ||
+                    !com.fincahernandez.gestionpecuaria.data.repository.SupplyCatalog
+                        .isDurable(record.supply.categoria)
+                ) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val activeAssignments = storedSupplyAssignments
+                    .filter { it.insumoId == record.supply.id && it.estado == "ACTIVA" }
+                    .sortedByDescending { it.fechaAsignacion }
+                    .map { assignment ->
+                        val lot = lots.firstOrNull { it.id == assignment.loteId }
+                        SupplyAssignmentUiModel(
+                            id = assignment.id,
+                            responsible = assignment.responsable,
+                            quantity = assignment.cantidad,
+                            assignmentDate = formatDate(assignment.fechaAsignacion),
+                            lotLabel = lot?.let { "${it.code} · ${it.name}" },
+                            notes = assignment.observaciones
+                        )
+                    }
+                SupplyAssignmentScreen(
+                    record = record,
+                    activeAssignments = activeAssignments,
+                    lotOptions = lots.filter { it.status == "ACTIVO" }.map { lot ->
+                        SupplyLotOption(lot.id, "${lot.code} · ${lot.name}")
+                    },
+                    isSaving = supplyMovementIsSaving,
+                    saveError = supplyMovementSaveError,
+                    onBack = { navController.popBackStack() },
+                    onAssign = { form ->
+                        coroutineScope.launch {
+                            supplyMovementIsSaving = true
+                            supplyMovementSaveError = null
+                            runCatching {
+                                supplyViewModel.assignDurable(
+                                    SupplyAssignmentDraft(
+                                        supplyId = record.supply.id,
+                                        quantity = form.quantity.replace(',', '.').toDouble(),
+                                        date = parseDate(form.assignmentDate)
+                                            ?: error("La fecha de asignación no es válida."),
+                                        responsible = form.responsible,
+                                        lotId = form.lotId.ifBlank { null },
+                                        userId = currentUser?.id,
+                                        notes = form.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onSuccess {
+                                supplyMovementIsSaving = false
+                                if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                    navigateMain(Routes.SUPPLIES)
+                                }
+                            }.onFailure { error ->
+                                supplyMovementIsSaving = false
+                                supplyMovementSaveError = error.message
+                                    ?: "No fue posible registrar la asignación."
+                            }
+                        }
+                    },
+                    onReturn = { assignmentId, returnDate ->
+                        coroutineScope.launch {
+                            supplyMovementIsSaving = true
+                            supplyMovementSaveError = null
+                            runCatching {
+                                supplyViewModel.returnDurable(
+                                    assignmentId = assignmentId,
+                                    date = parseDate(returnDate)
+                                        ?: error("La fecha de devolución no es válida."),
+                                    userId = currentUser?.id
+                                )
+                            }.onSuccess {
+                                if (!navController.popBackStack(Routes.SUPPLIES, false)) {
+                                    navigateMain(Routes.SUPPLIES)
+                                }
+                            }.onFailure { error ->
+                                supplyMovementSaveError = error.message
+                                    ?: "No fue posible registrar la devolución."
+                            }
+                            supplyMovementIsSaving = false
+                        }
+                    }
+                )
+            }
+
+            composable(Routes.SUPPLY_DETAIL) {
+                if (Routes.SUPPLIES !in allowedMainRoutes) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.DASHBOARD) }
+                    return@composable
+                }
+                val record = storedSupplies.firstOrNull { it.supply.id == supplyMovementId }
+                if (record == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val movementItems = storedSupplyMovements
+                    .filter { it.insumoId == record.supply.id }
+                    .groupBy { it.operacionId }
+                    .map { (operationId, operationMovements) ->
+                        val first = operationMovements.first()
+                        val lot = lots.firstOrNull { it.id == first.loteId }
+                        val registeredUser = users.firstOrNull {
+                            it.id == first.registradoPorUsuarioId
+                        }
+                        SupplyMovementUiModel(
+                            operationId = operationId,
+                            type = first.tipo,
+                            quantity = operationMovements.sumOf { it.cantidad },
+                            date = formatDate(first.fecha),
+                            totalValue = operationMovements
+                                .takeIf { records -> records.any { it.costoUnitario != null } }
+                                ?.sumOf { it.cantidad * (it.costoUnitario ?: 0.0) },
+                            lotLabel = lot?.let { "${it.code} · ${it.name}" },
+                            registeredBy = registeredUser?.fullName,
+                            notes = first.observaciones
+                        )
+                    }
+                    .sortedByDescending { item ->
+                        storedSupplyMovements.firstOrNull {
+                            it.operacionId == item.operationId
+                        }?.fecha ?: 0L
+                    }
+                SupplyDetailScreen(
+                    record = record,
+                    movements = movementItems,
+                    canManageSupplies = canManageSupplyInventory,
+                    onBack = { navController.popBackStack() },
+                    onAdjustStock = {
+                        supplyMovementSaveError = null
+                        navController.navigate(Routes.SUPPLY_ADJUSTMENT)
+                    }
+                )
+            }
+
+            composable(Routes.SUPPLY_ADJUSTMENT) {
+                if (!canManageSupplyInventory) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val record = storedSupplies.firstOrNull { it.supply.id == supplyMovementId }
+                if (record == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
+                    return@composable
+                }
+                val stockModels = storedSupplyStocks
+                    .filter { it.insumoId == record.supply.id }
+                    .sortedWith(
+                        compareBy<com.fincahernandez.gestionpecuaria.data.local.entity.ExistenciaInsumoEntity> {
+                            it.fechaVencimiento ?: Long.MAX_VALUE
+                        }.thenBy { it.fechaIngreso }
+                    )
+                    .map { stock ->
+                        SupplyStockUiModel(
+                            id = stock.id,
+                            initialQuantity = stock.cantidadInicial,
+                            availableQuantity = stock.cantidadDisponible,
+                            entryDate = formatDate(stock.fechaIngreso),
+                            expirationDate = stock.fechaVencimiento?.let(::formatDate),
+                            unitCost = stock.costoUnitario
+                        )
+                    }
+                SupplyAdjustmentScreen(
+                    record = record,
+                    stocks = stockModels,
+                    isSaving = supplyMovementIsSaving,
+                    saveError = supplyMovementSaveError,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { form ->
+                        coroutineScope.launch {
+                            supplyMovementIsSaving = true
+                            supplyMovementSaveError = null
+                            runCatching {
+                                val stock = storedSupplyStocks.firstOrNull {
+                                    it.id == form.stockId && it.insumoId == record.supply.id
+                                } ?: error("No se encontró la existencia seleccionada.")
+                                val countedQuantity = form.countedQuantity
+                                    .replace(',', '.')
+                                    .toDouble()
+                                supplyViewModel.adjustStock(
+                                    SupplyAdjustmentDraft(
+                                        stockId = stock.id,
+                                        difference = countedQuantity - stock.cantidadDisponible,
+                                        date = parseDate(form.adjustmentDate)
+                                            ?: error("La fecha del conteo no es válida."),
+                                        userId = currentUser?.id,
+                                        notes = form.reason
+                                    )
+                                )
+                            }.onSuccess {
+                                supplyMovementIsSaving = false
+                                navController.popBackStack()
+                            }.onFailure { error ->
+                                supplyMovementIsSaving = false
+                                supplyMovementSaveError = error.message
+                                    ?: "No fue posible guardar el ajuste."
+                            }
+                        }
+                    }
+                )
+            }
+
             composable(Routes.EMPLOYEES) {
                 EmployeeListScreen(
                     employees = employees,
@@ -2172,6 +2676,7 @@ private fun allowedRoutesForPermissions(permissions: Set<String>): Set<String> {
             // El rol financiero necesita consultar y confirmar pagos de leche.
             add(Routes.MILK_PRODUCTION)
         }
+        if ("supplies" in permissions) add(Routes.SUPPLIES)
         if ("employees" in permissions) add(Routes.EMPLOYEES)
         if ("reports" in permissions) add(Routes.REPORTS)
         if ("users" in permissions) add(Routes.USERS)

@@ -42,4 +42,13 @@ class RecordEditingAccessTest {
         assertFalse(canConfirmMilkPayments("Técnico Veterinario"))
         assertFalse(canConfirmMilkPayments(null))
     }
+
+    @Test
+    fun bothAdministratorsCanManageSupplies() {
+        assertTrue(canManageSupplies(GENERAL_ADMIN_ROLE))
+        assertTrue(canManageSupplies(FIELD_ADMIN_ROLE))
+        assertFalse(canManageSupplies(FINANCIAL_ROLE))
+        assertFalse(canManageSupplies("Operario"))
+        assertFalse(canManageSupplies(null))
+    }
 }

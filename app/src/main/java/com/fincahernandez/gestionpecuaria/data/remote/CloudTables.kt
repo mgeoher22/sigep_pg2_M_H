@@ -137,6 +137,55 @@ object CloudTables {
             CloudColumn("periodo", "String", false),
             CloudColumn("observaciones", "String", true),
             CloudColumn("creadoEn", "Long", false)
+        )),
+        CloudTable("insumos", listOf(
+            CloudColumn("id", "String", false),
+            CloudColumn("codigo", "String", false),
+            CloudColumn("nombre", "String", false),
+            CloudColumn("categoria", "String", false),
+            CloudColumn("unidadMedida", "String", false),
+            CloudColumn("existenciaMinima", "Double", false),
+            CloudColumn("activo", "Boolean", false),
+            CloudColumn("creadoEn", "Long", false),
+            CloudColumn("actualizadoEn", "Long", false)
+        )),
+        CloudTable("existencias_insumos", listOf(
+            CloudColumn("id", "String", false),
+            CloudColumn("insumoId", "String", false),
+            CloudColumn("cantidadInicial", "Double", false),
+            CloudColumn("cantidadDisponible", "Double", false),
+            CloudColumn("costoUnitario", "Double", true),
+            CloudColumn("fechaVencimiento", "Long", true),
+            CloudColumn("fechaIngreso", "Long", false),
+            CloudColumn("creadoEn", "Long", false),
+            CloudColumn("actualizadoEn", "Long", false)
+        )),
+        CloudTable("asignaciones_insumos", listOf(
+            CloudColumn("id", "String", false),
+            CloudColumn("insumoId", "String", false),
+            CloudColumn("loteId", "String", true),
+            CloudColumn("responsable", "String", false),
+            CloudColumn("cantidad", "Double", false),
+            CloudColumn("fechaAsignacion", "Long", false),
+            CloudColumn("fechaDevolucion", "Long", true),
+            CloudColumn("estado", "String", false),
+            CloudColumn("observaciones", "String", true),
+            CloudColumn("creadoEn", "Long", false),
+            CloudColumn("actualizadoEn", "Long", false)
+        )),
+        CloudTable("movimientos_insumos", listOf(
+            CloudColumn("id", "String", false),
+            CloudColumn("operacionId", "String", false),
+            CloudColumn("insumoId", "String", false),
+            CloudColumn("existenciaId", "String", false),
+            CloudColumn("tipo", "String", false),
+            CloudColumn("cantidad", "Double", false),
+            CloudColumn("costoUnitario", "Double", true),
+            CloudColumn("fecha", "Long", false),
+            CloudColumn("loteId", "String", true),
+            CloudColumn("registradoPorUsuarioId", "String", true),
+            CloudColumn("observaciones", "String", true),
+            CloudColumn("creadoEn", "Long", false)
         ))
     )
     fun readable(permissions: Set<String>): List<CloudTable> = all.filter { table ->
@@ -147,6 +196,8 @@ object CloudTables {
             "configuracion_leche", "produccion_lechera" -> permissions.any { it in setOf("weighings","finance") }
             "movimientos_financieros" -> "finance" in permissions
             "empleados", "pagos_empleados" -> "employees" in permissions
+            "insumos", "existencias_insumos", "asignaciones_insumos",
+            "movimientos_insumos" -> "supplies" in permissions
             else -> false
         }
     }

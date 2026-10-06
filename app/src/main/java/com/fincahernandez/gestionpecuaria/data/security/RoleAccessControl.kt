@@ -23,6 +23,7 @@ val rolePermissions = listOf(
     RolePermission("lots", "Administrar lotes y parcelas"),
     RolePermission("health", "Gestionar sanidad y reproducción"),
     RolePermission("finance", "Registrar movimientos financieros"),
+    RolePermission("supplies", "Consultar y gestionar insumos"),
     RolePermission("employees", "Consultar empleados y nómina"),
     RolePermission("reports", "Consultar reportes autorizados"),
     RolePermission("users", "Crear usuarios y asignar roles")
@@ -38,7 +39,9 @@ val definedRoles = listOf(
     DefinedRole(
         name = FIELD_ADMIN_ROLE,
         description = "Supervisa animales, lotes, parcelas y operarios.",
-        permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
+        permissionIds = setOf(
+            "dashboard", "animals", "weighings", "lots", "supplies", "reports"
+        )
     ),
     DefinedRole(
         name = "Técnico Veterinario",
@@ -91,6 +94,12 @@ fun canEditExistingRecords(roleName: String?): Boolean = roleName == GENERAL_ADM
  */
 fun canUpdateAnimalFieldStatus(permissionIds: Set<String>): Boolean =
     "animals" in permissionIds
+
+/** Los dos roles administrativos pueden modificar el inventario de insumos. */
+fun canManageSupplies(roleName: String?): Boolean = roleName in setOf(
+    GENERAL_ADMIN_ROLE,
+    FIELD_ADMIN_ROLE
+)
 
 /** Importar archivos puede modificar muchos registros y continúa siendo administrativo. */
 fun canImportApplicationData(roleName: String?): Boolean = roleName == GENERAL_ADMIN_ROLE

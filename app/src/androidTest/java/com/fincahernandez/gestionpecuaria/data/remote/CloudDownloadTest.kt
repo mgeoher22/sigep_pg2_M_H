@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 class CloudDownloadTest {
     private val id="00000000-0000-4000-8000-000000000001"
     private val other="00000000-0000-4000-8000-000000000002"
-    private val permissions=setOf("animals","lots","weighings","health","finance","employees")
+    private val permissions=setOf("animals","lots","weighings","health","finance","employees","supplies")
     private val account=CloudAccount("test@example.com",id,id,"Administrador General",permissions)
     private fun row(table:CloudTable)=JSONObject().also { j ->
         table.columns.forEach { f -> j.put(f.name,when {
@@ -36,7 +36,7 @@ class CloudDownloadTest {
         try {
             val snapshot=CloudDownloadSnapshot(CloudTables.all.associate {it.name to listOf(row(it))},account,0)
             val importer=CloudDataImporter(db)
-            assertEquals(11,importer.apply(snapshot).added)
+            assertEquals(15,importer.apply(snapshot).added)
             assertEquals(0,importer.apply(snapshot).added)
             CloudTables.all.forEach {assertEquals(1,count(db,it.name))}
             assertEquals(0,count(db,"usuarios"))
@@ -91,7 +91,7 @@ class CloudDownloadTest {
         val m=manager {url,method,headers,_ ->
             assertEquals("Bearer test",headers["Authorization"])
             when {
-                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20260914_room17_mapas_parcelas"}"""
+                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20261005_room20_insumos"}"""
                 url.contains("/animales?") -> {assertEquals("GET",method);pages++;when(pages){1->"""[{"id":"$id"}]""";2->{assertTrue(url.contains("id=gt.$id"));"""[{"id":"$other"}]"""};else->"[]"}}
                 else -> "[]"
             }
@@ -104,7 +104,7 @@ class CloudDownloadTest {
     }
     @Test fun movingCloudCursorRejectsDownload()=runBlocking {
         var cursor=0
-        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20260914_room17_mapas_parcelas"}""" else "[]"}
+        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20261005_room20_insumos"}""" else "[]"}
         m.signInCloud("test@example.com","123456")
         fails {m.download(id)}
     }

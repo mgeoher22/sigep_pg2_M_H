@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Scale
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -141,6 +142,7 @@ private val drawerDestinations = listOf(
     DrawerDestination("Producción lechera", Routes.MILK_PRODUCTION, Icons.Default.LocalDrink),
     DrawerDestination("Control sanitario", Routes.SANITARY, Icons.Default.MedicalServices),
     DrawerDestination("Finanzas", Routes.FINANCE, Icons.Default.AccountBalanceWallet),
+    DrawerDestination("Insumos", Routes.SUPPLIES, Icons.Default.Inventory2),
     DrawerDestination("Empleados", Routes.EMPLOYEES, Icons.Default.Groups),
     DrawerDestination("Centro de reportes", Routes.REPORTS, Icons.Default.Assessment),
     DrawerDestination("Usuarios y accesos", Routes.USERS, Icons.Default.ManageAccounts)
