@@ -118,7 +118,7 @@ class AnimalRepositoryTest {
     }
 
     @Test
-    fun registeringCalfClearsNearCalvingStatusFromSelectedMother() = runBlocking {
+    fun registeringCalvesFromSameBirthClearsStatusAndAllowsTwins() = runBlocking {
         val mother = testAnimal(
             id = UUID.randomUUID().toString(),
             code = "FH-MADRE-001",
@@ -133,12 +133,23 @@ class AnimalRepositoryTest {
         ).copy(madreId = mother.id)
         repository.saveAnimal(calf, weightPounds = null)
 
+        // La primera cría desmarca a la madre, pero una segunda nacida el mismo día
+        // todavía pertenece al mismo parto y debe poder registrarse.
+        val twin = testAnimal(
+            id = UUID.randomUUID().toString(),
+            code = "FH-TERNERO-002",
+            name = "Lucerita"
+        ).copy(madreId = mother.id)
+        repository.saveAnimal(twin, weightPounds = null)
+
         val storedAnimals = repository.observeAnimals().first().map { it.animal }
         val storedMother = storedAnimals.single { it.id == mother.id }
         val storedCalf = storedAnimals.single { it.id == calf.id }
+        val storedTwin = storedAnimals.single { it.id == twin.id }
 
         assertFalse(storedMother.proximaParto)
         assertEquals(mother.id, storedCalf.madreId)
+        assertEquals(mother.id, storedTwin.madreId)
     }
 
     @Test

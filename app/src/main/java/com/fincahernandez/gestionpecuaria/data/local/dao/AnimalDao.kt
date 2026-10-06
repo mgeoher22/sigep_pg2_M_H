@@ -41,6 +41,27 @@ interface AnimalDao {
     @Query("SELECT * FROM animales WHERE codigoIdentificacion = :codigoIdentificacion LIMIT 1")
     suspend fun buscarPorCodigoIdentificacion(codigoIdentificacion: String): AnimalEntity?
 
+    /**
+     * Cuenta otras crías de la misma madre nacidas durante el mismo día.
+     * Permite registrar gemelos como un solo parto aunque la marca de próxima a parto
+     * se haya limpiado automáticamente al guardar la primera cría.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM animales
+        WHERE madreId = :madreId
+          AND fechaNacimiento >= :inicioDia
+          AND fechaNacimiento < :finDiaExclusivo
+          AND id != :animalExcluidoId
+        """
+    )
+    suspend fun contarOtrasCriasDelParto(
+        madreId: String,
+        inicioDia: Long,
+        finDiaExclusivo: Long,
+        animalExcluidoId: String
+    ): Int
+
     /** Cambia únicamente la fotografía sin permitir alterar los demás datos del animal. */
     @Query(
         """

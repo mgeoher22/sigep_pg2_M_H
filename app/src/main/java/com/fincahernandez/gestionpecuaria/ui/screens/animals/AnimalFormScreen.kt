@@ -87,7 +87,13 @@ data class AnimalFormData(
 /** Vaca disponible para registrar la relación de maternidad. */
 data class AnimalMotherOption(
     val id: String,
-    val label: String
+    val label: String,
+    /** Sigue disponible para registrar el primer nacimiento del parto. */
+    val isNearCalving: Boolean = false,
+    /** Fechas con crías existentes; permiten añadir otra cría al mismo parto. */
+    val registeredBirthDates: Set<String> = emptySet(),
+    /** Conserva una relación ya guardada durante la edición administrativa. */
+    val isCurrentMother: Boolean = false
 )
 
 /**
@@ -345,17 +351,6 @@ fun AnimalFormScreen(
                 }
             }
 
-            // La madre solo se solicita para nacimientos ocurridos dentro de la finca.
-            if (tipoOrigen == "NACIDO_EN_FINCA") {
-                item {
-                    MotherDropdownField(
-                        selectedMotherId = madreId,
-                        options = motherOptions,
-                        onMotherSelected = { madreId = it }
-                    )
-                }
-            }
-
             item {
                 DateSelectorField(
                     label = if (tipoOrigen == "NACIDO_EN_FINCA") {
@@ -371,6 +366,22 @@ fun AnimalFormScreen(
                         errorNacimientoGuardado
                     }
                 )
+            }
+
+            // La fecha se elige antes de la madre. Así también se muestran las vacas
+            // que ya tienen otra cría registrada en ese mismo parto (por ejemplo, gemelos).
+            if (tipoOrigen == "NACIDO_EN_FINCA") {
+                item {
+                    val eligibleMothers = motherOptions.filter { option ->
+                        option.isNearCalving || option.isCurrentMother ||
+                            fechaNacimiento in option.registeredBirthDates
+                    }
+                    MotherDropdownField(
+                        selectedMotherId = madreId,
+                        options = eligibleMothers,
+                        onMotherSelected = { madreId = it }
+                    )
+                }
             }
 
             // La fecha de llegada solo tiene sentido para animales procedentes de otro lugar.
@@ -522,8 +533,8 @@ fun AnimalFormScreen(
 }
 
 /**
- * Lista únicamente las vacas activas marcadas como próximas a parto. La opción vacía
- * permite registrar nacimientos cuyo parentesco todavía no se conoce.
+ * Lista vacas próximas a parto y, al registrar partos múltiples, madres que ya tienen
+ * otra cría nacida en la fecha elegida. La opción vacía conserva parentescos desconocidos.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -549,7 +560,7 @@ private fun MotherDropdownField(
             label = { Text("Vaca madre") },
             placeholder = {
                 Text(
-                    if (options.isEmpty()) "No hay vacas próximas a dar a luz"
+                    if (options.isEmpty()) "No hay vacas disponibles para esta fecha"
                     else "Seleccione la madre"
                 )
             },

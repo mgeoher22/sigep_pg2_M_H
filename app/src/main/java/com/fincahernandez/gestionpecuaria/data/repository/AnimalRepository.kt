@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
+import java.util.Calendar
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -55,14 +56,22 @@ class AnimalRepository(
             val newMotherId = animal.madreId.takeIf { it != current?.madreId }
             val mother = newMotherId?.let { animalDao.buscarPorId(it) }
             if (newMotherId != null) {
-                require(
-                    mother != null && mother.sexo == "HEMBRA" &&
-                        mother.estado == "ACTIVO" && mother.proximaParto
-                ) {
-                    "La madre debe ser una vaca activa marcada como próxima a dar a luz."
-                }
                 val childBirthDate = requireNotNull(animal.fechaNacimiento) {
                     "La cría requiere fecha de nacimiento."
+                }
+                val (birthDayStart, nextBirthDayStart) = localDayBounds(childBirthDate)
+                val alreadyRegisteredInSameBirth = animalDao.contarOtrasCriasDelParto(
+                    madreId = newMotherId,
+                    inicioDia = birthDayStart,
+                    finDiaExclusivo = nextBirthDayStart,
+                    animalExcluidoId = animal.id
+                ) > 0
+                require(
+                    mother != null && mother.sexo == "HEMBRA" &&
+                        mother.estado == "ACTIVO" &&
+                        (mother.proximaParto || alreadyRegisteredInSameBirth)
+                ) {
+                    "La madre debe estar próxima a dar a luz o tener otra cría registrada en esa misma fecha."
                 }
                 requireOnOrAfter(
                     date = childBirthDate,
@@ -177,4 +186,18 @@ class AnimalRepository(
             )
         }
     }
+}
+
+/** Delimita un día civil local para comparar partos sin depender de la hora guardada. */
+private fun localDayBounds(value: Long): Pair<Long, Long> {
+    val calendar = Calendar.getInstance().apply {
+        timeInMillis = value
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    val start = calendar.timeInMillis
+    calendar.add(Calendar.DAY_OF_MONTH, 1)
+    return start to calendar.timeInMillis
 }

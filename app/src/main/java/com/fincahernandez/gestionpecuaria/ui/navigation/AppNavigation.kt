@@ -56,6 +56,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListItem
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalMotherOption
+import com.fincahernandez.gestionpecuaria.ui.screens.animals.buildAnimalBirthHistory
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.InitialAdminSetupScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
@@ -1060,10 +1061,20 @@ fun AppNavigation() {
             composable(Routes.ANIMAL_FORM) {
                 val animalEnEdicion = animales.firstOrNull { it.id == animalEnEdicionId }
                 val motherOptions = remember(animales, animalEnEdicion, animalItemsById) {
+                    val birthDatesByMotherId = allAnimalItems
+                        .asSequence()
+                        .filter { child ->
+                            child.madreId.isNotBlank() && child.fechaNacimiento.isNotBlank()
+                        }
+                        .groupBy(
+                            keySelector = AnimalListItem::madreId,
+                            valueTransform = AnimalListItem::fechaNacimiento
+                        )
+                        .mapValues { (_, dates) -> dates.toSet() }
                     val eligible = animales
                         .filter {
-                            it.sexo == "HEMBRA" && it.proximaParto &&
-                                it.id != animalEnEdicion?.id
+                            it.sexo == "HEMBRA" && it.id != animalEnEdicion?.id &&
+                                (it.proximaParto || birthDatesByMotherId[it.id].orEmpty().isNotEmpty())
                         }
                         .toMutableList()
                     // Conserva visible una madre ya asignada aunque luego haya sido retirada.
@@ -1078,7 +1089,10 @@ fun AppNavigation() {
                             AnimalMotherOption(
                                 id = mother.id,
                                 label = "${mother.nombre?.takeIf(String::isNotBlank) ?: "Sin nombre"} · " +
-                                    mother.codigoIdentificacion
+                                    mother.codigoIdentificacion,
+                                isNearCalving = mother.proximaParto,
+                                registeredBirthDates = birthDatesByMotherId[mother.id].orEmpty(),
+                                isCurrentMother = mother.id == animalEnEdicion?.madreId
                             )
                         }
                 }
@@ -1189,6 +1203,9 @@ fun AppNavigation() {
                 }
                 AnimalDetailScreen(
                     animal = animal,
+                    birthHistory = remember(allAnimalItems, animal.id) {
+                        buildAnimalBirthHistory(animal.id, allAnimalItems)
+                    },
                     currentLotLabel = activeLotByAnimalId[animal.id]
                         ?.let(lotsById::get)
                         ?.let { lot -> "${lot.name} · ${lot.code}" },

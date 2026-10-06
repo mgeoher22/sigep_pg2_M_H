@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Scale
@@ -64,6 +65,7 @@ fun AnimalDetailScreen(
     animal: AnimalListItem,
     currentLotLabel: String? = null,
     motherLabel: String? = null,
+    birthHistory: List<AnimalBirthHistoryUiModel> = emptyList(),
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -179,6 +181,11 @@ fun AnimalDetailScreen(
                     onChangeNearCalving = onChangeNearCalving
                 )
             }
+            if (animal.sexo == "HEMBRA") {
+                item {
+                    AnimalBirthHistoryCard(birthHistory = birthHistory)
+                }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MetricCard(
@@ -261,6 +268,91 @@ fun AnimalDetailScreen(
                 }
             }
         )
+    }
+}
+
+/**
+ * Presenta un elemento por parto. Si hubo dos o más crías el mismo día se muestran
+ * juntas dentro de la misma tarjeta y no como partos independientes.
+ */
+@Composable
+private fun AnimalBirthHistoryCard(
+    birthHistory: List<AnimalBirthHistoryUiModel>
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                "Historial de partos",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            if (birthHistory.isEmpty()) {
+                Text(
+                    "No hay crías asociadas a esta vaca.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                birthHistory.forEachIndexed { index, birth ->
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    birth.date,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (birth.children.size == 1) "1 cría" else "${birth.children.size} crías",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        birth.children.forEach { child ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Pets,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Column {
+                                    Text(child.name, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "${child.code} · ${child.sex.lowercase().replaceFirstChar { it.uppercase() }}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (index < birthHistory.lastIndex) HorizontalDivider()
+                }
+            }
+        }
     }
 }
 
