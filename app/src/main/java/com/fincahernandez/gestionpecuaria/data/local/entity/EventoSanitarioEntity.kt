@@ -25,6 +25,7 @@ import java.util.UUID
     ],
     indices = [
         Index(value = ["animalId"]),
+        Index(value = ["insumoId"]),
         Index(value = ["fechaEvento"]),
         Index(value = ["loteIdReferencia"])
     ]
@@ -36,6 +37,10 @@ data class EventoSanitarioEntity(
     val tipoEvento: String,
     val fechaEvento: Long,
     val diagnostico: String,
+    /** Producto del inventario utilizado; es nulo en los registros históricos. */
+    val insumoId: String? = null,
+    /** Cantidad realmente aplicada y descontada del inventario. */
+    val dosisMl: Double? = null,
     val medicamento: String? = null,
     val dosis: String? = null,
     val estadoSalud: String,

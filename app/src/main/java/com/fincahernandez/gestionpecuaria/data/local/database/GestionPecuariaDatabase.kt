@@ -61,7 +61,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 20,
+    version = 22,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -613,6 +613,31 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Conserva el responsable operativo de cada movimiento de inventario. */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE movimientos_insumos ADD COLUMN responsable TEXT"
+                )
+            }
+        }
+
+        /**
+         * Vincula sanidad con inventario y permite controlar el contenido parcial
+         * de cada presentación medicinal sin modificar las existencias anteriores.
+         */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE insumos ADD COLUMN contenidoMlPorUnidad REAL")
+                database.execSQL("ALTER TABLE eventos_sanitarios ADD COLUMN insumoId TEXT")
+                database.execSQL("ALTER TABLE eventos_sanitarios ADD COLUMN dosisMl REAL")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_eventos_sanitarios_insumoId` " +
+                        "ON `eventos_sanitarios` (`insumoId`)"
+                )
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -643,7 +668,9 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_16_17,
                     MIGRATION_17_18,
                     MIGRATION_18_19,
-                    MIGRATION_19_20
+                    MIGRATION_19_20,
+                    MIGRATION_20_21,
+                    MIGRATION_21_22
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

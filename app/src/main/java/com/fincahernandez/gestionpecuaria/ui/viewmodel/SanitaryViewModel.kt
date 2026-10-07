@@ -21,5 +21,6 @@ class SanitaryViewModel(application: Application) : AndroidViewModel(application
         initialValue = emptyList()
     )
 
-    suspend fun register(record: SanitaryStoredRecord) = repository.register(record)
+    suspend fun register(record: SanitaryStoredRecord, registeredByUserId: String?) =
+        repository.register(record, registeredByUserId)
 }

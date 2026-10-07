@@ -189,8 +189,8 @@ class CloudSessionManager(
             val token=s.getString("access")
             fun state()=JSONObject(request("/rest/v1/rpc/estado_sincronizacion",token,JSONObject()))
             val before=state()
-            require(before.getString("versionEsquema")=="20261005_room20_insumos") {
-                "La nube requiere ejecutar 18_agregar_modulo_insumos.sql antes de sincronizar."
+            require(before.getString("versionEsquema")=="20261006_room22_sanidad_insumos") {
+                "La nube requiere ejecutar 21_integrar_sanidad_con_insumos.sql antes de sincronizar."
             }
             val rows=linkedMapOf<String,List<JSONObject>>()
             var total=0

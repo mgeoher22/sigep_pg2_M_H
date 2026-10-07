@@ -47,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Search
@@ -90,6 +91,7 @@ fun AnimalListScreen(
     animales: List<AnimalListItem>,
     onRegistrarAnimal: () -> Unit,
     onAnimalClick: (String) -> Unit,
+    onOpenBirthPeriod: () -> Unit = {},
     onMenuClick: () -> Unit = {},
     onNavigateMain: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -205,6 +207,18 @@ fun AnimalListScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            // RF-004: consulta histórica independiente del inventario filtrado visible.
+            item {
+                OutlinedButton(
+                    onClick = onOpenBirthPeriod,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CalendarMonth, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Partos y nacimientos por período")
+                }
             }
 
             // Abre el selector de filtros y muestra cuántos están activos.

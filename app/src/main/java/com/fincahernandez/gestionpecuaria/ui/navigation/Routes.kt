@@ -10,6 +10,7 @@ object Routes {
     const val ANIMAL_FORM = "animal_form"
     const val ANIMAL_CONFIRMATION = "animal_confirmation"
     const val ANIMAL_DETAIL = "animal_detail"
+    const val ANIMAL_BIRTH_PERIOD = "animal_birth_period"
     const val LOTS = "lots"
     const val LOT_FORM = "lot_form"
     const val LOT_ANIMAL_SELECTION = "lot_animal_selection"

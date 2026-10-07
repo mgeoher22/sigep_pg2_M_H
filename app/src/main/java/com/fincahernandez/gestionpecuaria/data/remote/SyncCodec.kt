@@ -14,12 +14,22 @@ object SyncCodec {
             // Room 17 añadió un límite opcional; los baselines anteriores equivalen a null.
             val legacyParcelBoundary = table == "parcelas" &&
                 field.name == "limitesGeoJson" && !json.has(field.name)
-            require(json.has(field.name) || legacyNearCalving || legacyParcelBoundary) {
+            // Room 22 incorporó campos opcionales para vincular sanidad con insumos.
+            // Baselines y operaciones pendientes creados por Room 21 no los contienen.
+            val legacySanitarySupplyField = isLegacySanitarySupplyField(
+                table = table,
+                field = field.name,
+                hasField = json.has(field.name)
+            )
+            require(
+                json.has(field.name) || legacyNearCalving || legacyParcelBoundary ||
+                    legacySanitarySupplyField
+            ) {
                 "Falta ${table}.${field.name} en la nube."
             }
             val value: Any? = if (legacyNearCalving) {
                 false
-            } else if (legacyParcelBoundary) {
+            } else if (legacyParcelBoundary || legacySanitarySupplyField) {
                 null
             } else if (json.isNull(field.name)) {
                 require(field.nullable) { "Campo obligatorio vacío en $table." }; null
@@ -63,3 +73,13 @@ object SyncCodec {
         }).also { require(it.toString().toByteArray(Charsets.UTF_8).size <= 900000) { "El envío supera el tamaño permitido; los datos siguen guardados." } }
     }
 }
+
+/** Reconoce datos locales generados antes de que Room 22 añadiera estos campos anulables. */
+internal fun isLegacySanitarySupplyField(
+    table: String,
+    field: String,
+    hasField: Boolean
+): Boolean = !hasField && (
+    table == "insumos" && field == "contenidoMlPorUnidad" ||
+        table == "eventos_sanitarios" && field in setOf("insumoId", "dosisMl")
+    )

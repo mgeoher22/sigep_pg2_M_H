@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -47,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
@@ -68,6 +70,14 @@ data class SanitaryAnimalOption(
     val id: String,
     val label: String,
     val sex: String
+)
+
+/** Medicina o vitamina activa con disponibilidad líquida calculada. */
+data class SanitarySupplyOption(
+    val id: String,
+    val label: String,
+    val availableMl: Double,
+    val contentMlPerUnit: Double
 )
 
 /** Evento sanitario listo para mostrarse en el historial. */
@@ -95,8 +105,8 @@ data class SanitaryFormData(
     val eventType: String,
     val eventDate: String,
     val diagnosis: String,
-    val medication: String,
-    val dose: String,
+    val supplyId: String?,
+    val doseMl: String,
     val healthStatus: String,
     val nextControlDate: String,
     val responsible: String,
@@ -374,6 +384,7 @@ private fun SanitaryRecordCard(record: SanitaryRecordUiModel) {
 fun SanitaryRecordFormScreen(
     lots: List<SanitaryLotOption>,
     animals: List<SanitaryAnimalOption>,
+    medicineSupplies: List<SanitarySupplyOption>,
     initialAnimalId: String = "",
     isSaving: Boolean,
     saveError: String?,
@@ -386,8 +397,8 @@ fun SanitaryRecordFormScreen(
     var eventType by rememberSaveable { mutableStateOf(sanitaryEventTypes.first()) }
     var eventDate by rememberSaveable { mutableStateOf("") }
     var diagnosis by rememberSaveable { mutableStateOf("") }
-    var medication by rememberSaveable { mutableStateOf("") }
-    var dose by rememberSaveable { mutableStateOf("") }
+    var supplyId by rememberSaveable { mutableStateOf("") }
+    var doseMl by rememberSaveable { mutableStateOf("") }
     var healthStatus by rememberSaveable { mutableStateOf("EXCELENTE") }
     var nextControlDate by rememberSaveable { mutableStateOf("") }
     var responsible by rememberSaveable { mutableStateOf("") }
@@ -401,10 +412,18 @@ fun SanitaryRecordFormScreen(
         animals.filter { it.id in animalIds }
     }
     val selectedAnimal = animals.firstOrNull { it.id == animalId }
+    val selectedSupply = medicineSupplies.firstOrNull { it.id == supplyId }
     val requiresMedication = eventType in medicationRequiredEvents
+    val parsedDoseMl = doseMl.replace(',', '.').toDoubleOrNull()
+    val supplyRequiredError = attemptedSave && requiresMedication && supplyId.isBlank()
+    val doseRequired = requiresMedication || supplyId.isNotBlank()
+    val doseError = attemptedSave && doseRequired && (
+        parsedDoseMl == null || !parsedDoseMl.isFinite() || parsedDoseMl <= 0.0 ||
+            selectedSupply == null || parsedDoseMl > selectedSupply.availableMl
+    )
     val formValid = animalId.isNotBlank() && eventDate.isNotBlank() &&
-        diagnosis.isNotBlank() && (!requiresMedication ||
-        (medication.isNotBlank() && dose.isNotBlank()))
+        diagnosis.isNotBlank() && (!requiresMedication || supplyId.isNotBlank()) &&
+        (!doseRequired || !doseError && parsedDoseMl != null)
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -528,29 +547,69 @@ fun SanitaryRecordFormScreen(
                 )
             }
             item {
-                OutlinedTextField(
-                    value = medication,
-                    onValueChange = { medication = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (requiresMedication) "Vacuna o medicamento *" else "Medicamento") },
-                    isError = attemptedSave && requiresMedication && medication.isBlank(),
-                    supportingText = if (attemptedSave && requiresMedication && medication.isBlank()) {
-                        { Text("Indique el producto aplicado.") }
-                    } else null,
-                    singleLine = true
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SelectionDropdown(
+                        label = if (requiresMedication) {
+                            "Medicina o vitamina del inventario *"
+                        } else {
+                            "Medicina o vitamina del inventario (opcional)"
+                        },
+                        selectedId = supplyId,
+                        emptyOptionLabel = if (medicineSupplies.isEmpty()) {
+                            "No hay productos con contenido en ml y existencia"
+                        } else {
+                            "Seleccione el producto aplicado"
+                        },
+                        options = medicineSupplies.map { it.id to it.label },
+                        onSelected = {
+                            supplyId = it
+                            doseMl = ""
+                        },
+                        allowEmptySelection = !requiresMedication,
+                        showError = supplyRequiredError
+                    )
+                    if (supplyRequiredError) {
+                        Text(
+                            "Seleccione una medicina o vitamina disponible en Insumos.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    selectedSupply?.let { supply ->
+                        Text(
+                            "Disponible: ${formatSanitaryMl(supply.availableMl)} ml · " +
+                                "${formatSanitaryMl(supply.contentMlPerUnit)} ml por presentación",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
             item {
                 OutlinedTextField(
-                    value = dose,
-                    onValueChange = { dose = it },
+                    value = doseMl,
+                    onValueChange = { doseMl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(if (requiresMedication) "Dosis aplicada *" else "Dosis aplicada") },
-                    placeholder = { Text("Ejemplo: 5 ml vía intramuscular") },
-                    isError = attemptedSave && requiresMedication && dose.isBlank(),
-                    supportingText = if (attemptedSave && requiresMedication && dose.isBlank()) {
-                        { Text("Registre cantidad y vía de administración.") }
-                    } else null,
+                    label = { Text(if (doseRequired) "Dosis aplicada (ml) *" else "Dosis aplicada (ml)") },
+                    placeholder = { Text("Ejemplo: 5") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    enabled = supplyId.isNotBlank(),
+                    isError = doseError,
+                    supportingText = if (doseError) {
+                        {
+                            Text(
+                                when {
+                                    parsedDoseMl == null || parsedDoseMl <= 0.0 ->
+                                        "Ingrese una dosis mayor que cero."
+                                    selectedSupply != null && parsedDoseMl > selectedSupply.availableMl ->
+                                        "La dosis supera los ${formatSanitaryMl(selectedSupply.availableMl)} ml disponibles."
+                                    else -> "Seleccione un producto disponible."
+                                }
+                            )
+                        }
+                    } else {
+                        { Text("La dosis se descontará automáticamente del inventario.") }
+                    },
                     singleLine = true
                 )
             }
@@ -611,8 +670,8 @@ fun SanitaryRecordFormScreen(
                                     eventType = eventType,
                                     eventDate = eventDate,
                                     diagnosis = diagnosis.trim(),
-                                    medication = medication.trim(),
-                                    dose = dose.trim(),
+                                    supplyId = supplyId.ifBlank { null },
+                                    doseMl = doseMl.trim(),
                                     healthStatus = healthStatus,
                                     nextControlDate = nextControlDate,
                                     responsible = responsible.trim(),
@@ -703,6 +762,9 @@ private val healthStatuses = listOf("EXCELENTE", "OBSERVACIÓN", "CRÍTICO")
 
 private fun formatDate(value: Long): String =
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(value))
+
+private fun formatSanitaryMl(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(value)
 
 private fun startOfToday(): Long = java.util.Calendar.getInstance().apply {
     set(java.util.Calendar.HOUR_OF_DAY, 0)

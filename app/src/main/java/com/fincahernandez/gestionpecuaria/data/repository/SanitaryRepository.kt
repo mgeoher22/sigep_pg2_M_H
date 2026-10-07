@@ -3,6 +3,7 @@ package com.fincahernandez.gestionpecuaria.data.repository
 import androidx.room.withTransaction
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.local.entity.EventoSanitarioEntity
+import com.fincahernandez.gestionpecuaria.data.local.entity.MovimientoInsumoEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -14,6 +15,8 @@ data class SanitaryStoredRecord(
     val eventType: String,
     val eventDate: Long,
     val diagnosis: String,
+    val supplyId: String?,
+    val doseMl: Double?,
     val medication: String?,
     val dose: String?,
     val healthStatus: String,
@@ -27,11 +30,12 @@ class SanitaryRepository(
     private val database: GestionPecuariaDatabase
 ) {
     private val sanitaryDao = database.eventoSanitarioDao()
+    private val supplyDao = database.insumoDao()
 
     fun observeRecords(): Flow<List<SanitaryStoredRecord>> =
         sanitaryDao.observarTodos().mapToStoredRecords()
 
-    suspend fun register(record: SanitaryStoredRecord) {
+    suspend fun register(record: SanitaryStoredRecord, registeredByUserId: String? = null) {
         database.withTransaction {
             requireNotFuture(record.eventDate, "La fecha del evento sanitario")
             val animal = checkNotNull(database.animalDao().buscarPorId(record.animalId)) {
@@ -49,6 +53,35 @@ class SanitaryRepository(
                     message = "El próximo control no puede ser anterior al evento sanitario."
                 )
             }
+            val supply = record.supplyId?.let { supplyId ->
+                checkNotNull(supplyDao.buscarInsumoPorId(supplyId)) {
+                    "No se encontró la medicina o vitamina seleccionada."
+                }.also { selected ->
+                    check(selected.activo) { "El producto seleccionado está inactivo." }
+                    require(selected.categoria == SupplyCatalog.MEDICINES_AND_VITAMINS) {
+                        "Seleccione un producto de la categoría Medicinas y vitaminas."
+                    }
+                    require(
+                        selected.contenidoMlPorUnidad != null &&
+                            selected.contenidoMlPorUnidad.isFinite() &&
+                            selected.contenidoMlPorUnidad > 0.0
+                    ) {
+                        "El producto no tiene configurado el contenido de su presentación en ml."
+                    }
+                }
+            }
+            if (supply == null) {
+                require(record.eventType !in INVENTORY_REQUIRED_EVENTS) {
+                    "Seleccione una medicina o vitamina del inventario para este evento."
+                }
+                require(record.doseMl == null) {
+                    "Seleccione el producto antes de registrar una dosis."
+                }
+            } else {
+                require(
+                    record.doseMl != null && record.doseMl.isFinite() && record.doseMl > 0.0
+                ) { "La dosis debe ser mayor que cero." }
+            }
             check(
                 sanitaryDao.actualizarEstadoDelAnimal(
                     animalId = record.animalId,
@@ -64,14 +97,79 @@ class SanitaryRepository(
                     tipoEvento = record.eventType,
                     fechaEvento = record.eventDate,
                     diagnostico = record.diagnosis,
-                    medicamento = record.medication,
-                    dosis = record.dose,
+                    insumoId = supply?.id,
+                    dosisMl = record.doseMl,
+                    medicamento = supply?.nombre ?: record.medication,
+                    dosis = record.doseMl?.let { "${formatMilliliters(it)} ml" } ?: record.dose,
                     estadoSalud = record.healthStatus,
                     proximoControl = record.nextControlDate,
                     responsable = record.responsible,
                     observaciones = record.notes
                 )
             )
+            if (supply != null) {
+                consumeMedication(
+                    supply = supply,
+                    doseMl = checkNotNull(record.doseMl),
+                    record = record,
+                    registeredByUserId = registeredByUserId
+                )
+            }
+        }
+    }
+
+    /** Descuenta primero la presentación con vencimiento más cercano. */
+    private suspend fun consumeMedication(
+        supply: com.fincahernandez.gestionpecuaria.data.local.entity.InsumoEntity,
+        doseMl: Double,
+        record: SanitaryStoredRecord,
+        registeredByUserId: String?
+    ) {
+        val contentMl = checkNotNull(supply.contenidoMlPorUnidad)
+        val stocks = supplyDao.listarExistenciasDisponibles(supply.id, record.eventDate)
+        val availableMl = stocks.sumOf { it.cantidadDisponible * contentMl }
+        check(availableMl + MILLILITER_EPSILON >= doseMl) {
+            "Existencia insuficiente de ${supply.nombre}. Disponible: " +
+                "${formatMilliliters(availableMl)} ml."
+        }
+
+        val now = System.currentTimeMillis()
+        var remainingMl = doseMl
+        stocks.forEach { stock ->
+            if (remainingMl <= MILLILITER_EPSILON) return@forEach
+            val stockMl = stock.cantidadDisponible * contentMl
+            val deductedMl = minOf(stockMl, remainingMl)
+            val deductedUnits = deductedMl / contentMl
+            check(
+                supplyDao.actualizarExistencia(
+                    stock.copy(
+                        cantidadDisponible =
+                            (stock.cantidadDisponible - deductedUnits).coerceAtLeast(0.0),
+                        actualizadoEn = now
+                    )
+                ) == 1
+            ) { "No fue posible descontar la medicina del inventario." }
+            supplyDao.insertarMovimiento(
+                MovimientoInsumoEntity(
+                    operacionId = record.id,
+                    insumoId = supply.id,
+                    existenciaId = stock.id,
+                    tipo = "SALIDA_SANITARIA",
+                    cantidad = deductedUnits,
+                    costoUnitario = stock.costoUnitario,
+                    fecha = record.eventDate,
+                    loteId = record.referenceLotId,
+                    responsable = record.responsible?.trim()?.ifBlank { null }
+                        ?: "Control sanitario",
+                    registradoPorUsuarioId = registeredByUserId?.trim()?.ifBlank { null },
+                    observaciones = "${record.eventType}: ${record.diagnosis}",
+                    creadoEn = now
+                )
+            )
+            remainingMl -= deductedMl
+        }
+        check(remainingMl <= MILLILITER_EPSILON) {
+            "No fue posible completar el descuento de la dosis."
         }
     }
 }
@@ -87,6 +185,8 @@ private fun Flow<List<EventoSanitarioEntity>>.mapToStoredRecords(): Flow<List<Sa
                 eventType = record.tipoEvento,
                 eventDate = record.fechaEvento,
                 diagnosis = record.diagnostico,
+                supplyId = record.insumoId,
+                doseMl = record.dosisMl,
                 medication = record.medicamento,
                 dose = record.dosis,
                 healthStatus = record.estadoSalud,
@@ -96,3 +196,9 @@ private fun Flow<List<EventoSanitarioEntity>>.mapToStoredRecords(): Flow<List<Sa
             )
         }
     }
+
+private fun formatMilliliters(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(value)
+
+private const val MILLILITER_EPSILON = 0.000_001
+private val INVENTORY_REQUIRED_EVENTS = setOf("VACUNA", "TRATAMIENTO", "DESPARASITACIÓN")

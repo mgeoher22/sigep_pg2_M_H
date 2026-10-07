@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.data.geo.ImportedParcelBoundary
+import com.fincahernandez.gestionpecuaria.data.geo.calculateParcelBoundaryMetrics
 import com.fincahernandez.gestionpecuaria.data.geo.decodeParcelBoundary
 import com.fincahernandez.gestionpecuaria.data.geo.importParcelBoundaries
 import kotlinx.coroutines.Dispatchers
@@ -87,7 +88,15 @@ data class ParcelUiModel(
     val status: String,
     val capacity: Int?,
     val currentLot: String,
-    val boundaryGeoJson: String? = null
+    val boundaryGeoJson: String? = null,
+    val geographicAreaHectares: Double? = null,
+    val perimeterMeters: Double? = null,
+    val productivity: ParcelProductivityUiModel = calculateParcelProductivity(
+        areaHectares = areaHectares,
+        capacity = capacity,
+        activeAnimalCount = 0,
+        latestKnownWeightsPounds = emptyList()
+    )
 )
 
 /** Valores capturados al registrar una parcela. */
@@ -108,6 +117,7 @@ fun ParcelListScreen(
     onCreateParcel: () -> Unit,
     onParcelClick: (String) -> Unit,
     onNavigateMain: (String) -> Unit,
+    canManageParcels: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var statusFilter by rememberSaveable { mutableStateOf("ACTIVAS") }
@@ -119,7 +129,9 @@ fun ParcelListScreen(
             else -> true
         }
     }
-    val totalArea = activeParcels.sumOf { it.areaHectares }
+    val totalArea = activeParcels.sumOf { it.geographicAreaHectares ?: it.areaHectares }
+    val totalPerimeterMeters = activeParcels.sumOf { it.perimeterMeters ?: 0.0 }
+    val parcelsWithoutBoundary = activeParcels.count { it.geographicAreaHectares == null }
     val restingCount = activeParcels.count { it.status == "DESCANSO" }
 
     Scaffold(
@@ -147,13 +159,15 @@ fun ParcelListScreen(
             AppBottomBar(selectedRoute = Routes.PARCELS, onNavigate = onNavigateMain)
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreateParcel,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Registrar parcela") },
-                containerColor = MaterialTheme.colorScheme.tertiary,
-                contentColor = MaterialTheme.colorScheme.onTertiary
-            )
+            if (canManageParcels) {
+                ExtendedFloatingActionButton(
+                    onClick = onCreateParcel,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Registrar parcela") },
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -171,13 +185,30 @@ fun ParcelListScreen(
                         modifier = Modifier.weight(1f)
                     )
                     ParcelSummaryCard(
-                        title = "EN DESCANSO",
-                        value = restingCount.toString(),
+                        title = "PERÍMETRO TOTAL",
+                        value = formatPerimeter(totalPerimeterMeters),
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
-            item { ParcelMap(activeParcels) }
+            if (parcelsWithoutBoundary > 0) {
+                item {
+                    Text(
+                        "$parcelsWithoutBoundary parcela(s) sin límites geográficos: " +
+                            "su área registrada se incluye, pero no su perímetro.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            item {
+                ParcelSummaryCard(
+                    title = "EN DESCANSO",
+                    value = restingCount.toString(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item { ParcelMap(parcels) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -213,7 +244,7 @@ fun ParcelListScreen(
                                     "Cambia el filtro para consultar las demás parcelas."
                                 }
                             )
-                            if (parcels.isEmpty()) {
+                            if (parcels.isEmpty() && canManageParcels) {
                                 OutlinedButton(onClick = onCreateParcel) {
                                     Text("Registrar primera parcela")
                                 }
@@ -244,7 +275,7 @@ private fun ParcelSummaryCard(title: String, value: String, modifier: Modifier) 
     }
 }
 
-/** Mapa esquemático: cada bloque representa una parcela y su estado. */
+/** Mapa satelital conjunto; cada color corresponde a un límite de parcela. */
 @Composable
 private fun ParcelMap(parcels: List<ParcelUiModel>) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -257,48 +288,16 @@ private fun ParcelMap(parcels: List<ParcelUiModel>) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Mapa de parcelas", style = MaterialTheme.typography.titleMedium)
             }
-            if (parcels.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(130.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Sin parcelas para representar")
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    parcels.chunked(3).forEach { rowParcels ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            rowParcels.forEach { parcel ->
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(72.dp)
-                                        .background(
-                                            parcelStatusColor(parcel.status),
-                                            RoundedCornerShape(10.dp)
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        parcel.code,
-                                        color = parcelStatusContentColor(parcel.status),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            repeat(3 - rowParcels.size) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
+            ParcelSatelliteOverviewMap(
+                parcels = parcels,
+                modifier = Modifier.fillMaxWidth().height(260.dp)
+            )
+            ParcelMapLegend()
+            Text(
+                "El encuadre incluye todas las parcelas con límites KML/KMZ guardados.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -317,6 +316,7 @@ private fun ParcelCard(parcel: ParcelUiModel, onClick: () -> Unit) {
             parcel.boundaryGeoJson?.let { boundary ->
                 ParcelSatelliteMap(
                     boundaryGeoJson = boundary,
+                    polygonColors = listOf(parcelStatusMapColor(parcel.status)),
                     modifier = Modifier.fillMaxWidth().height(138.dp),
                     liteMode = true,
                     onMapClick = onClick
@@ -335,6 +335,14 @@ private fun ParcelCard(parcel: ParcelUiModel, onClick: () -> Unit) {
             }
             Text("Pastura: ${parcel.pastureType}")
             Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
+            Text(
+                parcel.productivity.utilizationPercent?.let { utilization ->
+                    "Aprovechamiento: ${formatParcelMetric(utilization)} % " +
+                        "(${parcel.productivity.activeAnimalCount}/${parcel.productivity.capacity} animales)"
+                } ?: "Aprovechamiento: configure la capacidad de la parcela",
+                color = productivityContentColor(parcel.productivity.level),
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -355,15 +363,47 @@ private fun ParcelStatusBadge(status: String) {
     }
 }
 
-private fun parcelStatusColor(status: String): Color = when (status) {
-    "OCUPADA" -> Color(0xFF64B5F6)
-    "DESCANSO", "INACTIVA" -> Color(0xFFD7D7D7)
-    else -> Color(0xFF1B6E2A)
+private fun parcelStatusColor(status: String): Color = when (status.uppercase()) {
+    "OCUPADA" -> Color(0xFF1976D2)
+    "DESCANSO" -> Color(0xFFFFCA28)
+    "INACTIVA" -> Color(0xFFBDBDBD)
+    else -> Color(0xFF2E7D32)
 }
 
 private fun parcelStatusContentColor(status: String): Color = when (status) {
-    "DESCANSO", "INACTIVA" -> Color(0xFF303030)
+    "DESCANSO", "INACTIVA" -> Color(0xFF212121)
     else -> Color.White
+}
+
+@Composable
+private fun ParcelMapLegend() {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("Significado de colores", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ParcelMapLegendItem("Disponible", "DISPONIBLE", Modifier.weight(1f))
+            ParcelMapLegendItem("Ocupada", "OCUPADA", Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ParcelMapLegendItem("En descanso", "DESCANSO", Modifier.weight(1f))
+            ParcelMapLegendItem("Inactiva", "INACTIVA", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ParcelMapLegendItem(label: String, status: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Box(
+            Modifier
+                .size(12.dp)
+                .background(parcelStatusColor(status), RoundedCornerShape(50))
+        )
+        Text(label, style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 /** Formulario de alta de parcelas basado en la estructura del prototipo. */
@@ -378,8 +418,15 @@ fun ParcelFormScreen(
     modifier: Modifier = Modifier
 ) {
     var name by rememberSaveable(initialData?.name) { mutableStateOf(initialData?.name.orEmpty()) }
-    var area by rememberSaveable(initialData?.areaHectares) {
-        mutableStateOf(initialData?.areaHectares.orEmpty())
+    val initialCalculatedArea = remember(initialData?.boundaryGeoJson) {
+        initialData?.boundaryGeoJson?.let { boundary ->
+            runCatching { calculateParcelBoundaryMetrics(boundary).areaHectares }
+                .getOrNull()
+                ?.let(::formatCalculatedArea)
+        }
+    }
+    var area by rememberSaveable(initialData?.areaHectares, initialCalculatedArea) {
+        mutableStateOf(initialCalculatedArea ?: initialData?.areaHectares.orEmpty())
     }
     var pastureType by rememberSaveable(initialData?.pastureType) {
         mutableStateOf(initialData?.pastureType.orEmpty())
@@ -409,7 +456,12 @@ fun ParcelFormScreen(
                 runCatching {
                     withContext(Dispatchers.IO) { importParcelBoundaries(context, uri) }
                 }.onSuccess { imported ->
-                    if (imported.size == 1) boundaryGeoJson = imported.first().geoJson
+                    if (imported.size == 1) {
+                        boundaryGeoJson = imported.first().geoJson
+                        area = formatCalculatedArea(
+                            calculateParcelBoundaryMetrics(imported.first().geoJson).areaHectares
+                        )
+                    }
                     else pendingBoundaries = imported
                 }.onFailure { error ->
                     importError = error.message ?: "No se pudo leer el archivo KML/KMZ."
@@ -431,6 +483,9 @@ fun ParcelFormScreen(
                         Card(
                             modifier = Modifier.fillMaxWidth().clickable {
                                 boundaryGeoJson = imported.geoJson
+                                area = formatCalculatedArea(
+                                    calculateParcelBoundaryMetrics(imported.geoJson).areaHectares
+                                )
                                 pendingBoundaries = emptyList()
                             }
                         ) {
@@ -508,10 +563,17 @@ fun ParcelFormScreen(
                     label = { Text("Superficie en hectáreas *") },
                     suffix = { Text("ha") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    readOnly = boundaryGeoJson != null,
                     isError = attemptedSave && areaInvalid,
-                    supportingText = if (attemptedSave && areaInvalid) {
-                        { Text("Ingrese una superficie mayor que cero.") }
-                    } else null,
+                    supportingText = when {
+                        attemptedSave && areaInvalid -> {
+                            { Text("Ingrese una superficie mayor que cero.") }
+                        }
+                        boundaryGeoJson != null -> {
+                            { Text("Calculada automáticamente desde los límites geográficos.") }
+                        }
+                        else -> null
+                    },
                     singleLine = true
                 )
             }
@@ -718,17 +780,47 @@ fun ParcelDetailScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+                    shape = RoundedCornerShape(18.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(22.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ParcelStatusBadge(parcel.status)
-                        Text(parcel.name, color = Color.White, style = MaterialTheme.typography.headlineSmall)
-                        Text(parcel.code, color = Color.White.copy(alpha = 0.85f))
+                    Box(modifier = Modifier.fillMaxWidth().height(190.dp)) {
+                        parcel.boundaryGeoJson?.let { boundary ->
+                            ParcelSatelliteMap(
+                                boundaryGeoJson = boundary,
+                                polygonColors = listOf(parcelStatusMapColor(parcel.status)),
+                                modifier = Modifier.fillMaxSize(),
+                                liteMode = true
+                            )
+                        } ?: Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        // La capa oscura mantiene legibles el nombre y el código sobre la imagen.
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.46f))
+                        )
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(22.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ParcelStatusBadge(parcel.status)
+                            Text(
+                                parcel.name,
+                                color = Color.White,
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(parcel.code, color = Color.White.copy(alpha = 0.9f))
+                        }
                     }
                 }
+            }
+            item {
+                ParcelProductivityCard(productivity = parcel.productivity)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -753,6 +845,9 @@ fun ParcelDetailScreen(
                         Text("Información productiva", fontWeight = FontWeight.Bold)
                         Text("Tipo de pastura: ${parcel.pastureType}")
                         Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
+                        Text(
+                            "Perímetro del límite: ${parcel.perimeterMeters?.let(::formatPerimeter) ?: "Sin límite geográfico"}"
+                        )
                     }
                 }
             }
@@ -762,6 +857,7 @@ fun ParcelDetailScreen(
                         parcel.boundaryGeoJson?.let { boundary ->
                             ParcelSatelliteMap(
                                 boundaryGeoJson = boundary,
+                                polygonColors = listOf(parcelStatusMapColor(parcel.status)),
                                 modifier = Modifier.fillMaxWidth().height(240.dp),
                                 onMapClick = onOpenMap
                             )
@@ -832,8 +928,116 @@ fun ParcelDetailScreen(
     }
 }
 
+/** Explica el cálculo para que el indicador pueda defenderse y verificarse. */
+@Composable
+private fun ParcelProductivityCard(productivity: ParcelProductivityUiModel) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Productividad actual",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Surface(
+                    color = productivityBackgroundColor(productivity.level),
+                    contentColor = productivityContentColor(productivity.level),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        productivityLevelLabel(productivity.level),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (productivity.utilizationPercent == null) {
+                Text(
+                    "Registre la capacidad de animales para calcular el aprovechamiento.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    "${formatParcelMetric(productivity.utilizationPercent)} %",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = productivityContentColor(productivity.level),
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "${productivity.activeAnimalCount} animales activos ÷ " +
+                        "${productivity.capacity} de capacidad × 100",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Text(
+                "Carga actual: ${formatParcelMetric(productivity.animalsPerHectare)} animales/ha"
+            )
+            Text(
+                productivity.knownLiveWeightPerHectare?.let { poundsPerHectare ->
+                    "Peso vivo conocido: ${formatParcelMetric(poundsPerHectare)} lb/ha " +
+                        "(${productivity.animalsWithKnownWeight}/${productivity.activeAnimalCount} animales con pesaje)"
+                } ?: "Peso vivo conocido: sin pesajes disponibles"
+            )
+            Text(
+                "Interpretación: menos de 80 % indica bajo aprovechamiento; de 80 % a 100 % " +
+                    "es adecuado; más de 100 % indica sobrecarga.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Este indicador mide el uso de la capacidad registrada; no representa rendimiento del pasto.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
 private fun formatArea(value: Double): String =
     if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+
+private fun formatCalculatedArea(value: Double): String = "%.4f".format(value)
+
+private fun formatPerimeter(valueMeters: Double): String = when {
+    valueMeters >= 1_000.0 -> "${formatParcelMetric(valueMeters / 1_000.0)} km"
+    else -> "${formatParcelMetric(valueMeters)} m"
+}
+
+private fun formatParcelMetric(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
+
+private fun productivityLevelLabel(level: ParcelProductivityLevel): String = when (level) {
+    ParcelProductivityLevel.NO_CAPACITY -> "Sin capacidad"
+    ParcelProductivityLevel.UNOCCUPIED -> "Sin ocupación"
+    ParcelProductivityLevel.LOW -> "Bajo"
+    ParcelProductivityLevel.ADEQUATE -> "Adecuado"
+    ParcelProductivityLevel.OVERLOADED -> "Sobrecarga"
+}
+
+private fun productivityBackgroundColor(level: ParcelProductivityLevel): Color = when (level) {
+    ParcelProductivityLevel.ADEQUATE -> Color(0xFFD9F2DF)
+    ParcelProductivityLevel.OVERLOADED -> Color(0xFFFFDAD6)
+    ParcelProductivityLevel.LOW -> Color(0xFFFFE9B3)
+    ParcelProductivityLevel.NO_CAPACITY,
+    ParcelProductivityLevel.UNOCCUPIED -> Color(0xFFE4E4E4)
+}
+
+private fun productivityContentColor(level: ParcelProductivityLevel): Color = when (level) {
+    ParcelProductivityLevel.ADEQUATE -> Color(0xFF146C2E)
+    ParcelProductivityLevel.OVERLOADED -> Color(0xFF9C1C16)
+    ParcelProductivityLevel.LOW -> Color(0xFF765500)
+    ParcelProductivityLevel.NO_CAPACITY,
+    ParcelProductivityLevel.UNOCCUPIED -> Color(0xFF3F3F3F)
+}
 
 private val pastureTypes = listOf(
     "Brachiaria",

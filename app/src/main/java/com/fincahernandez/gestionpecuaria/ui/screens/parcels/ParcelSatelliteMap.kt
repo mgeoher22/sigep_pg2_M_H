@@ -44,16 +44,24 @@ import org.maplibre.android.maps.MapView
 @Composable
 fun ParcelSatelliteMap(
     boundaryGeoJson: String,
+    additionalBoundaryGeoJson: List<String> = emptyList(),
+    polygonColors: List<Int> = emptyList(),
     modifier: Modifier = Modifier,
     liteMode: Boolean = true,
     onMapClick: (() -> Unit)? = null
 ) {
-    val points = remember(boundaryGeoJson) {
-        runCatching { decodeParcelBoundary(boundaryGeoJson) }.getOrDefault(emptyList())
+    val polygons = remember(boundaryGeoJson, additionalBoundaryGeoJson, polygonColors) {
+        (listOf(boundaryGeoJson) + additionalBoundaryGeoJson)
+            .mapIndexedNotNull { index, encoded ->
+                runCatching { decodeParcelBoundary(encoded) }
+                    .getOrNull()
+                    ?.takeIf { points -> points.isNotEmpty() }
+                    ?.let { points -> points to (polygonColors.getOrNull(index) ?: DEFAULT_PARCEL_MAP_COLOR) }
+            }
     }
-    if (BuildConfig.MAPTILER_API_KEY.isBlank() || points.isEmpty()) {
+    if (BuildConfig.MAPTILER_API_KEY.isBlank() || polygons.isEmpty()) {
         ParcelMapUnavailable(
-            message = if (points.isEmpty()) "Límites geográficos no disponibles"
+            message = if (polygons.isEmpty()) "Límites geográficos no disponibles"
             else "Configura la clave gratuita de MapTiler para ver la imagen satelital",
             modifier = modifier
         )
@@ -67,7 +75,7 @@ fun ParcelSatelliteMap(
         MapLibre.getInstance(context.applicationContext)
         MapView(context).apply { onCreate(null) }
     }
-    val mapConfigured = remember(mapView, boundaryGeoJson) {
+    val mapConfigured = remember(mapView, boundaryGeoJson, additionalBoundaryGeoJson, polygonColors) {
         java.util.concurrent.atomic.AtomicBoolean(false)
     }
 
@@ -120,7 +128,10 @@ fun ParcelSatelliteMap(
                 view.getMapAsync { map ->
                     // Evita volver a descargar el estilo cada vez que Compose recompone la tarjeta.
                     if (!mapConfigured.compareAndSet(false, true)) return@getMapAsync
-                    val coordinates = points.map { LatLng(it.latitude, it.longitude) }
+                    val polygonCoordinates = polygons.map { (points, color) ->
+                        points.map { LatLng(it.latitude, it.longitude) } to color
+                    }
+                    val coordinates = polygonCoordinates.flatMap { it.first }
                     map.uiSettings.apply {
                         isScrollGesturesEnabled = !liteMode
                         isZoomGesturesEnabled = !liteMode
@@ -134,13 +145,15 @@ fun ParcelSatelliteMap(
                     val key = android.net.Uri.encode(BuildConfig.MAPTILER_API_KEY)
                     map.setStyle("https://api.maptiler.com/maps/satellite-v4/style.json?key=$key") {
                         map.clear()
-                        @Suppress("DEPRECATION")
-                        map.addPolygon(
-                            PolygonOptions()
-                                .addAll(coordinates)
-                                .strokeColor(0xFF1B6E2A.toInt())
-                                .fillColor(0x381B6E2A)
-                        )
+                        polygonCoordinates.forEach { (polygon, strokeColor) ->
+                            @Suppress("DEPRECATION")
+                            map.addPolygon(
+                                PolygonOptions()
+                                    .addAll(polygon)
+                                    .strokeColor(strokeColor)
+                                    .fillColor(strokeColor.withMapAlpha(0x45))
+                            )
+                        }
                         val bounds = LatLngBounds.fromLatLngs(coordinates)
                         view.post {
                             if (view.width > 0 && view.height > 0) {
@@ -166,6 +179,47 @@ fun ParcelSatelliteMap(
         }
     }
 }
+
+/** Dibuja todos los límites registrados dentro de la misma imagen satelital. */
+@Composable
+fun ParcelSatelliteOverviewMap(
+    parcels: List<ParcelUiModel>,
+    modifier: Modifier = Modifier
+) {
+    val mappedParcels = remember(parcels) {
+        parcels.mapNotNull { parcel ->
+            parcel.boundaryGeoJson?.let { boundary ->
+                boundary to parcelStatusMapColor(parcel.status)
+            }
+        }
+    }
+    if (mappedParcels.isEmpty()) {
+        ParcelMapUnavailable(
+            message = "Importa límites KML/KMZ para construir el mapa general",
+            modifier = modifier
+        )
+    } else {
+        ParcelSatelliteMap(
+            boundaryGeoJson = mappedParcels.first().first,
+            additionalBoundaryGeoJson = mappedParcels.drop(1).map { it.first },
+            polygonColors = mappedParcels.map { it.second },
+            modifier = modifier,
+            liteMode = true
+        )
+    }
+}
+
+private fun Int.withMapAlpha(alpha: Int): Int =
+    (this and 0x00FFFFFF) or ((alpha and 0xFF) shl 24)
+
+internal fun parcelStatusMapColor(status: String): Int = when (status.uppercase()) {
+    "OCUPADA" -> 0xFF1976D2.toInt()
+    "DESCANSO" -> 0xFFF9A825.toInt()
+    "INACTIVA" -> 0xFF757575.toInt()
+    else -> DEFAULT_PARCEL_MAP_COLOR
+}
+
+private val DEFAULT_PARCEL_MAP_COLOR: Int = 0xFF2E7D32.toInt()
 
 @Composable
 fun ParcelMapUnavailable(message: String, modifier: Modifier = Modifier) {
@@ -205,6 +259,7 @@ fun ParcelMapScreen(parcel: ParcelUiModel, onBack: () -> Unit) {
         } else {
             ParcelSatelliteMap(
                 boundaryGeoJson = boundary,
+                polygonColors = listOf(parcelStatusMapColor(parcel.status)),
                 liteMode = false,
                 modifier = Modifier.fillMaxSize().padding(padding)
             )

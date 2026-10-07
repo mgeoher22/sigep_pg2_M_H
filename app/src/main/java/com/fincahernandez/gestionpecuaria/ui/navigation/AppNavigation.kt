@@ -27,6 +27,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.LocalLogoutAction
 import com.fincahernandez.gestionpecuaria.data.local.entity.AnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.LoteAnimalEntity
 import com.fincahernandez.gestionpecuaria.data.local.entity.PesajeEntity
+import com.fincahernandez.gestionpecuaria.data.geo.calculateParcelBoundaryMetrics
 import com.fincahernandez.gestionpecuaria.data.repository.AnimalStoredRecord
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
@@ -37,6 +38,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
 import com.fincahernandez.gestionpecuaria.data.repository.MilkProductionDraft
 import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SanitaryStoredRecord
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyCatalog
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyAdjustmentDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyAssignmentDraft
@@ -50,6 +52,7 @@ import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
 import com.fincahernandez.gestionpecuaria.data.security.canManageSupplies
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalBirthPeriodScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalFormScreen
@@ -77,6 +80,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryControlScree
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryRecordFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryRecordUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitarySupplyOption
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotDetailScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalOption
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotAnimalSelectionScreen
@@ -98,6 +102,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelMapScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.parcels.ParcelUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.parcels.calculateParcelProductivity
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportDashboardData
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.reports.ReportsCenterScreen
@@ -112,6 +117,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyEntryScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyExitScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyEmployeeOption
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.users.RolePermissionsScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserFormScreen
@@ -279,19 +285,40 @@ fun AppNavigation() {
             }
         }
     }
-    val parcels = remember(storedParcels) {
+    val parcels = remember(storedParcels, storedLots, storedAnimals) {
+        val latestWeightByAnimalId = storedAnimals.associate { record ->
+            record.animal.id to record.lastWeightPounds
+        }
         storedParcels.map { record ->
             val parcel = record.parcel
+            val boundaryMetrics = parcel.limitesGeoJson?.let { boundary ->
+                runCatching { calculateParcelBoundaryMetrics(boundary) }.getOrNull()
+            }
+            val effectiveAreaHectares = boundaryMetrics?.areaHectares ?: parcel.areaHectareas
+            val activeLot = storedLots.firstOrNull { lotRecord ->
+                lotRecord.lot.estado == "ACTIVO" &&
+                    lotRecord.lot.parcelaNombre.equals(parcel.nombre, ignoreCase = true)
+            }
+            val activeAnimalIds = activeLot?.activeAnimalIds.orEmpty()
+            val knownWeights = activeAnimalIds.mapNotNull(latestWeightByAnimalId::get)
             ParcelUiModel(
                 id = parcel.id,
                 code = parcel.codigo,
                 name = parcel.nombre,
-                areaHectares = parcel.areaHectareas,
+                areaHectares = effectiveAreaHectares,
                 pastureType = parcel.tipoPastura,
                 status = if (record.currentLotName == null) parcel.estado else "OCUPADA",
                 capacity = parcel.capacidadAnimales,
                 currentLot = record.currentLotName.orEmpty(),
-                boundaryGeoJson = parcel.limitesGeoJson
+                boundaryGeoJson = parcel.limitesGeoJson,
+                geographicAreaHectares = boundaryMetrics?.areaHectares,
+                perimeterMeters = boundaryMetrics?.perimeterMeters,
+                productivity = calculateParcelProductivity(
+                    areaHectares = effectiveAreaHectares,
+                    capacity = parcel.capacidadAnimales,
+                    activeAnimalCount = activeAnimalIds.size,
+                    latestKnownWeightsPounds = knownWeights
+                )
             )
         }
     }
@@ -348,6 +375,12 @@ fun AppNavigation() {
         }
     }
     val employeeNamesById = remember(employees) { employees.associate { it.id to it.fullName } }
+    val supplyEmployeeOptions = remember(employees) {
+        employees
+            .filter { it.active }
+            .sortedBy { it.fullName.lowercase() }
+            .map { employee -> SupplyEmployeeOption(employee.id, employee.fullName) }
+    }
     val employeePayments = remember(storedEmployeePayments, employeeNamesById) {
         storedEmployeePayments.map { payment ->
             EmployeePaymentUiModel(
@@ -736,6 +769,27 @@ fun AppNavigation() {
             )
         }
     }
+    val sanitaryMedicineSupplies = remember(storedSupplies) {
+        storedSupplies.mapNotNull { record ->
+            val supply = record.supply
+            val contentMl = supply.contenidoMlPorUnidad
+            val availableMl = record.availableMilliliters
+            if (
+                !supply.activo || supply.categoria != SupplyCatalog.MEDICINES_AND_VITAMINS ||
+                contentMl == null || availableMl == null || availableMl <= 0.0
+            ) {
+                null
+            } else {
+                SanitarySupplyOption(
+                    id = supply.id,
+                    label = "${supply.nombre} · ${supply.codigo} · " +
+                        "${formatInventoryMl(availableMl)} ml disponibles",
+                    availableMl = availableMl,
+                    contentMlPerUnit = contentMl
+                )
+            }
+        }
+    }
     val lotsById = remember(lots) { lots.associateBy { it.id } }
     val sanitaryRecords = remember(storedSanitaryRecords, animalItemsById, lotsById) {
         storedSanitaryRecords.map { record ->
@@ -778,7 +832,8 @@ fun AppNavigation() {
     val selectedMainRoute = when (currentRoute) {
         Routes.ANIMAL_FORM,
         Routes.ANIMAL_CONFIRMATION,
-        Routes.ANIMAL_DETAIL -> Routes.ANIMAL_LIST
+        Routes.ANIMAL_DETAIL,
+        Routes.ANIMAL_BIRTH_PERIOD -> Routes.ANIMAL_LIST
         Routes.LOT_FORM,
         Routes.LOT_ANIMAL_SELECTION,
         Routes.LOT_DETAIL -> Routes.LOTS
@@ -1053,7 +1108,18 @@ fun AppNavigation() {
                             navController.navigate(Routes.ANIMAL_DETAIL)
                         }
                     },
+                    onOpenBirthPeriod = {
+                        navController.navigate(Routes.ANIMAL_BIRTH_PERIOD)
+                    },
                     onMenuClick = openDrawer,
+                    onNavigateMain = navigateMain
+                )
+            }
+
+            composable(Routes.ANIMAL_BIRTH_PERIOD) {
+                AnimalBirthPeriodScreen(
+                    animals = allAnimalItems,
+                    onBack = { navController.popBackStack() },
                     onNavigateMain = navigateMain
                 )
             }
@@ -1469,9 +1535,11 @@ fun AppNavigation() {
                     parcels = parcels,
                     onMenuClick = openDrawer,
                     onCreateParcel = {
-                        parcelEditingId = ""
-                        parcelSaveError = null
-                        navController.navigate(Routes.PARCEL_FORM)
+                        if (canEditRecords) {
+                            parcelEditingId = ""
+                            parcelSaveError = null
+                            navController.navigate(Routes.PARCEL_FORM)
+                        }
                     },
                     onParcelClick = { parcelId ->
                         parcels.firstOrNull { it.id == parcelId }?.let {
@@ -1480,11 +1548,16 @@ fun AppNavigation() {
                             navController.navigate(Routes.PARCEL_DETAIL)
                         }
                     },
-                    onNavigateMain = navigateMain
+                    onNavigateMain = navigateMain,
+                    canManageParcels = canEditRecords
                 )
             }
 
             composable(Routes.PARCEL_FORM) {
+                if (!canEditRecords) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.PARCELS) }
+                    return@composable
+                }
                 val editingParcel = parcels.firstOrNull { it.id == parcelEditingId }
                 ParcelFormScreen(
                     onBack = { navController.popBackStack() },
@@ -1493,12 +1566,12 @@ fun AppNavigation() {
                             parcelIsSaving = true
                             parcelSaveError = null
                             runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede crear o editar parcelas."
+                                }
                                 if (parcelEditingId.isBlank()) {
                                     parcelViewModel.createParcel(form.toParcelDraft())
                                 } else {
-                                    check(canEditRecords) {
-                                        "Solo el Administrador General puede editar parcelas."
-                                    }
                                     parcelViewModel.updateParcel(parcelEditingId, form.toParcelDraft())
                                     parcelEditingId
                                 }
@@ -1835,6 +1908,7 @@ fun AppNavigation() {
                 SanitaryRecordFormScreen(
                     lots = sanitaryLots,
                     animals = sanitaryAnimals,
+                    medicineSupplies = sanitaryMedicineSupplies,
                     initialAnimalId = sanitaryInitialAnimalId,
                     isSaving = sanitaryIsSaving,
                     saveError = sanitarySaveError,
@@ -1855,13 +1929,22 @@ fun AppNavigation() {
                                         eventType = form.eventType,
                                         eventDate = checkNotNull(parseDate(form.eventDate)),
                                         diagnosis = form.diagnosis,
-                                        medication = form.medication.ifBlank { null },
-                                        dose = form.dose.ifBlank { null },
+                                        supplyId = form.supplyId,
+                                        doseMl = form.doseMl.replace(',', '.').toDoubleOrNull(),
+                                        medication = form.supplyId?.let { selectedId ->
+                                            storedSupplies.firstOrNull {
+                                                it.supply.id == selectedId
+                                            }?.supply?.nombre
+                                        },
+                                        dose = form.doseMl.takeIf { it.isNotBlank() }?.let {
+                                            "${it.replace(',', '.')} ml"
+                                        },
                                         healthStatus = form.healthStatus,
                                         nextControlDate = parseDate(form.nextControlDate),
                                         responsible = form.responsible.ifBlank { null },
                                         notes = form.notes.ifBlank { null }
-                                    )
+                                    ),
+                                    registeredByUserId = currentUserId
                                 )
                             }.onSuccess {
                                 sanitaryIsSaving = false
@@ -2028,7 +2111,8 @@ fun AppNavigation() {
                             name = supply.nombre,
                             category = supply.categoria,
                             unit = supply.unidadMedida,
-                            minimumStock = supply.existenciaMinima.toString()
+                            minimumStock = supply.existenciaMinima.toString(),
+                            contentMlPerUnit = supply.contenidoMlPorUnidad?.toString().orEmpty()
                         )
                     },
                     isSaving = supplyIsSaving,
@@ -2046,7 +2130,10 @@ fun AppNavigation() {
                                     unit = form.unit,
                                     minimumStock = form.minimumStock
                                         .replace(',', '.')
-                                        .toDouble()
+                                        .toDouble(),
+                                    contentMlPerUnit = form.contentMlPerUnit
+                                        .replace(',', '.')
+                                        .toDoubleOrNull()
                                 )
                                 if (editingSupply == null) {
                                     supplyViewModel.createSupply(draft)
@@ -2123,6 +2210,9 @@ fun AppNavigation() {
                 }
                 SupplyEntryScreen(
                     record = record,
+                    registeredByName = currentUserFullName
+                        .ifBlank { currentUsername }
+                        .ifBlank { "Usuario actual" },
                     isSaving = supplyMovementIsSaving,
                     saveError = supplyMovementSaveError,
                     onBack = { navController.popBackStack() },
@@ -2148,6 +2238,9 @@ fun AppNavigation() {
                                                     ?: error("El vencimiento no es válido.")
                                             },
                                         userId = currentUser?.id,
+                                        responsible = currentUserFullName
+                                            .ifBlank { currentUsername }
+                                            .ifBlank { "Usuario actual" },
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
@@ -2182,6 +2275,7 @@ fun AppNavigation() {
                     lotOptions = lots.filter { it.status == "ACTIVO" }.map { lot ->
                         SupplyLotOption(lot.id, "${lot.code} · ${lot.name}")
                     },
+                    employeeOptions = supplyEmployeeOptions,
                     isSaving = supplyMovementIsSaving,
                     saveError = supplyMovementSaveError,
                     onBack = { navController.popBackStack() },
@@ -2198,6 +2292,7 @@ fun AppNavigation() {
                                             ?: error("La fecha de salida no es válida."),
                                         lotId = form.lotId.ifBlank { null },
                                         userId = currentUser?.id,
+                                        responsible = form.responsible,
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
@@ -2250,6 +2345,7 @@ fun AppNavigation() {
                     lotOptions = lots.filter { it.status == "ACTIVO" }.map { lot ->
                         SupplyLotOption(lot.id, "${lot.code} · ${lot.name}")
                     },
+                    employeeOptions = supplyEmployeeOptions,
                     isSaving = supplyMovementIsSaving,
                     saveError = supplyMovementSaveError,
                     onBack = { navController.popBackStack() },
@@ -2335,6 +2431,7 @@ fun AppNavigation() {
                                 .takeIf { records -> records.any { it.costoUnitario != null } }
                                 ?.sumOf { it.cantidad * (it.costoUnitario ?: 0.0) },
                             lotLabel = lot?.let { "${it.code} · ${it.name}" },
+                            responsible = first.responsable,
                             registeredBy = registeredUser?.fullName,
                             notes = first.observaciones
                         )
@@ -2386,6 +2483,7 @@ fun AppNavigation() {
                 SupplyAdjustmentScreen(
                     record = record,
                     stocks = stockModels,
+                    employeeOptions = supplyEmployeeOptions,
                     isSaving = supplyMovementIsSaving,
                     saveError = supplyMovementSaveError,
                     onBack = { navController.popBackStack() },
@@ -2407,6 +2505,7 @@ fun AppNavigation() {
                                         date = parseDate(form.adjustmentDate)
                                             ?: error("La fecha del conteo no es válida."),
                                         userId = currentUser?.id,
+                                        responsible = form.responsible,
                                         notes = form.reason
                                     )
                                 )
@@ -2895,3 +2994,6 @@ private fun parseDate(value: String): Long? = runCatching {
 private fun formatDate(value: Long?): String = value?.let {
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(it))
 }.orEmpty()
+
+private fun formatInventoryMl(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(value)

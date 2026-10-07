@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Scale
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -128,6 +129,19 @@ fun DashboardScreen(
                     IconButton(onClick = onMenuClick) {
                         Icon(Icons.Default.Menu, contentDescription = "Abrir menú")
                     }
+                },
+                actions = {
+                    IconButton(onClick = onSyncClick) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = if (syncStatus.isBlank()) {
+                                "Sincronizar con la nube"
+                            } else {
+                                "Sincronizar con la nube. $syncStatus"
+                            },
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             )
         },
@@ -148,20 +162,11 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "Bienvenido, ${userName.ifBlank { "usuario" }}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "Resumen calculado con los registros disponibles en la aplicación.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (syncStatus.isNotBlank()) androidx.compose.material3.TextButton(onClick = onSyncClick) {
-                        Text(syncStatus, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
+                Text(
+                    "Bienvenido, ${userName.ifBlank { "usuario" }}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             // Los montos financieros aparecen primero para facilitar decisiones inmediatas.

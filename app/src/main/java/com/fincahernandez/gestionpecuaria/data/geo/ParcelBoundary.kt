@@ -2,11 +2,22 @@ package com.fincahernandez.gestionpecuaria.data.geo
 
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Coordenada geográfica WGS84 utilizada por Google Earth y Google Maps. */
 data class ParcelGeoPoint(
     val latitude: Double,
     val longitude: Double
+)
+
+/** Medidas geográficas calculadas desde el polígono importado. */
+data class ParcelBoundaryMetrics(
+    val areaHectares: Double,
+    val perimeterMeters: Double
 )
 
 private const val MAX_BOUNDARY_POINTS = 2_000
@@ -63,6 +74,46 @@ fun decodeParcelBoundary(geoJson: String): List<ParcelGeoPoint> {
     return points
 }
 
+/** Calcula superficie esférica y suma la distancia de todos los lados del límite. */
+fun calculateParcelBoundaryMetrics(geoJson: String): ParcelBoundaryMetrics =
+    calculateParcelBoundaryMetrics(decodeParcelBoundary(geoJson))
+
+internal fun calculateParcelBoundaryMetrics(points: List<ParcelGeoPoint>): ParcelBoundaryMetrics {
+    val ring = normalizeBoundary(points)
+    var sphericalAreaTerm = 0.0
+    var perimeterMeters = 0.0
+    ring.zipWithNext().forEach { (start, end) ->
+        val startLatitude = Math.toRadians(start.latitude)
+        val endLatitude = Math.toRadians(end.latitude)
+        val longitudeDelta = normalizedLongitudeDeltaRadians(start.longitude, end.longitude)
+        sphericalAreaTerm += longitudeDelta * (2.0 + sin(startLatitude) + sin(endLatitude))
+        perimeterMeters += haversineDistanceMeters(start, end)
+    }
+    val areaSquareMeters = abs(sphericalAreaTerm) * EARTH_RADIUS_METERS * EARTH_RADIUS_METERS / 2.0
+    return ParcelBoundaryMetrics(
+        areaHectares = areaSquareMeters / SQUARE_METERS_PER_HECTARE,
+        perimeterMeters = perimeterMeters
+    )
+}
+
+private fun normalizedLongitudeDeltaRadians(startLongitude: Double, endLongitude: Double): Double {
+    var delta = Math.toRadians(endLongitude - startLongitude)
+    if (delta > Math.PI) delta -= 2.0 * Math.PI
+    if (delta < -Math.PI) delta += 2.0 * Math.PI
+    return delta
+}
+
+private fun haversineDistanceMeters(start: ParcelGeoPoint, end: ParcelGeoPoint): Double {
+    val startLatitude = Math.toRadians(start.latitude)
+    val endLatitude = Math.toRadians(end.latitude)
+    val latitudeDelta = endLatitude - startLatitude
+    val longitudeDelta = normalizedLongitudeDeltaRadians(start.longitude, end.longitude)
+    val a = sin(latitudeDelta / 2.0) * sin(latitudeDelta / 2.0) +
+        cos(startLatitude) * cos(endLatitude) *
+        sin(longitudeDelta / 2.0) * sin(longitudeDelta / 2.0)
+    return EARTH_RADIUS_METERS * 2.0 * atan2(sqrt(a), sqrt((1.0 - a).coerceAtLeast(0.0)))
+}
+
 private fun normalizeBoundary(points: List<ParcelGeoPoint>): List<ParcelGeoPoint> {
     require(points.size <= MAX_BOUNDARY_POINTS) { "El polígono contiene demasiados puntos." }
     val validated = points.map(ParcelGeoPoint::validated)
@@ -80,3 +131,6 @@ private fun ParcelGeoPoint.validated(): ParcelGeoPoint {
     require(longitude.isFinite() && longitude in -180.0..180.0) { "Longitud no válida." }
     return this
 }
+
+private const val EARTH_RADIUS_METERS = 6_371_008.8
+private const val SQUARE_METERS_PER_HECTARE = 10_000.0

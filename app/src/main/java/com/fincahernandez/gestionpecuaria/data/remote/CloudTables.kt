@@ -82,6 +82,8 @@ object CloudTables {
             CloudColumn("tipoEvento", "String", false),
             CloudColumn("fechaEvento", "Long", false),
             CloudColumn("diagnostico", "String", false),
+            CloudColumn("insumoId", "String", true),
+            CloudColumn("dosisMl", "Double", true),
             CloudColumn("medicamento", "String", true),
             CloudColumn("dosis", "String", true),
             CloudColumn("estadoSalud", "String", false),
@@ -144,6 +146,7 @@ object CloudTables {
             CloudColumn("nombre", "String", false),
             CloudColumn("categoria", "String", false),
             CloudColumn("unidadMedida", "String", false),
+            CloudColumn("contenidoMlPorUnidad", "Double", true),
             CloudColumn("existenciaMinima", "Double", false),
             CloudColumn("activo", "Boolean", false),
             CloudColumn("creadoEn", "Long", false),
@@ -183,6 +186,7 @@ object CloudTables {
             CloudColumn("costoUnitario", "Double", true),
             CloudColumn("fecha", "Long", false),
             CloudColumn("loteId", "String", true),
+            CloudColumn("responsable", "String", true),
             CloudColumn("registradoPorUsuarioId", "String", true),
             CloudColumn("observaciones", "String", true),
             CloudColumn("creadoEn", "Long", false)
@@ -195,9 +199,12 @@ object CloudTables {
             "eventos_sanitarios" -> "health" in permissions
             "configuracion_leche", "produccion_lechera" -> permissions.any { it in setOf("weighings","finance") }
             "movimientos_financieros" -> "finance" in permissions
-            "empleados", "pagos_empleados" -> "employees" in permissions
-            "insumos", "existencias_insumos", "asignaciones_insumos",
-            "movimientos_insumos" -> "supplies" in permissions
+            // Insumos necesita los nombres activos para elegir al responsable, no los pagos.
+            "empleados" -> permissions.any { it in setOf("employees", "supplies") }
+            "pagos_empleados" -> "employees" in permissions
+            "insumos", "existencias_insumos", "movimientos_insumos" ->
+                permissions.any { it in setOf("supplies", "health") }
+            "asignaciones_insumos" -> "supplies" in permissions
             else -> false
         }
     }
