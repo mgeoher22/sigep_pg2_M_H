@@ -42,7 +42,8 @@ class AutoSyncLoopTest {
         var calls=0;val statuses=mutableListOf<AutoSyncStatus>()
         val job=launch {loop({if(++calls==1)throw IOException("network");SyncResult(1,0,0)},statuses::add).run(emptyFlow())}
         until {statuses.any {it.phase==AutoSyncPhase.COMPLETE}}
-        job.cancelAndJoin();assertEquals(2,calls);assertTrue(statuses.any {it.phase==AutoSyncPhase.RETRY})
+        job.cancelAndJoin();assertEquals(2,calls)
+        assertTrue(statuses.any {it.phase==AutoSyncPhase.RETRY && it.detail=="network"})
     }
     @Test fun dirtyEventsDoNotBypassErrorBackoff()=runBlocking {
         var calls=0;val changes=MutableSharedFlow<Unit>(extraBufferCapacity=100)

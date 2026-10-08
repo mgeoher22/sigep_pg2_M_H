@@ -64,8 +64,11 @@ fun rememberAutoSyncStatus(userId: String?, manager: CloudSessionManager, paused
                 }
             }
         } catch (e: CancellationException) { throw e }
-        catch (_: Exception) {
-            status = AutoSyncStatus(AutoSyncPhase.REVIEW)
+        catch (error: Exception) {
+            status = AutoSyncStatus(
+                phase = AutoSyncPhase.REVIEW,
+                detail = error.message?.trim()?.takeIf(String::isNotBlank)
+            )
         }
     }
     return status
@@ -77,6 +80,6 @@ fun AutoSyncStatus.label(): String = when (phase) {
     AutoSyncPhase.RUNNING -> "Sincronizando con la nube…"
     AutoSyncPhase.COMPLETE -> "Última sincronización: " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(completedAt ?: 0))
     AutoSyncPhase.PENDING -> "Hay cambios pendientes de enviar"
-    AutoSyncPhase.REVIEW -> "Hay datos por revisar · Abre Sincronizar"
-    AutoSyncPhase.RETRY -> "No se pudo confirmar · Se reintentará con internet"
+    AutoSyncPhase.REVIEW -> detail ?: "Hay datos por revisar · Abre Sincronizar"
+    AutoSyncPhase.RETRY -> detail ?: "No se pudo confirmar · Se reintentará con internet"
 }

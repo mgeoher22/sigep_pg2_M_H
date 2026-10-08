@@ -51,7 +51,9 @@ object CloudTables {
             CloudColumn("actualizadoEn", "Long", false),
             CloudColumn("parcelaNombre", "String", true),
             CloudColumn("pesoObjetivoLibras", "Double", true),
-            CloudColumn("fechaSalidaEstimada", "Long", true)
+            CloudColumn("fechaSalidaEstimada", "Long", true),
+            CloudColumn("precioVenta", "Double", true),
+            CloudColumn("fechaVenta", "Long", true)
         )),
         CloudTable("lote_animales", listOf(
             CloudColumn("id", "String", false),
@@ -115,6 +117,7 @@ object CloudTables {
             CloudColumn("categoria", "String", false),
             CloudColumn("monto", "Double", false),
             CloudColumn("fecha", "Long", false),
+            CloudColumn("loteId", "String", true),
             CloudColumn("observaciones", "String", true),
             CloudColumn("creadoEn", "Long", false)
         )),
@@ -137,6 +140,8 @@ object CloudTables {
             CloudColumn("fechaPago", "Long", false),
             CloudColumn("monto", "Double", false),
             CloudColumn("periodo", "String", false),
+            CloudColumn("loteId", "String", true),
+            CloudColumn("actividad", "String", true),
             CloudColumn("observaciones", "String", true),
             CloudColumn("creadoEn", "Long", false)
         )),

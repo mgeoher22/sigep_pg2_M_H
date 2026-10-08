@@ -16,3 +16,7 @@ fun formatDatePickerMillis(millis: Long): String =
     SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }.format(Date(millis))
+
+/** Fecha local actual para inicializar los formularios de eventos cotidianos. */
+fun todayDateText(nowMillis: Long = System.currentTimeMillis()): String =
+    SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(nowMillis))

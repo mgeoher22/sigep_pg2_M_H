@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
 import java.util.Locale
@@ -72,8 +73,12 @@ data class FinancialMovementUiModel(
     val notes: String,
     val sourceLabel: String = "Registro manual",
     val automatic: Boolean = false,
-    val deletableRecordId: String? = null
+    val deletableRecordId: String? = null,
+    val lotId: String? = null,
+    val lotLabel: String? = null
 )
+
+data class FinancialLotOption(val id: String, val label: String)
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
 data class FinancialMovementFormData(
@@ -81,6 +86,7 @@ data class FinancialMovementFormData(
     val category: String,
     val amount: String,
     val date: String,
+    val lotId: String,
     val notes: String
 )
 
@@ -366,6 +372,9 @@ private fun FinancialMovementCard(
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelSmall
                 )
+                movement.lotLabel?.let { lot ->
+                    Text("Lote: $lot", style = MaterialTheme.typography.labelSmall)
+                }
                 if (movement.notes.isNotBlank()) {
                     Text(movement.notes, style = MaterialTheme.typography.bodySmall)
                 }
@@ -394,6 +403,7 @@ private fun FinancialMovementCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FinancialMovementFormScreen(
+    lotOptions: List<FinancialLotOption>,
     onBack: () -> Unit,
     onSubmit: (FinancialMovementFormData) -> Unit,
     isSaving: Boolean = false,
@@ -403,9 +413,13 @@ fun FinancialMovementFormScreen(
     var type by rememberSaveable { mutableStateOf("INGRESO") }
     var category by rememberSaveable { mutableStateOf("") }
     var amount by rememberSaveable { mutableStateOf("") }
-    var date by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf(todayDateText()) }
+    var lotId by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (date.isBlank()) date = todayDateText()
+    }
 
     val categories = if (type == "INGRESO") {
         // La venta diaria de leche entra automáticamente desde Producción Lechera.
@@ -493,6 +507,13 @@ fun FinancialMovementFormScreen(
                 )
             }
             item {
+                FinancialLotDropdown(
+                    options = lotOptions,
+                    selectedId = lotId,
+                    onSelected = { lotId = it }
+                )
+            }
+            item {
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
@@ -518,6 +539,7 @@ fun FinancialMovementFormScreen(
                                     category = category,
                                     amount = amount,
                                     date = date,
+                                    lotId = lotId,
                                     notes = notes.trim()
                                 )
                             )
@@ -532,6 +554,44 @@ fun FinancialMovementFormScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isSaving) "Guardando…" else "Guardar movimiento", fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FinancialLotDropdown(
+    options: List<FinancialLotOption>,
+    selectedId: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.id == selectedId }?.label.orEmpty()
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            readOnly = true,
+            label = { Text("Lote relacionado") },
+            placeholder = { Text("Gasto o ingreso general de la finca") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            supportingText = { Text("Selecciónelo para incluir el movimiento en la rentabilidad del lote.") }
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Sin lote") },
+                onClick = { onSelected(""); expanded = false }
+            )
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { onSelected(option.id); expanded = false }
+                )
             }
         }
     }

@@ -74,7 +74,8 @@ data class UserUiModel(
     val active: Boolean,
     val permissionIds: Set<String>,
     val permissionCount: Int,
-    val hasCustomPermissions: Boolean
+    val hasCustomPermissions: Boolean,
+    val isCurrentAccount: Boolean = false
 )
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
@@ -162,7 +163,7 @@ fun UserManagementScreen(
                         }
                         Text(if(cloudMode) "CUENTAS DE LA FINCA" else "CUENTAS LOCALES", fontWeight = FontWeight.Bold)
                         Text(
-                            if(cloudMode) "Crea cuentas con internet. El trabajador usará su correo para ingresar. La edición de cuentas existentes se realiza en Supabase por ahora." else "Los usuarios de esta pantalla controlan el acceso real a la aplicación."
+                            if(cloudMode) "Crea y administra las cuentas de la finca. Los cambios de rol, permisos y estado se guardan en Supabase." else "Los usuarios de esta pantalla controlan el acceso real a la aplicación."
                         )
                     }
                 }
@@ -232,6 +233,14 @@ fun UserManagementScreen(
                                 Text(user.fullName, fontWeight = FontWeight.Bold)
                                 Text(if(cloudMode) user.username else "@${user.username}", style = MaterialTheme.typography.bodySmall)
                                 Text(user.roleName, color = MaterialTheme.colorScheme.primary)
+                                if (user.isCurrentAccount) {
+                                    Text(
+                                        "TU CUENTA",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                                 Text(
                                     if (user.hasCustomPermissions) {
                                         "${user.permissionCount} permisos · PERSONALIZADO"
@@ -257,7 +266,7 @@ fun UserManagementScreen(
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold
                                 )
-                                if (canManageUsers && !cloudMode) {
+                                if (canManageUsers) {
                                     IconButton(onClick = { onEditUser(user.id) }) {
                                         Icon(
                                             Icons.Default.Edit,
@@ -384,6 +393,7 @@ fun UserFormScreen(
                         username = it.replace(" ", "")
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !(isEditing && cloudMode),
                     label = { Text(if(cloudMode) "Correo electrónico *" else "Usuario *") },
                     prefix = if(cloudMode) null else { { Text("@") } },
                     isError = attemptedSave && (!usernameValid || usernameExists),
@@ -394,12 +404,15 @@ fun UserFormScreen(
                         attemptedSave && usernameExists -> {
                             { Text("Ese usuario ya está registrado.") }
                         }
+                        isEditing && cloudMode -> {
+                            { Text("El correo de acceso se conserva para evitar cambiar la identidad de la cuenta.") }
+                        }
                         else -> null
                     },
                     singleLine = true
                 )
             }
-            item {
+            if (!isEditing || !cloudMode) item {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },

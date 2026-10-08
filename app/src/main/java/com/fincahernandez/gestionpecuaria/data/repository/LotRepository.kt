@@ -26,6 +26,12 @@ data class LotDraft(
     val selectedAnimalIds: List<String>
 )
 
+data class LotSaleDraft(
+    val amount: Double,
+    val date: Long,
+    val notes: String?
+)
+
 /**
  * Centraliza las operaciones de lotes y garantiza que lote y asignaciones se
  * guarden juntos. Si una validación falla, Room revierte toda la operación.
@@ -34,6 +40,7 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
     private val lotDao = database.loteDao()
     private val animalDao = database.animalDao()
     private val weighingDao = database.pesajeDao()
+    private val financeDao = database.movimientoFinancieroDao()
 
     /** Actualiza la interfaz cuando cambia un lote, una asignación o un pesaje. */
     fun observeLots(): Flow<List<LotStoredRecord>> = combine(
@@ -145,6 +152,55 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
             fechaActualizacion = now
         )
         check(lotDao.cerrarLote(lotId, now, now) == 1) { "No se pudo cerrar el lote." }
+    }
+
+    /** Registra una sola venta, genera su ingreso y cierra el lote atómicamente. */
+    suspend fun sellAndCloseLot(lotId: String, draft: LotSaleDraft): String = database.withTransaction {
+        val lot = checkNotNull(lotDao.buscarPorId(lotId)) { "No se encontró el lote." }
+        check(lot.estado == "ACTIVO") { "El lote ya está cerrado." }
+        require(draft.amount.isFinite() && draft.amount > 0.0) {
+            "El monto de venta debe ser mayor que cero."
+        }
+        requireNotFuture(draft.date, "La fecha de venta")
+        requireOnOrAfter(
+            date = draft.date,
+            minimumDate = lot.fechaCreacion,
+            message = "La venta no puede ser anterior a la creación del lote."
+        )
+        check(financeDao.buscarVentaDeLote(lotId) == null) {
+            "Este lote ya tiene una venta registrada."
+        }
+        val now = System.currentTimeMillis()
+        // Si el lote se crea y vende el mismo día, conserva un orden temporal
+        // coherente sin cambiar la fecha que verá el usuario.
+        val effectiveSaleDate = maxOf(draft.date, lot.fechaCreacion)
+        val movement = com.fincahernandez.gestionpecuaria.data.local.entity.MovimientoFinancieroEntity(
+            tipo = "INGRESO",
+            categoria = "Venta de lote",
+            monto = draft.amount,
+            fecha = effectiveSaleDate,
+            loteId = lotId,
+            observaciones = draft.notes?.trim()?.ifBlank { "Venta de ${lot.codigo} · ${lot.nombre}" }
+                ?: "Venta de ${lot.codigo} · ${lot.nombre}",
+            creadoEn = now
+        )
+        financeDao.insertar(movement)
+        lotDao.finalizarAsignacionesDelLote(
+            loteId = lotId,
+            fechaSalida = effectiveSaleDate,
+            motivoSalida = "Venta y cierre del lote",
+            fechaActualizacion = now
+        )
+        lotDao.actualizar(
+            lot.copy(
+                estado = "CERRADO",
+                fechaCierre = effectiveSaleDate,
+                precioVenta = draft.amount,
+                fechaVenta = effectiveSaleDate,
+                actualizadoEn = now
+            )
+        )
+        movement.id
     }
 
     private suspend fun requireAnimalAvailable(animalId: String, allowedLotId: String?) {

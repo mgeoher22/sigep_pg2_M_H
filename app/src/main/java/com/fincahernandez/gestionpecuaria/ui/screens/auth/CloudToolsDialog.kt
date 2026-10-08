@@ -12,9 +12,10 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun CloudToolsDialog(action: String, user: AuthenticatedUser, manager: CloudSessionManager,
+    syncStatus: AutoSyncStatus = AutoSyncStatus(AutoSyncPhase.WAITING),
     onClose: () -> Unit, onProfileSaved: suspend () -> Unit) {
     if(action=="sync") {
-        CloudSyncDialog(user,manager,onClose)
+        CloudSyncDialog(user,manager,syncStatus,onClose)
         return
     }
     val context=LocalContext.current

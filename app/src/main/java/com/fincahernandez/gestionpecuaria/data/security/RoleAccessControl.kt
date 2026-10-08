@@ -26,7 +26,7 @@ val rolePermissions = listOf(
     RolePermission("supplies", "Consultar y gestionar insumos"),
     RolePermission("employees", "Consultar empleados y nómina"),
     RolePermission("reports", "Consultar reportes autorizados"),
-    RolePermission("users", "Crear usuarios y asignar roles")
+    RolePermission("users", "Crear y editar usuarios, roles y permisos")
 )
 
 /** Las cuentas reciben una plantilla fija de permisos según su rol. */

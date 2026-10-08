@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
 import com.fincahernandez.gestionpecuaria.data.repository.LotRepository
+import com.fincahernandez.gestionpecuaria.data.repository.LotSaleDraft
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 
@@ -26,4 +27,7 @@ class LotViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun updateLot(lotId: String, draft: LotDraft) = repository.updateLot(lotId, draft)
 
     suspend fun deactivateLot(lotId: String) = repository.deactivateLot(lotId)
+
+    suspend fun sellAndCloseLot(lotId: String, draft: LotSaleDraft) =
+        repository.sellAndCloseLot(lotId, draft)
 }

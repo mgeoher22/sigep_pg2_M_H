@@ -61,7 +61,7 @@ import com.fincahernandez.gestionpecuaria.data.local.entity.UsuarioEntity
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncBaselineEntity::class,
         com.fincahernandez.gestionpecuaria.data.local.entity.CloudSyncPendingEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 abstract class GestionPecuariaDatabase : RoomDatabase() {
@@ -638,6 +638,25 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
             }
         }
 
+        /** Relaciona costos, mano de obra y venta con el lote sin alterar registros existentes. */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE movimientos_financieros ADD COLUMN loteId TEXT")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_movimientos_financieros_loteId` " +
+                        "ON `movimientos_financieros` (`loteId`)"
+                )
+                database.execSQL("ALTER TABLE pagos_empleados ADD COLUMN loteId TEXT")
+                database.execSQL("ALTER TABLE pagos_empleados ADD COLUMN actividad TEXT")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pagos_empleados_loteId` " +
+                        "ON `pagos_empleados` (`loteId`)"
+                )
+                database.execSQL("ALTER TABLE lotes ADD COLUMN precioVenta REAL")
+                database.execSQL("ALTER TABLE lotes ADD COLUMN fechaVenta INTEGER")
+            }
+        }
+
         // @Volatile permite que todos los hilos observen la instancia actual.
         @Volatile
         private var instancia: GestionPecuariaDatabase? = null
@@ -670,7 +689,8 @@ abstract class GestionPecuariaDatabase : RoomDatabase() {
                     MIGRATION_18_19,
                     MIGRATION_19_20,
                     MIGRATION_20_21,
-                    MIGRATION_21_22
+                    MIGRATION_21_22,
+                    MIGRATION_22_23
                 )
                     .build().also { nuevaInstancia ->
                     instancia = nuevaInstancia

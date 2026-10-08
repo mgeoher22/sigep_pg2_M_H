@@ -25,7 +25,11 @@ import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Scale
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +52,9 @@ import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import com.fincahernandez.gestionpecuaria.ui.components.LocalAllowedMainRoutes
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
+import com.fincahernandez.gestionpecuaria.data.remote.AutoSyncPhase
+import com.fincahernandez.gestionpecuaria.data.remote.AutoSyncStatus
+import com.fincahernandez.gestionpecuaria.ui.components.label
 import java.text.DecimalFormat
 import java.util.Locale
 
@@ -100,7 +107,7 @@ fun DashboardScreen(
     onMenuClick: () -> Unit,
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier,
-    syncStatus: String = "",
+    syncStatus: AutoSyncStatus = AutoSyncStatus(AutoSyncPhase.WAITING),
     onSyncClick: () -> Unit = {}
 ) {
     val allowedRoutes = LocalAllowedMainRoutes.current
@@ -132,15 +139,7 @@ fun DashboardScreen(
                 },
                 actions = {
                     IconButton(onClick = onSyncClick) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = if (syncStatus.isBlank()) {
-                                "Sincronizar con la nube"
-                            } else {
-                                "Sincronizar con la nube. $syncStatus"
-                            },
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        SyncCloudIcon(syncStatus)
                     }
                 }
             )
@@ -194,6 +193,25 @@ fun DashboardScreen(
             }
         }
     }
+}
+
+/** Una sola nube comunica conexión y estado de envío sin ocupar espacio con texto. */
+@Composable
+private fun SyncCloudIcon(status: AutoSyncStatus) {
+    val (icon, color) = when (status.phase) {
+        AutoSyncPhase.WAITING -> Icons.Default.CloudQueue to BalanceNeutralColor
+        AutoSyncPhase.OFFLINE -> Icons.Default.CloudOff to MaterialTheme.colorScheme.error
+        AutoSyncPhase.RUNNING -> Icons.Default.CloudSync to MaterialTheme.colorScheme.primary
+        AutoSyncPhase.COMPLETE -> Icons.Default.CloudDone to BalanceHealthyColor
+        AutoSyncPhase.PENDING -> Icons.Default.CloudUpload to SyncPendingColor
+        AutoSyncPhase.REVIEW -> Icons.Default.CloudUpload to MaterialTheme.colorScheme.error
+        AutoSyncPhase.RETRY -> Icons.Default.CloudOff to MaterialTheme.colorScheme.error
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = "Estado de la nube: ${status.label()}. Toca para sincronizar.",
+        tint = color
+    )
 }
 
 /** Tarjeta seleccionable que abre el módulo relacionado. */
@@ -349,6 +367,7 @@ private val BalanceHealthyColor = Color(0xFF147A36)
 private val BalanceLowColor = Color(0xFF9A6700)
 private val BalanceCriticalColor = Color(0xFFB3261E)
 private val BalanceNeutralColor = Color(0xFF5F6368)
+private val SyncPendingColor = Color(0xFF9A6700)
 
 private fun dashboardStats(data: DashboardUiData): List<DashboardStat> = listOf(
     DashboardStat(

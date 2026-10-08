@@ -21,4 +21,15 @@ class CloudUserDraftTest {
             try {d.validated();fail("Debe rechazar")}catch(_:IllegalArgumentException){}
         }
     }
+    @Test fun validatesExistingUserChangesWithoutRequiringCredentials() {
+        val draft = CloudUserUpdateDraft(
+            id = "11111111-1111-1111-1111-111111111111",
+            name = " Ana Pérez ",
+            role = "Operario",
+            active = false,
+            permissions = setOf("dashboard", "animals")
+        ).validated()
+        assertEquals("Ana Pérez", draft.name)
+        assertFalse(draft.active)
+    }
 }

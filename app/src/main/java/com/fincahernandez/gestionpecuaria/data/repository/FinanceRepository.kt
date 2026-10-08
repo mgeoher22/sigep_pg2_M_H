@@ -9,11 +9,12 @@ data class FinancialMovementDraft(
     val category: String,
     val amount: Double,
     val date: Long,
+    val lotId: String? = null,
     val notes: String?
 )
 
 /** Persistencia de los ingresos y egresos que no provienen de otro módulo. */
-class FinanceRepository(database: GestionPecuariaDatabase) {
+class FinanceRepository(private val database: GestionPecuariaDatabase) {
     private val dao = database.movimientoFinancieroDao()
 
     fun observeMovements(): Flow<List<MovimientoFinancieroEntity>> = dao.observarTodos()
@@ -25,11 +26,16 @@ class FinanceRepository(database: GestionPecuariaDatabase) {
             "El monto debe ser mayor que cero."
         }
         requireNotFuture(draft.date, "La fecha del movimiento")
+        val lotId = draft.lotId?.trim()?.ifBlank { null }
+        lotId?.let { id ->
+            check(database.loteDao().buscarPorId(id) != null) { "No se encontró el lote seleccionado." }
+        }
         val record = MovimientoFinancieroEntity(
             tipo = draft.type,
             categoria = draft.category.trim(),
             monto = draft.amount,
             fecha = draft.date,
+            loteId = lotId,
             observaciones = draft.notes?.trim()?.ifBlank { null }
         )
         dao.insertar(record)

@@ -31,5 +31,8 @@ data class LoteEntity(
     // Estos datos eran temporales en el prototipo; desde Sprint 2 forman parte del lote persistido.
     val parcelaNombre: String? = null,
     val pesoObjetivoLibras: Double? = null,
-    val fechaSalidaEstimada: Long? = null
+    val fechaSalidaEstimada: Long? = null,
+    /** Datos históricos de la venta que cerró el lote. */
+    val precioVenta: Double? = null,
+    val fechaVenta: Long? = null
 )

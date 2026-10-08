@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
 import com.fincahernandez.gestionpecuaria.ui.components.WeightTrendChart
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
@@ -470,9 +472,12 @@ fun WeighingFormScreen(
 ) {
     var animalId by rememberSaveable(initialAnimalId) { mutableStateOf(initialAnimalId) }
     var weight by rememberSaveable { mutableStateOf("") }
-    var date by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf(todayDateText()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (date.isBlank()) date = todayDateText()
+    }
 
     val selectedAnimal = animalOptions.firstOrNull { it.id == animalId }
     val weightValue = weight.replace(',', '.').toDoubleOrNull()

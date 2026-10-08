@@ -81,7 +81,7 @@ class CloudSessionManager(
         return CloudAccount(s.getString("email"), s.getString("uid"), s.getString("localId"),
             m.getString("rol"), permissionsForUser(m.getString("rol"),
                 if (m.isNull("permisosPersonalizados")) null else m.getString("permisosPersonalizados")),
-            personName(s.optString("displayName")) ?: personName(m.optString("nombreCompleto")))
+            personName(m.optString("nombreCompleto")) ?: personName(s.optString("displayName")))
     }
 
     suspend fun signIn(local: AuthenticatedUser, email: String, password: String): CloudAccount = login(local, email, password)
@@ -189,8 +189,8 @@ class CloudSessionManager(
             val token=s.getString("access")
             fun state()=JSONObject(request("/rest/v1/rpc/estado_sincronizacion",token,JSONObject()))
             val before=state()
-            require(before.getString("versionEsquema")=="20261006_room22_sanidad_insumos") {
-                "La nube requiere ejecutar 21_integrar_sanidad_con_insumos.sql antes de sincronizar."
+            require(before.getString("versionEsquema")=="20261007_room23_costos_lotes") {
+                "La nube requiere ejecutar 22_agregar_costos_y_venta_lotes.sql antes de sincronizar."
             }
             val rows=linkedMapOf<String,List<JSONObject>>()
             var total=0
@@ -263,7 +263,8 @@ class CloudSessionManager(
     private fun managedUser(row: JSONObject): CloudManagedUser {
         val custom = if(row.isNull("permissions")) null else row.getString("permissions")
         return CloudManagedUser(row.getString("id"),row.getString("name"),row.getString("email"),
-            row.getString("role"),row.getBoolean("active"),permissionsForUser(row.getString("role"),custom),custom!=null)
+            row.getString("role"),row.getBoolean("active"),permissionsForUser(row.getString("role"),custom),custom!=null,
+            row.optBoolean("current", false))
     }
     private suspend fun manageUsers(localId: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         restore(localId) ?: throw CloudAccessDenied("Ingresa con internet para administrar cuentas.")
@@ -272,17 +273,28 @@ class CloudSessionManager(
             val s = load(localId) ?: throw CloudAccessDenied("La sesión se cerró.")
             val profile = account(s,member(s))
             require(profile.role == "Administrador General" && "users" in profile.permissions) {
-                "Solo el Administrador General con permiso de Usuarios puede crear cuentas."
+                "Solo el Administrador General con permiso de Usuarios puede gestionar cuentas."
             }
             val result = try { JSONObject(request("/functions/v1/gestionar-usuarios",s.getString("access"),body)) }
             catch(e:CloudHttpException) {
                 throw CloudAccessDenied(when(e.status) {
-                    404 -> "Falta activar la función gestionar-usuarios en Supabase."
+                    404 -> if(body.optString("action") == "update") {
+                        "No se encontró la cuenta o falta actualizar la función gestionar-usuarios en Supabase."
+                    } else {
+                        "Falta activar la función gestionar-usuarios en Supabase."
+                    }
                     409 -> "Ese correo ya está registrado. Actualiza la lista antes de intentar otra alta."
-                    400,422 -> "Revisa el nombre, correo, contraseña y permisos. Supabase rechazó los datos."
+                    400,422 -> if(body.optString("action") == "update") {
+                        "Revisa el nombre, rol, estado y permisos. No puedes retirar el acceso de tu propia cuenta administrativa."
+                    } else {
+                        "Revisa el nombre, correo, contraseña y permisos. Supabase rechazó los datos."
+                    }
                     401,403 -> "La sesión no tiene autorización. Ingresa otra vez con el administrador."
-                    else -> if(body.optString("action")=="create") "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar; revisa Supabase si el correo ya existe."
-                        else "No se pudo cargar la lista de Supabase. Revisa internet y vuelve a intentarlo."
+                    else -> when(body.optString("action")) {
+                        "create" -> "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar; revisa Supabase si el correo ya existe."
+                        "update" -> "No se pudo confirmar la edición. Actualiza Usuarios y vuelve a intentarlo."
+                        else -> "No se pudo cargar la lista de Supabase. Revisa internet y vuelve a intentarlo."
+                    }
                 })
             }
             coroutineContext.ensureActive()
@@ -299,6 +311,21 @@ class CloudSessionManager(
         return managedUser(manageUsers(localId,JSONObject().put("action","create")
             .put("name",d.name).put("email",d.email).put("password",d.password)
             .put("role",d.role).put("active",d.active).put("permissionIds",JSONArray(d.permissions.sorted()))))
+    }
+
+    suspend fun updateCloudUser(localId: String, draft: CloudUserUpdateDraft): CloudManagedUser {
+        val d = draft.validated()
+        return managedUser(
+            manageUsers(
+                localId,
+                JSONObject().put("action", "update")
+                    .put("userId", d.id)
+                    .put("name", d.name)
+                    .put("role", d.role)
+                    .put("active", d.active)
+                    .put("permissionIds", JSONArray(d.permissions.sorted()))
+            )
+        )
     }
 
     /** Local deletion precedes network revocation, so offline logout is effective locally. */

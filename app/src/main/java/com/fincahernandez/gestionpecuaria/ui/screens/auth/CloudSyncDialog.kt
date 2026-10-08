@@ -11,11 +11,17 @@ import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
 import com.fincahernandez.gestionpecuaria.data.remote.*
 import com.fincahernandez.gestionpecuaria.data.repository.AuthenticatedUser
+import com.fincahernandez.gestionpecuaria.ui.components.label
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
-fun CloudSyncDialog(user: AuthenticatedUser, manager: CloudSessionManager, onClose: () -> Unit) {
+fun CloudSyncDialog(
+    user: AuthenticatedUser,
+    manager: CloudSessionManager,
+    syncStatus: AutoSyncStatus,
+    onClose: () -> Unit
+) {
     val context = LocalContext.current
     val coordinator = remember(manager,user.id) {
         SyncCoordinator(RoomSyncStore(GestionPecuariaDatabase.obtenerInstancia(context),manager.syncProject()), AndroidSyncGateway(manager,user.id))
@@ -29,6 +35,20 @@ fun CloudSyncDialog(user: AuthenticatedUser, manager: CloudSessionManager, onClo
         onDismissRequest = { if(!busy)onClose() },
         title = { Text("Sincronizar") },
         text = { Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()), verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Surface(
+                color = when (syncStatus.phase) {
+                    AutoSyncPhase.COMPLETE -> MaterialTheme.colorScheme.primaryContainer
+                    AutoSyncPhase.OFFLINE, AutoSyncPhase.REVIEW, AutoSyncPhase.RETRY -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.secondaryContainer
+                },
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Text(
+                    syncStatus.label(),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
             Text("Envía tus registros y recibe los cambios de la nube. Necesitas internet. Las fotos siguen guardadas solo en su dispositivo.")
             if(busy) { LinearProgressIndicator();Text("Sincronizando…") }
             message?.let { Text(it) }

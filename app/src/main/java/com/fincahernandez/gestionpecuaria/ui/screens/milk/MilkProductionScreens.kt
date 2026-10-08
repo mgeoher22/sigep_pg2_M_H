@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.data.repository.MilkConfiguration
 import com.fincahernandez.gestionpecuaria.data.repository.MilkPaymentFrequency
@@ -556,10 +558,13 @@ fun MilkProductionFormScreen(
     saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var date by rememberSaveable { mutableStateOf("") }
+    var date by rememberSaveable { mutableStateOf(todayDateText()) }
     var liters by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (date.isBlank()) date = todayDateText()
+    }
 
     val litersValue = liters.replace(',', '.').toDoubleOrNull()
     val pricePerLiter = configuration?.pricePerLiter?.let(::twoDecimals).orEmpty()

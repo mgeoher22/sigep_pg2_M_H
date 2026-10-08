@@ -41,6 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -395,7 +397,7 @@ fun SanitaryRecordFormScreen(
     var lotId by rememberSaveable { mutableStateOf("") }
     var animalId by rememberSaveable(initialAnimalId) { mutableStateOf(initialAnimalId) }
     var eventType by rememberSaveable { mutableStateOf(sanitaryEventTypes.first()) }
-    var eventDate by rememberSaveable { mutableStateOf("") }
+    var eventDate by rememberSaveable { mutableStateOf(todayDateText()) }
     var diagnosis by rememberSaveable { mutableStateOf("") }
     var supplyId by rememberSaveable { mutableStateOf("") }
     var doseMl by rememberSaveable { mutableStateOf("") }
@@ -404,6 +406,9 @@ fun SanitaryRecordFormScreen(
     var responsible by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (eventDate.isBlank()) eventDate = todayDateText()
+    }
 
     val filteredAnimals = if (lotId.isBlank()) {
         animals

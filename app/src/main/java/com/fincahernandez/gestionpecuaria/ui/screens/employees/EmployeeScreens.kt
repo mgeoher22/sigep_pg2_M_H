@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
 import java.util.Locale
@@ -81,8 +83,13 @@ data class EmployeePaymentUiModel(
     val paymentDate: String,
     val amount: Double,
     val period: String,
+    val lotId: String? = null,
+    val lotLabel: String? = null,
+    val activity: String = "",
     val notes: String
 )
+
+data class EmployeePaymentLotOption(val id: String, val label: String)
 
 /** Datos capturados y validados por el formulario de empleados. */
 data class EmployeeFormData(
@@ -101,6 +108,8 @@ data class EmployeePaymentFormData(
     val paymentDate: String,
     val amount: String,
     val period: String,
+    val lotId: String,
+    val activity: String,
     val notes: String
 )
 
@@ -324,13 +333,16 @@ fun EmployeeFormScreen(
 ) {
     var fullName by rememberSaveable { mutableStateOf("") }
     var role by rememberSaveable { mutableStateOf("") }
-    var hireDate by rememberSaveable { mutableStateOf("") }
+    var hireDate by rememberSaveable { mutableStateOf(todayDateText()) }
     var salary by rememberSaveable { mutableStateOf("") }
     var paymentFrequency by rememberSaveable { mutableStateOf("Mensual") }
     var assignedSector by rememberSaveable { mutableStateOf("") }
     var phone by rememberSaveable { mutableStateOf("") }
     var active by rememberSaveable { mutableStateOf(true) }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (hireDate.isBlank()) hireDate = todayDateText()
+    }
 
     val salaryValue = salary.replace(',', '.').toDoubleOrNull()
     val salaryInvalid = salary.isBlank() || salaryValue == null || salaryValue <= 0
@@ -598,6 +610,8 @@ fun EmployeeDetailScreen(
                                 Text(formatQuetzales(payment.amount), color = MaterialTheme.colorScheme.primary)
                             }
                             Text(payment.paymentDate, style = MaterialTheme.typography.bodySmall)
+                            payment.lotLabel?.let { Text("Lote: $it", style = MaterialTheme.typography.bodySmall) }
+                            if (payment.activity.isNotBlank()) Text("Actividad: ${payment.activity}")
                             if (payment.notes.isNotBlank()) Text(payment.notes)
                         }
                     }
@@ -613,17 +627,23 @@ fun EmployeeDetailScreen(
 @Composable
 fun EmployeePaymentFormScreen(
     employee: EmployeeUiModel,
+    lotOptions: List<EmployeePaymentLotOption>,
     onBack: () -> Unit,
     onSubmit: (EmployeePaymentFormData) -> Unit,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var paymentDate by rememberSaveable { mutableStateOf("") }
+    var paymentDate by rememberSaveable { mutableStateOf(todayDateText()) }
     var amount by rememberSaveable(employee.id) { mutableStateOf(employee.salary.toString()) }
     var period by rememberSaveable { mutableStateOf("") }
+    var lotId by rememberSaveable { mutableStateOf("") }
+    var activity by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(employee.id) {
+        if (paymentDate.isBlank()) paymentDate = todayDateText()
+    }
     val amountValue = amount.replace(',', '.').toDoubleOrNull()
     val amountInvalid = amount.isBlank() || amountValue == null || amountValue <= 0.0
     val formValid = paymentDate.isNotBlank() && period.isNotBlank() && !amountInvalid
@@ -683,6 +703,24 @@ fun EmployeePaymentFormScreen(
                 )
             }
             item {
+                EmployeePaymentLotDropdown(
+                    options = lotOptions,
+                    selectedId = lotId,
+                    onSelected = { lotId = it }
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = activity,
+                    onValueChange = { activity = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Actividad realizada") },
+                    placeholder = { Text("Ej. Alimentación, vacunación o reparación de cercas") },
+                    supportingText = { Text("Opcional; ayuda a identificar en qué se utilizó la mano de obra.") },
+                    singleLine = true
+                )
+            }
+            item {
                 OutlinedTextField(
                     value = period,
                     onValueChange = { period = it },
@@ -713,7 +751,16 @@ fun EmployeePaymentFormScreen(
                     onClick = {
                         attemptedSave = true
                         if (formValid) {
-                            onSubmit(EmployeePaymentFormData(paymentDate, amount, period.trim(), notes.trim()))
+                            onSubmit(
+                                EmployeePaymentFormData(
+                                    paymentDate = paymentDate,
+                                    amount = amount,
+                                    period = period.trim(),
+                                    lotId = lotId,
+                                    activity = activity.trim(),
+                                    notes = notes.trim()
+                                )
+                            )
                         }
                     },
                     enabled = !isSaving,
@@ -723,6 +770,41 @@ fun EmployeePaymentFormScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isSaving) "Guardando…" else "Guardar pago", fontWeight = FontWeight.Bold)
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EmployeePaymentLotDropdown(
+    options: List<EmployeePaymentLotOption>,
+    selectedId: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.id == selectedId }?.label.orEmpty()
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            readOnly = true,
+            label = { Text("Lote de trabajo") },
+            placeholder = { Text("Pago general, sin lote") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            supportingText = { Text("Si selecciona un lote, el pago se sumará a su costo de mano de obra.") }
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Sin lote") }, onClick = {
+                onSelected("")
+                expanded = false
+            })
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option.label) }, onClick = {
+                    onSelected(option.id)
+                    expanded = false
+                })
             }
         }
     }

@@ -82,9 +82,17 @@ class RoomSyncStore(private val database: GestionPecuariaDatabase, private val p
             val order = CloudTables.all.mapIndexed { i,t -> t.name to i }.toMap()
             plan.pulls.entries.filter { it.value.deleted }.sortedByDescending { order[it.key.table] }.forEach { (key, _) ->
                 if(key.table == "lotes") db.query(
-                    "SELECT 1 FROM pesajes WHERE loteId=? UNION ALL SELECT 1 FROM eventos_sanitarios WHERE loteIdReferencia=? LIMIT 1",
-                    arrayOf(key.id,key.id)).use {
-                    require(!it.moveToFirst()) { "El lote anulado conserva pesajes o eventos relacionados. No se eliminará su historial local." }
+                    """
+                    SELECT 1 FROM pesajes WHERE loteId=?
+                    UNION ALL SELECT 1 FROM eventos_sanitarios WHERE loteIdReferencia=?
+                    UNION ALL SELECT 1 FROM movimientos_financieros WHERE loteId=?
+                    UNION ALL SELECT 1 FROM pagos_empleados WHERE loteId=?
+                    UNION ALL SELECT 1 FROM movimientos_insumos WHERE loteId=?
+                    UNION ALL SELECT 1 FROM asignaciones_insumos WHERE loteId=?
+                    LIMIT 1
+                    """.trimIndent(),
+                    arrayOf(key.id,key.id,key.id,key.id,key.id,key.id)).use {
+                    require(!it.moveToFirst()) { "El lote anulado conserva registros relacionados. No se eliminará su historial local." }
                 }
                 db.execSQL("DELETE FROM ${key.table} WHERE id=?", arrayOf(key.id))
             }

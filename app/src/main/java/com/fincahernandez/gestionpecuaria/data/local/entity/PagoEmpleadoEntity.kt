@@ -18,7 +18,7 @@ import java.util.UUID
             onDelete = ForeignKey.RESTRICT
         )
     ],
-    indices = [Index(value = ["empleadoId"]), Index(value = ["fechaPago"])]
+    indices = [Index(value = ["empleadoId"]), Index(value = ["fechaPago"]), Index(value = ["loteId"])]
 )
 data class PagoEmpleadoEntity(
     @PrimaryKey
@@ -27,6 +27,9 @@ data class PagoEmpleadoEntity(
     val fechaPago: Long,
     val monto: Double,
     val periodo: String,
+    /** Imputación opcional para consolidar la mano de obra de un lote. */
+    val loteId: String? = null,
+    val actividad: String? = null,
     val observaciones: String? = null,
     val creadoEn: Long = System.currentTimeMillis()
 )

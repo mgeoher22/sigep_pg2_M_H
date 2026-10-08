@@ -19,6 +19,9 @@ interface MovimientoFinancieroDao {
     @Query("SELECT * FROM movimientos_financieros WHERE id = :id LIMIT 1")
     suspend fun buscarPorId(id: String): MovimientoFinancieroEntity?
 
+    @Query("SELECT * FROM movimientos_financieros WHERE loteId = :loteId AND categoria = 'Venta de lote' LIMIT 1")
+    suspend fun buscarVentaDeLote(loteId: String): MovimientoFinancieroEntity?
+
     /** Elimina únicamente un movimiento capturado directamente en Finanzas. */
     @Query("DELETE FROM movimientos_financieros WHERE id = :id")
     suspend fun eliminarPorId(id: String): Int

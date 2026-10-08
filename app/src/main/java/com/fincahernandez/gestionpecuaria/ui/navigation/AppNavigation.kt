@@ -34,6 +34,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.AuthenticationResult
 import com.fincahernandez.gestionpecuaria.data.repository.EmployeeDraft
 import com.fincahernandez.gestionpecuaria.data.repository.EmployeePaymentDraft
 import com.fincahernandez.gestionpecuaria.data.repository.FinancialMovementDraft
+import com.fincahernandez.gestionpecuaria.data.repository.LotSaleDraft
 import com.fincahernandez.gestionpecuaria.data.repository.LotDraft
 import com.fincahernandez.gestionpecuaria.data.repository.MilkProductionDraft
 import com.fincahernandez.gestionpecuaria.data.repository.ParcelDraft
@@ -71,10 +72,12 @@ import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeDetailScr
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeePaymentFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeePaymentUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeePaymentLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.employees.EmployeeUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinanceListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialMovementUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.finance.FinancialLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryAnimalOption
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryControlScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.health.SanitaryLotOption
@@ -88,6 +91,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormData
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFinancialSummary
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotWeightRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkConfigurationScreen
@@ -270,6 +274,9 @@ fun AppNavigation() {
                 initialAverageWeight = record.averageWeightPounds,
                 targetWeight = lot.pesoObjetivoLibras,
                 estimatedExitDate = formatDate(lot.fechaSalidaEstimada),
+                creationDateMillis = lot.fechaCreacion,
+                saleAmount = lot.precioVenta,
+                saleDate = formatDate(lot.fechaVenta),
                 selectedAnimalIds = if (lot.estado == "ACTIVO") {
                     record.activeAnimalIds
                 } else {
@@ -277,6 +284,9 @@ fun AppNavigation() {
                 }
             )
         }
+    }
+    val lotLabelsById = remember(lots) {
+        lots.associate { it.id to "${it.code} · ${it.name}" }
     }
     val activeLotByAnimalId = remember(storedLots) {
         buildMap {
@@ -381,7 +391,7 @@ fun AppNavigation() {
             .sortedBy { it.fullName.lowercase() }
             .map { employee -> SupplyEmployeeOption(employee.id, employee.fullName) }
     }
-    val employeePayments = remember(storedEmployeePayments, employeeNamesById) {
+    val employeePayments = remember(storedEmployeePayments, employeeNamesById, lotLabelsById) {
         storedEmployeePayments.map { payment ->
             EmployeePaymentUiModel(
                 id = payment.id,
@@ -391,6 +401,9 @@ fun AppNavigation() {
                 paymentDate = formatDate(payment.fechaPago),
                 amount = payment.monto,
                 period = payment.periodo,
+                lotId = payment.loteId,
+                lotLabel = payment.loteId?.let(lotLabelsById::get),
+                activity = payment.actividad.orEmpty(),
                 notes = payment.observaciones.orEmpty()
             )
         }
@@ -399,9 +412,11 @@ fun AppNavigation() {
     val financialMovements = remember(
         storedFinancialMovements,
         milkProductionRecords,
-        employeePayments
+        employeePayments,
+        lotLabelsById
     ) {
         storedFinancialMovements.map { movement ->
+            val lotSale = movement.categoria == "Venta de lote" && movement.loteId != null
             FinancialMovementUiModel(
                 id = "manual-${movement.id}",
                 type = movement.tipo,
@@ -410,7 +425,11 @@ fun AppNavigation() {
                 dateMillis = movement.fecha,
                 date = formatDate(movement.fecha),
                 notes = movement.observaciones.orEmpty(),
-                deletableRecordId = movement.id
+                sourceLabel = if (lotSale) "Generado al vender y cerrar el lote" else "Registro manual",
+                automatic = lotSale,
+                deletableRecordId = movement.id.takeUnless { lotSale },
+                lotId = movement.loteId,
+                lotLabel = movement.loteId?.let(lotLabelsById::get)
             )
         } + milkProductionRecords
             .filter { it.paymentConfirmedAtMillis != null }
@@ -442,7 +461,9 @@ fun AppNavigation() {
                 date = payment.paymentDate,
                 notes = "${payment.employeeName} · ${payment.period}",
                 sourceLabel = "Generado desde el historial de pagos",
-                automatic = true
+                automatic = true,
+                lotId = payment.lotId,
+                lotLabel = payment.lotLabel
             )
         }
     }
@@ -899,6 +920,7 @@ fun AppNavigation() {
     if (cloudAction != null && currentUser != null) {
         com.fincahernandez.gestionpecuaria.ui.screens.auth.CloudToolsDialog(
             action = cloudAction!!, user = currentUser, manager = cloudSessionManager,
+            syncStatus = autoSyncStatus,
             onClose = { cloudAction = null },
             onProfileSaved = { unifiedAuth.remembered(currentUser.id)?.let(updateCurrentUser) }
         )
@@ -1088,7 +1110,7 @@ fun AppNavigation() {
                     roleName = currentUser?.roleName.orEmpty(),
                     onMenuClick = openDrawer,
                     onNavigate = navigateMain,
-                    syncStatus = autoSyncStatus.label(),
+                    syncStatus = autoSyncStatus,
                     onSyncClick = { cloudAction = "sync" }
                 )
             }
@@ -1475,24 +1497,51 @@ fun AppNavigation() {
                     .firstOrNull { it.lot.id == lot.id }
                     ?.assignments
                     .orEmpty()
+                val detailWeightRecords = lotWeighingsWithinAssignments(
+                    assignments = lotAssignments,
+                    weighings = storedWeighings
+                ).map { record ->
+                    LotWeightRecord(
+                        animalId = record.animalId,
+                        dateMillis = record.fechaPesaje,
+                        dateLabel = formatDate(record.fechaPesaje),
+                        weightPounds = record.pesoLibras
+                    )
+                }
+                val lotLatestWeights = allAnimalItems
+                    .filter { it.id in lot.selectedAnimalIds }
+                    .mapNotNull { it.ultimoPesoLibras }
+                val lotFinancialSummary = LotFinancialSummary(
+                    directExpenses = storedFinancialMovements
+                        .filter { it.loteId == lot.id && it.tipo == "EGRESO" }
+                        .sumOf { it.monto },
+                    supplyCosts = storedSupplyMovements
+                        .filter {
+                            it.loteId == lot.id && it.tipo in setOf("SALIDA", "SALIDA_SANITARIA")
+                        }
+                        .sumOf { it.cantidad * (it.costoUnitario ?: 0.0) },
+                    laborCosts = storedEmployeePayments
+                        .filter { it.loteId == lot.id }
+                        .sumOf { it.monto },
+                    income = storedFinancialMovements
+                        .filter { it.loteId == lot.id && it.tipo == "INGRESO" }
+                        .sumOf { it.monto },
+                    currentWeightPounds = lotLatestWeights.sum(),
+                    weightedAnimalCount = lotLatestWeights.size,
+                    unvaluedSupplyConsumptions = storedSupplyMovements.count {
+                        it.loteId == lot.id &&
+                            it.tipo in setOf("SALIDA", "SALIDA_SANITARIA") &&
+                            it.costoUnitario == null
+                    }
+                )
                 LotDetailScreen(
                     lot = lot,
                     canEditRecords = canEditRecords,
+                    financialSummary = lotFinancialSummary,
                     selectedAnimalLabels = allAnimalItems
                         .filter { it.id in lot.selectedAnimalIds }
                         .map { it.nombre ?: it.codigoIdentificacion },
-                    weightRecords = lotWeighingsWithinAssignments(
-                        assignments = lotAssignments,
-                        weighings = storedWeighings
-                    )
-                        .map { record ->
-                            LotWeightRecord(
-                                animalId = record.animalId,
-                                dateMillis = record.fechaPesaje,
-                                dateLabel = formatDate(record.fechaPesaje),
-                                weightPounds = record.pesoLibras
-                            )
-                        },
+                    weightRecords = detailWeightRecords,
                     onBack = { navController.popBackStack() },
                     onEdit = {
                         if (canEditRecords) {
@@ -1515,6 +1564,29 @@ fun AppNavigation() {
                                 .onFailure { error ->
                                     lotSaveError = error.message ?: "No se pudo cerrar el lote."
                                 }
+                            lotIsSaving = false
+                        }
+                    },
+                    onSellAndClose = { sale ->
+                        coroutineScope.launch {
+                            lotIsSaving = true
+                            lotSaveError = null
+                            runCatching {
+                                check(canEditRecords) {
+                                    "Solo el Administrador General puede vender y cerrar lotes."
+                                }
+                                lotViewModel.sellAndCloseLot(
+                                    lot.id,
+                                    LotSaleDraft(
+                                        amount = sale.amount.replace(',', '.').toDouble(),
+                                        date = parseDate(sale.date)
+                                            ?: error("La fecha de venta no es válida."),
+                                        notes = sale.notes.ifBlank { null }
+                                    )
+                                )
+                            }.onFailure { error ->
+                                lotSaveError = error.message ?: "No se pudo registrar la venta."
+                            }
                             lotIsSaving = false
                         }
                     },
@@ -2008,6 +2080,7 @@ fun AppNavigation() {
 
             composable(Routes.FINANCE_FORM) {
                 FinancialMovementFormScreen(
+                    lotOptions = lots.map { FinancialLotOption(it.id, "${it.code} · ${it.name}") },
                     isSaving = financeIsSaving,
                     saveError = financeSaveError,
                     onBack = { navController.popBackStack() },
@@ -2023,6 +2096,7 @@ fun AppNavigation() {
                                         amount = form.amount.replace(',', '.').toDouble(),
                                         date = parseDate(form.date)
                                             ?: error("La fecha seleccionada no es válida."),
+                                        lotId = form.lotId.ifBlank { null },
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
@@ -2603,6 +2677,7 @@ fun AppNavigation() {
                 }
                 EmployeePaymentFormScreen(
                     employee = employee,
+                    lotOptions = lots.map { EmployeePaymentLotOption(it.id, "${it.code} · ${it.name}") },
                     isSaving = paymentIsSaving,
                     saveError = paymentSaveError,
                     onBack = { navController.popBackStack() },
@@ -2618,6 +2693,8 @@ fun AppNavigation() {
                                             ?: error("La fecha de pago no es válida."),
                                         amount = form.amount.replace(',', '.').toDouble(),
                                         period = form.period,
+                                        lotId = form.lotId.ifBlank { null },
+                                        activity = form.activity.ifBlank { null },
                                         notes = form.notes.ifBlank { null }
                                     )
                                 )
@@ -2677,7 +2754,17 @@ fun AppNavigation() {
                     cloudUserStatus = "Cargando cuentas de la nube…"
                     try {
                         cloudUsers = cloudSessionManager.listCloudUsers(currentUserId).map { u ->
-                            UserUiModel(u.id,u.name,u.email,u.role,u.active,u.permissions,u.permissions.size,u.customized)
+                            UserUiModel(
+                                id = u.id,
+                                fullName = u.name,
+                                username = u.email,
+                                roleName = u.role,
+                                active = u.active,
+                                permissionIds = u.permissions,
+                                permissionCount = u.permissions.size,
+                                hasCustomPermissions = u.customized,
+                                isCurrentAccount = u.currentAccount
+                            )
                         }
                         cloudUserStatus = "Lista actualizada desde Supabase."
                     } catch(e:kotlinx.coroutines.CancellationException) { throw e }
@@ -2690,29 +2777,95 @@ fun AppNavigation() {
                     onRefresh = { cloudUsersRefresh++ },
                     onMenuClick = openDrawer,
                     onCreateUser = { userEditingId="";userSaveError=null;navController.navigate(Routes.USER_FORM) },
-                    onEditUser = {},
+                    onEditUser = { userId ->
+                        userEditingId = userId
+                        userSaveError = null
+                        navController.navigate(Routes.USER_FORM)
+                    },
                     onViewRolePermissions = { navController.navigate(Routes.ROLE_PERMISSIONS) },
                     onNavigateMain = navigateMain
                 )
             }
             composable(Routes.USER_FORM) {
-                UserFormScreen(
+                val editingCloudUser = cloudUsers.firstOrNull { it.id == userEditingId }
+                LaunchedEffect(currentUserId, userEditingId) {
+                    if (userEditingId.isNotBlank() && editingCloudUser == null) {
+                        try {
+                            cloudUsers = cloudSessionManager.listCloudUsers(currentUserId).map { user ->
+                                UserUiModel(
+                                    id = user.id,
+                                    fullName = user.name,
+                                    username = user.email,
+                                    roleName = user.role,
+                                    active = user.active,
+                                    permissionIds = user.permissions,
+                                    permissionCount = user.permissions.size,
+                                    hasCustomPermissions = user.customized,
+                                    isCurrentAccount = user.currentAccount
+                                )
+                            }
+                            if (cloudUsers.none { it.id == userEditingId }) {
+                                cloudUserStatus = "La cuenta que intentabas editar ya no existe."
+                                userEditingId = ""
+                                navController.popBackStack()
+                            }
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            cloudUserStatus = error.message ?: "No se pudo cargar la cuenta para editar."
+                            userEditingId = ""
+                            navController.popBackStack()
+                        }
+                    }
+                }
+                if (userEditingId.isNotBlank() && editingCloudUser == null) {
+                    androidx.compose.material3.Text("Cargando cuenta…")
+                } else UserFormScreen(
                     existingUsernames = cloudUsers.map {it.username}.toSet(), cloudMode = true,
+                    initialUser = editingCloudUser,
+                    protectOwnAccount = editingCloudUser?.isCurrentAccount == true,
                     isSaving = userIsSaving, saveError = userSaveError,
-                    onBack = { if(!userIsSaving){userSaveError=null;navController.popBackStack()} },
+                    onBack = {
+                        if(!userIsSaving) {
+                            userEditingId = ""
+                            userSaveError = null
+                            navController.popBackStack()
+                        }
+                    },
                     onSubmit = { form ->
                         userIsSaving=true;userSaveError=null
                         coroutineScope.launch {
                             try {
-                                cloudSessionManager.createCloudUser(currentUserId,
-                                    com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft(
-                                        form.fullName,form.username,form.temporaryPassword,form.roleName,form.active,form.permissionIds))
+                                if (editingCloudUser == null) {
+                                    cloudSessionManager.createCloudUser(currentUserId,
+                                        com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft(
+                                            form.fullName,form.username,form.temporaryPassword,form.roleName,form.active,form.permissionIds))
+                                } else {
+                                    val updatedUser = cloudSessionManager.updateCloudUser(
+                                        currentUserId,
+                                        com.fincahernandez.gestionpecuaria.data.remote.CloudUserUpdateDraft(
+                                            id = editingCloudUser.id,
+                                            name = form.fullName,
+                                            role = form.roleName,
+                                            active = form.active,
+                                            permissions = form.permissionIds
+                                        )
+                                    )
+                                    if (updatedUser.currentAccount) {
+                                        unifiedAuth.remembered(currentUserId)?.let(updateCurrentUser)
+                                    }
+                                }
                                 cloudUsersRefresh++
+                                userEditingId = ""
                                 navController.popBackStack()
                             } catch(e:kotlinx.coroutines.CancellationException) {throw e}
                             catch(e:Exception) {
                                 userSaveError = if(e is IllegalArgumentException || e is com.fincahernandez.gestionpecuaria.data.remote.CloudAccessDenied) e.message
-                                    else "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar y revisa internet."
+                                    else if (editingCloudUser == null) {
+                                        "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar y revisa internet."
+                                    } else {
+                                        "No se pudo confirmar la edición. Actualiza Usuarios y vuelve a intentarlo."
+                                    }
                             } finally {userIsSaving=false}
                         }
                     }

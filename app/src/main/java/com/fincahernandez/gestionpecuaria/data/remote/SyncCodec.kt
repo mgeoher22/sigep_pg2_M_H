@@ -21,15 +21,24 @@ object SyncCodec {
                 field = field.name,
                 hasField = json.has(field.name)
             )
+            // Room 23 añadió relaciones y datos de venta anulables. Las copias base
+            // y los envíos pendientes creados por Room 22 no contienen esas claves.
+            val legacyLotFinancialField = isLegacyLotFinancialField(
+                table = table,
+                field = field.name,
+                hasField = json.has(field.name)
+            )
             require(
                 json.has(field.name) || legacyNearCalving || legacyParcelBoundary ||
-                    legacySanitarySupplyField
+                    legacySanitarySupplyField || legacyLotFinancialField
             ) {
-                "Falta ${table}.${field.name} en la nube."
+                "Falta ${table}.${field.name} en los datos de sincronización."
             }
             val value: Any? = if (legacyNearCalving) {
                 false
-            } else if (legacyParcelBoundary || legacySanitarySupplyField) {
+            } else if (
+                legacyParcelBoundary || legacySanitarySupplyField || legacyLotFinancialField
+            ) {
                 null
             } else if (json.isNull(field.name)) {
                 require(field.nullable) { "Campo obligatorio vacío en $table." }; null
@@ -83,3 +92,15 @@ internal fun isLegacySanitarySupplyField(
     table == "insumos" && field == "contenidoMlPorUnidad" ||
         table == "eventos_sanitarios" && field in setOf("insumoId", "dosisMl")
     )
+
+/** Campos anulables añadidos en Room 23 y ausentes en baselines anteriores. */
+internal fun isLegacyLotFinancialField(
+    table: String,
+    field: String,
+    hasField: Boolean
+): Boolean = !hasField && when (table) {
+    "lotes" -> field in setOf("precioVenta", "fechaVenta")
+    "movimientos_financieros" -> field == "loteId"
+    "pagos_empleados" -> field in setOf("loteId", "actividad")
+    else -> false
+}

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material.icons.filled.StopCircle
@@ -40,6 +41,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
@@ -53,6 +55,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -67,6 +70,7 @@ import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
 import com.fincahernandez.gestionpecuaria.ui.components.WeightTrendChart
 import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.util.Calendar
 import java.util.Locale
@@ -82,8 +86,49 @@ data class LotUiModel(
     val initialAverageWeight: Double?,
     val targetWeight: Double?,
     val estimatedExitDate: String,
-    val selectedAnimalIds: List<String>
+    val selectedAnimalIds: List<String>,
+    val creationDateMillis: Long = 0L,
+    val saleAmount: Double? = null,
+    val saleDate: String = ""
 )
+
+/** Costos e ingresos reales relacionados con el lote. */
+data class LotFinancialSummary(
+    val directExpenses: Double = 0.0,
+    val supplyCosts: Double = 0.0,
+    val laborCosts: Double = 0.0,
+    val income: Double = 0.0,
+    val currentWeightPounds: Double = 0.0,
+    val weightedAnimalCount: Int = 0,
+    val unvaluedSupplyConsumptions: Int = 0
+) {
+    val totalCosts: Double get() = directExpenses + supplyCosts + laborCosts
+    val profit: Double get() = income - totalCosts
+    val breakEvenPerPound: Double? get() =
+        currentWeightPounds.takeIf { it > 0.0 }?.let { totalCosts / it }
+    val suggestedSalePrice: Double get() = totalCosts * 1.20
+    val suggestedPricePerPound: Double? get() =
+        currentWeightPounds.takeIf { it > 0.0 }?.let { suggestedSalePrice / it }
+
+    fun suggestedSalePrice(marginPercent: Double): Double =
+        totalCosts * (1.0 + marginPercent.coerceAtLeast(0.0) / 100.0)
+
+    fun suggestedPricePerPound(marginPercent: Double): Double? =
+        currentWeightPounds.takeIf { it > 0.0 }
+            ?.let { suggestedSalePrice(marginPercent) / it }
+}
+
+data class LotSaleFormData(val amount: String, val date: String, val notes: String)
+
+internal fun calculateLotSaleValue(totalWeightPounds: Double, pricePerPound: Double): Double? =
+    if (
+        totalWeightPounds.isFinite() && totalWeightPounds > 0.0 &&
+        pricePerPound.isFinite() && pricePerPound > 0.0
+    ) {
+        totalWeightPounds * pricePerPound
+    } else {
+        null
+    }
 
 /** Valores entregados por el formulario al contenedor de navegación. */
 data class LotFormData(
@@ -674,9 +719,11 @@ fun LotDetailScreen(
     lot: LotUiModel,
     selectedAnimalLabels: List<String>,
     weightRecords: List<LotWeightRecord>,
+    financialSummary: LotFinancialSummary,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDeactivate: () -> Unit,
+    onSellAndClose: (LotSaleFormData) -> Unit,
     onRegisterWeight: () -> Unit,
     onNavigateMain: (String) -> Unit,
     canEditRecords: Boolean = false,
@@ -685,6 +732,18 @@ fun LotDetailScreen(
     modifier: Modifier = Modifier
 ) {
     var confirmDeactivate by rememberSaveable { mutableStateOf(false) }
+    var showSaleDialog by rememberSaveable { mutableStateOf(false) }
+    var salePricePerPound by rememberSaveable { mutableStateOf("") }
+    var saleDate by rememberSaveable(lot.id) { mutableStateOf(todayDateText()) }
+    var saleNotes by rememberSaveable { mutableStateOf("") }
+    var attemptedSale by rememberSaveable { mutableStateOf(false) }
+    var desiredMargin by rememberSaveable(lot.id) { mutableStateOf("20") }
+    var marketPricePerPound by rememberSaveable(lot.id) { mutableStateOf("") }
+    LaunchedEffect(lot.id) {
+        if (saleDate.isBlank()) saleDate = todayDateText()
+    }
+    val desiredMarginValue = desiredMargin.replace(',', '.').toDoubleOrNull()
+        ?.coerceAtLeast(0.0) ?: 0.0
     var selectedWeightPeriod by rememberSaveable { mutableStateOf("TODO") }
     val periodStart = weightPeriodStart(selectedWeightPeriod)
     val filteredWeightRecords = weightRecords.filter { record ->
@@ -700,12 +759,9 @@ fun LotDetailScreen(
         }
         .sortedBy { it.first }
         .map { it.second }
-    val currentAverageWeight = weightRecords
-        .groupBy { it.animalId }
-        .values
-        .mapNotNull { records -> records.maxByOrNull { it.dateMillis }?.weightPounds }
-        .takeIf { it.isNotEmpty() }
-        ?.average()
+    val currentAverageWeight = financialSummary.currentWeightPounds
+        .takeIf { financialSummary.weightedAnimalCount > 0 }
+        ?.div(financialSummary.weightedAnimalCount)
     val weightGain = calculateLotWeightGain(weightRecords)
 
     if (confirmDeactivate) {
@@ -732,6 +788,89 @@ fun LotDetailScreen(
                     enabled = !isSaving,
                     onClick = { confirmDeactivate = false }
                 ) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (showSaleDialog) {
+        val parsedPricePerPound = salePricePerPound.replace(',', '.').toDoubleOrNull()
+        val saleTotal = parsedPricePerPound?.let { price ->
+            calculateLotSaleValue(financialSummary.currentWeightPounds, price)
+        }
+        val priceInvalid = saleTotal == null
+        AlertDialog(
+            onDismissRequest = { if (!isSaving) showSaleDialog = false },
+            title = { Text("Registrar venta y cerrar") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Se generará automáticamente un ingreso financiero y se conservará todo el historial del lote."
+                    )
+                    Text(
+                        "Peso total: ${formatLotWeight(financialSummary.currentWeightPounds)}",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = salePricePerPound,
+                        onValueChange = { salePricePerPound = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Precio de venta por libra *") },
+                        prefix = { Text("Q ") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        isError = attemptedSale && priceInvalid,
+                        supportingText = if (attemptedSale && priceInvalid) {
+                            { Text("Ingrese un precio por libra mayor que cero.") }
+                        } else null,
+                        singleLine = true
+                    )
+                    Text(
+                        "Total de venta: ${saleTotal?.let(::formatLotMoney) ?: "Pendiente"}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    CompactDateField(
+                        label = "Fecha de venta *",
+                        value = saleDate,
+                        onDateSelected = { saleDate = it }
+                    )
+                    OutlinedTextField(
+                        value = saleNotes,
+                        onValueChange = { saleNotes = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Observaciones") },
+                        minLines = 2
+                    )
+                    if (attemptedSale && saleDate.isBlank()) {
+                        Text("Seleccione la fecha de venta.", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = {
+                        attemptedSale = true
+                        if (!priceInvalid && saleDate.isNotBlank()) {
+                            showSaleDialog = false
+                            onSellAndClose(
+                                LotSaleFormData(
+                                    amount = checkNotNull(saleTotal).toString(),
+                                    date = saleDate,
+                                    notes = buildString {
+                                        append("Precio: Q ${formatLotPercent(parsedPricePerPound!!)} por lb")
+                                        saleNotes.trim().takeIf(String::isNotBlank)?.let { append(" · $it") }
+                                    }
+                                )
+                            )
+                        }
+                    }
+                ) { Text("Registrar venta") }
+            },
+            dismissButton = {
+                TextButton(enabled = !isSaving, onClick = { showSaleDialog = false }) {
+                    Text("Cancelar")
+                }
             }
         )
     }
@@ -789,6 +928,41 @@ fun LotDetailScreen(
                 }
             }
             item {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    SummaryValueCard(
+                        "PESO TOTAL DEL LOTE",
+                        financialSummary.currentWeightPounds
+                            .takeIf { financialSummary.weightedAnimalCount > 0 }
+                            ?.let { formatLotWeight(it) }
+                            ?: "Sin datos",
+                        Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        if (financialSummary.weightedAnimalCount == lot.selectedAnimalIds.size) {
+                            "Suma del último peso disponible de los ${lot.selectedAnimalIds.size} animales."
+                        } else {
+                            "Calculado con ${financialSummary.weightedAnimalCount} de " +
+                                "${lot.selectedAnimalIds.size} animales; faltan pesajes."
+                        },
+                        color = if (financialSummary.weightedAnimalCount == lot.selectedAnimalIds.size) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            Color(0xFF9A6700)
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+            item {
+                LotProfitabilityCard(
+                    summary = financialSummary,
+                    desiredMargin = desiredMargin,
+                    onDesiredMarginChange = { desiredMargin = it },
+                    marketPricePerPound = marketPricePerPound,
+                    onMarketPricePerPoundChange = { marketPricePerPound = it }
+                )
+            }
+            item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SummaryValueCard(
                         "GANANCIA NETA",
@@ -835,6 +1009,10 @@ fun LotDetailScreen(
                         Text("Parcela: ${lot.parcelName.ifBlank { "Sin asignar" }}")
                         Text("Meta de peso: ${lot.targetWeight?.let { "$it lb" } ?: "Sin dato"}")
                         Text("Salida estimada: ${lot.estimatedExitDate.ifBlank { "Sin fecha" }}")
+                        lot.saleAmount?.let { amount ->
+                            Text("Venta: ${formatLotMoney(amount)}")
+                            Text("Fecha de venta: ${lot.saleDate.ifBlank { "Sin fecha" }}")
+                        }
                     }
                 }
             }
@@ -892,6 +1070,29 @@ fun LotDetailScreen(
                 }
                 if (canEditRecords) {
                     item {
+                        Button(
+                            onClick = {
+                                attemptedSale = false
+                                salePricePerPound = marketPricePerPound.ifBlank {
+                                    financialSummary.suggestedPricePerPound(desiredMarginValue)
+                                        ?.let { String.format(Locale.US, "%.2f", it) }
+                                        .orEmpty()
+                                }
+                                saleDate = todayDateText()
+                                saleNotes = ""
+                                showSaleDialog = true
+                            },
+                            enabled = !isSaving &&
+                                financialSummary.weightedAnimalCount > 0 &&
+                                financialSummary.weightedAnimalCount == lot.selectedAnimalIds.size,
+                            modifier = Modifier.fillMaxWidth().height(54.dp)
+                        ) {
+                            Icon(Icons.Default.PointOfSale, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Registrar venta y cerrar lote")
+                        }
+                    }
+                    item {
                         OutlinedButton(
                             onClick = { confirmDeactivate = true },
                             enabled = !isSaving,
@@ -910,6 +1111,129 @@ fun LotDetailScreen(
     }
 }
 
+@Composable
+private fun LotProfitabilityCard(
+    summary: LotFinancialSummary,
+    desiredMargin: String,
+    onDesiredMarginChange: (String) -> Unit,
+    marketPricePerPound: String,
+    onMarketPricePerPoundChange: (String) -> Unit
+) {
+    val margin = if (summary.income > 0.0) summary.profit / summary.income * 100.0 else null
+    val desiredMarginValue = desiredMargin.replace(',', '.').toDoubleOrNull()
+    val safeMargin = desiredMarginValue?.coerceAtLeast(0.0) ?: 0.0
+    val suggestedSalePrice = summary.suggestedSalePrice(safeMargin)
+    val marketPriceValue = marketPricePerPound.replace(',', '.').toDoubleOrNull()
+    val projectedSaleValue = marketPriceValue?.let { price ->
+        calculateLotSaleValue(summary.currentWeightPounds, price)
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Costos y rentabilidad", fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Gastos directos")
+                Text(formatLotMoney(summary.directExpenses))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Consumos de insumos")
+                Text(formatLotMoney(summary.supplyCosts))
+            }
+            if (summary.unvaluedSupplyConsumptions > 0) {
+                Text(
+                    "${summary.unvaluedSupplyConsumptions} consumo(s) no se sumaron porque la entrada no tenía costo unitario.",
+                    color = Color(0xFF9A6700),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Mano de obra")
+                Text(formatLotMoney(summary.laborCosts))
+            }
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Costo acumulado", fontWeight = FontWeight.Bold)
+                Text(formatLotMoney(summary.totalCosts), fontWeight = FontWeight.Bold)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Punto de equilibrio")
+                Text(summary.breakEvenPerPound?.let { "${formatLotMoney(it)}/lb" } ?: "Sin peso")
+            }
+            OutlinedTextField(
+                value = desiredMargin,
+                onValueChange = onDesiredMarginChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Margen deseado") },
+                suffix = { Text("%") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                isError = desiredMarginValue == null || desiredMarginValue < 0.0,
+                supportingText = { Text("Puede cambiarlo para simular el precio de venta.") },
+                singleLine = true
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Precio sugerido (${formatLotPercent(safeMargin)} %)")
+                Text(formatLotMoney(suggestedSalePrice), color = MaterialTheme.colorScheme.primary)
+            }
+            summary.suggestedPricePerPound(safeMargin)?.let { price ->
+                Text(
+                    "Equivale a ${formatLotMoney(price)} por libra sobre " +
+                        "${String.format(Locale.getDefault(), "%.1f", summary.currentWeightPounds)} lb registradas.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            HorizontalDivider()
+            OutlinedTextField(
+                value = marketPricePerPound,
+                onValueChange = onMarketPricePerPoundChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Precio definido por el usuario") },
+                prefix = { Text("Q ") },
+                suffix = { Text("/lb") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                isError = marketPricePerPound.isNotBlank() && projectedSaleValue == null,
+                supportingText = { Text("Se multiplica por el peso total del lote.") },
+                singleLine = true
+            )
+            projectedSaleValue?.let { saleValue ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Valor estimado de venta", fontWeight = FontWeight.Bold)
+                    Text(formatLotMoney(saleValue), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Resultado estimado")
+                    Text(
+                        formatLotMoney(saleValue - summary.totalCosts),
+                        color = if (saleValue >= summary.totalCosts) Color(0xFF147A36) else MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            if (summary.income > 0.0) {
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Ingresos del lote")
+                    Text(formatLotMoney(summary.income), color = Color(0xFF147A36))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Resultado")
+                    Text(
+                        formatLotMoney(summary.profit),
+                        color = if (summary.profit >= 0.0) Color(0xFF147A36) else MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    "Margen: ${String.format(Locale.getDefault(), "%.1f", margin)} %",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                Text("La rentabilidad final aparecerá al registrar la venta.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
 private fun formatLotWeight(weight: Double?): String =
     weight?.let { "${String.format(Locale.getDefault(), "%.1f", it)} lb" } ?: "Sin dato"
 
@@ -918,6 +1242,12 @@ private fun formatLotWeightChange(summary: LotWeightGainSummary): String {
     val sign = if (summary.totalPounds > 0.0) "+" else ""
     return "$sign${String.format(Locale.getDefault(), "%.1f", summary.totalPounds)} lb"
 }
+
+private fun formatLotMoney(value: Double): String =
+    "Q ${String.format(Locale.getDefault(), "%,.2f", value)}"
+
+private fun formatLotPercent(value: Double): String =
+    String.format(Locale.getDefault(), "%.1f", value)
 
 /** Inicio del período elegido para filtrar la gráfica sin fabricar valores. */
 private fun weightPeriodStart(period: String, now: Long = System.currentTimeMillis()): Long? {

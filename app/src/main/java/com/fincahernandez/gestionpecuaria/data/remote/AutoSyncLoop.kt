@@ -11,7 +11,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class AutoSyncPhase { WAITING, OFFLINE, RUNNING, COMPLETE, PENDING, REVIEW, RETRY }
-data class AutoSyncStatus(val phase: AutoSyncPhase, val completedAt: Long? = null)
+data class AutoSyncStatus(
+    val phase: AutoSyncPhase,
+    val completedAt: Long? = null,
+    val detail: String? = null
+)
 
 /** One foreground loop. Coalesces edits, serializes requests, and backs off on errors. */
 class AutoSyncLoop(
@@ -59,7 +63,12 @@ class AutoSyncLoop(
                     throw e
                 } catch (e: Exception) {
                     val review = e is SyncRejected || e is IllegalArgumentException || e is CloudAccessDenied
-                    report(AutoSyncStatus(if (review) AutoSyncPhase.REVIEW else AutoSyncPhase.RETRY))
+                    report(
+                        AutoSyncStatus(
+                            phase = if (review) AutoSyncPhase.REVIEW else AutoSyncPhase.RETRY,
+                            detail = e.message?.trim()?.takeIf(String::isNotBlank)
+                        )
+                    )
                     waitMs = if (review) maxRetryMs else failureDelay
                     failureDelay = (failureDelay * 2).coerceAtMost(maxRetryMs)
                     mustBackOff = true

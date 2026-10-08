@@ -22,6 +22,8 @@ data class EmployeePaymentDraft(
     val paymentDate: Long,
     val amount: Double,
     val period: String,
+    val lotId: String? = null,
+    val activity: String? = null,
     val notes: String?
 )
 
@@ -63,11 +65,17 @@ class EmployeeRepository(private val database: GestionPecuariaDatabase) {
             minimumDate = employee.fechaIngreso,
             message = "La fecha de pago no puede ser anterior al ingreso del empleado."
         )
+        val lotId = draft.lotId?.trim()?.ifBlank { null }
+        lotId?.let { id ->
+            check(database.loteDao().buscarPorId(id) != null) { "No se encontró el lote seleccionado." }
+        }
         val payment = PagoEmpleadoEntity(
             empleadoId = draft.employeeId,
             fechaPago = draft.paymentDate,
             monto = draft.amount,
             periodo = draft.period.trim(),
+            loteId = lotId,
+            actividad = draft.activity?.trim()?.ifBlank { null },
             observaciones = draft.notes?.trim()?.ifBlank { null }
         )
         dao.insertarPago(payment)

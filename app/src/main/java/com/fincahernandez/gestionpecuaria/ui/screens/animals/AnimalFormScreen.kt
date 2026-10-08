@@ -47,8 +47,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
+import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -128,9 +130,11 @@ fun AnimalFormScreen(
     var madreId by rememberSaveable { mutableStateOf(initialData?.madreId.orEmpty()) }
     var proximaParto by rememberSaveable { mutableStateOf(initialData?.proximaParto ?: false) }
     var fechaNacimiento by rememberSaveable {
-        mutableStateOf(initialData?.fechaNacimiento.orEmpty())
+        mutableStateOf(initialData?.fechaNacimiento ?: todayDateText())
     }
-    var fechaIngreso by rememberSaveable { mutableStateOf(initialData?.fechaIngreso.orEmpty()) }
+    var fechaIngreso by rememberSaveable {
+        mutableStateOf(initialData?.fechaIngreso ?: todayDateText())
+    }
     var estadoSalud by rememberSaveable {
         mutableStateOf(initialData?.estadoSalud?.ifBlank { "EXCELENTE" } ?: "EXCELENTE")
     }
@@ -139,6 +143,12 @@ fun AnimalFormScreen(
     var observaciones by rememberSaveable { mutableStateOf(initialData?.observaciones.orEmpty()) }
     var fotoUri by rememberSaveable { mutableStateOf(initialData?.fotoUri.orEmpty()) }
     var intentoGuardar by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(isEditing) {
+        if (!isEditing) {
+            if (fechaNacimiento.isBlank()) fechaNacimiento = todayDateText()
+            if (fechaIngreso.isBlank()) fechaIngreso = todayDateText()
+        }
+    }
     val context = LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
