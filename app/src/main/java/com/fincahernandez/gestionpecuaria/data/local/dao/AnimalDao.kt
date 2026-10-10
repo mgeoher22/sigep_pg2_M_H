@@ -105,4 +105,30 @@ interface AnimalDao {
         id: String,
         fechaActualizacion: Long = System.currentTimeMillis()
     ): Int
+
+    /**
+     * Retira del inventario activo los animales incluidos en una venta de lote.
+     * El motivo de salida distingue a los vendidos de quienes abandonaron el lote
+     * anteriormente por traslado o edición.
+     */
+    @Query(
+        """
+        UPDATE animales
+        SET estado = 'INACTIVO',
+            proximaParto = 0,
+            actualizadoEn = :fechaActualizacion
+        WHERE estado = 'ACTIVO'
+          AND id IN (
+              SELECT lote_animales.animalId
+              FROM lote_animales
+              INNER JOIN lotes ON lotes.id = lote_animales.loteId
+              WHERE lotes.estado = 'CERRADO'
+                AND lotes.fechaVenta IS NOT NULL
+                AND lote_animales.motivoSalida = 'Venta y cierre del lote'
+          )
+        """
+    )
+    suspend fun desactivarAnimalesDeLotesVendidos(
+        fechaActualizacion: Long = System.currentTimeMillis()
+    ): Int
 }
