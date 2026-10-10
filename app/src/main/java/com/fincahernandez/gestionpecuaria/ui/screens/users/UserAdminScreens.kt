@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,6 +57,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -97,6 +100,7 @@ fun UserManagementScreen(
     onMenuClick: () -> Unit,
     onCreateUser: () -> Unit,
     onEditUser: (String) -> Unit,
+    onResetPassword: (String) -> Unit,
     onViewRolePermissions: () -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -267,12 +271,23 @@ fun UserManagementScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (canManageUsers) {
-                                    IconButton(onClick = { onEditUser(user.id) }) {
-                                        Icon(
-                                            Icons.Default.Edit,
-                                            contentDescription = "Editar ${user.fullName}",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
+                                    Row {
+                                        if (cloudMode && !user.isCurrentAccount) {
+                                            IconButton(onClick = { onResetPassword(user.id) }) {
+                                                Icon(
+                                                    Icons.Default.Key,
+                                                    contentDescription = "Restablecer contraseña de ${user.fullName}",
+                                                    tint = MaterialTheme.colorScheme.tertiary
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = { onEditUser(user.id) }) {
+                                            Icon(
+                                                Icons.Default.Edit,
+                                                contentDescription = "Editar ${user.fullName}",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -283,6 +298,119 @@ fun UserManagementScreen(
             item { Spacer(modifier = Modifier.height(72.dp)) }
         }
     }
+}
+
+/** Confirma una nueva clave temporal sin conservarla al recrear la actividad. */
+@Composable
+fun AdminPasswordResetDialog(
+    user: UserUiModel,
+    isSaving: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var password by remember(user.id) { mutableStateOf("") }
+    var confirmation by remember(user.id) { mutableStateOf("") }
+    var attempted by remember(user.id) { mutableStateOf(false) }
+    val validPassword = com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft
+        .validPassword(password)
+    val matches = password == confirmation
+
+    AlertDialog(
+        onDismissRequest = { if (!isSaving) onDismiss() },
+        title = { Text("Restablecer contraseña") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Cuenta: ${user.fullName}", fontWeight = FontWeight.Bold)
+                Text(user.username, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Asigna una contraseña temporal y comunícala de forma segura. En el siguiente ingreso se exigirá reemplazarla y no se mostrará después.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Contraseña temporal") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation(),
+                    isError = attempted && !validPassword,
+                    supportingText = { Text("Mínimo 8 caracteres.") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = confirmation,
+                    onValueChange = { confirmation = it },
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Confirmar contraseña") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation(),
+                    isError = attempted && !matches,
+                    supportingText = if (attempted && !matches) {
+                        { Text("Las contraseñas no coinciden.") }
+                    } else null,
+                    singleLine = true
+                )
+                if (isSaving) CircularProgressIndicator()
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !isSaving,
+                onClick = {
+                    attempted = true
+                    if (validPassword && matches) onConfirm(password)
+                }
+            ) { Text("Restablecer") }
+        },
+        dismissButton = {
+            TextButton(enabled = !isSaving, onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/** Muestra la clave generada una sola vez; no sobrevive al cierre del diálogo. */
+@Composable
+fun TemporaryPasswordDialog(
+    accountName: String,
+    password: String,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Contraseña temporal generada") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Cuenta: $accountName", fontWeight = FontWeight.Bold)
+                Text(
+                    "Entrega esta contraseña al usuario de forma segura. Solo se mostrará en esta ocasión.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Contraseña temporal") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(
+                    onClick = { clipboard.setText(AnnotatedString(password)) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Copiar contraseña") }
+                Text(
+                    "Al iniciar sesión con ella, la aplicación exigirá crear una contraseña personal antes de continuar.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text("Ya la guardé") }
+        }
+    )
 }
 
 /** Formulario que crea una cuenta y le asigna una de las plantillas de rol del ERS. */
@@ -332,8 +460,9 @@ fun UserFormScreen(
         .split(',')
         .filterTo(linkedSetOf()) { it.isNotBlank() }
     val usernameValid = if(cloudMode) com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft.validEmail(normalizedUsername) else normalizedUsername.matches(Regex("[a-z0-9._-]{3,30}"))
-    val passwordValid = if (isEditing) password.isBlank() || password.length >= 8
-    else if(cloudMode) com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft.validPassword(password) else password.length >= 8
+    val passwordValid = if (cloudMode) true
+    else if (isEditing) password.isBlank() || password.length >= 8
+    else password.length >= 8
     val formValid = fullName.isNotBlank() && usernameValid &&
         !usernameExists && passwordValid
 
@@ -367,7 +496,7 @@ fun UserFormScreen(
                     if (isEditing) {
                         "Actualice los datos, el rol y los permisos de la cuenta."
                     } else {
-                        if(cloudMode) "Necesitas internet. Guarda el nombre, correo, contraseña y rol del trabajador en la nube." else "Defina las credenciales iniciales y seleccione el rol del trabajador."
+                        if(cloudMode) "Necesitas internet. La aplicación generará una contraseña temporal segura al crear la cuenta." else "Defina las credenciales iniciales y seleccione el rol del trabajador."
                     },
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -412,7 +541,7 @@ fun UserFormScreen(
                     singleLine = true
                 )
             }
-            if (!isEditing || !cloudMode) item {
+            if (!cloudMode) item {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },

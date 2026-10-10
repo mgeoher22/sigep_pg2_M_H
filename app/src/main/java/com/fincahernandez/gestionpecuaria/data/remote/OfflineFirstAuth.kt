@@ -27,6 +27,7 @@ class OfflineFirstAuth(
     interface Gateway {
         suspend fun login(email: String, password: String): CloudAccount
         suspend fun restore(localId: String): CloudAccount?
+        suspend fun changePassword(localId: String, change: CloudPasswordChange): CloudAccount
         fun clear(): () -> Boolean
     }
     interface Catalog {
@@ -40,12 +41,14 @@ class OfflineFirstAuth(
     private fun profile(j: JSONObject): AuthenticatedUser {
         val p=j.getJSONArray("permissions")
         return AuthenticatedUser(j.getString("id"),j.getString("name").takeIf { it.isNotBlank() && '@' !in it } ?: "Usuario",j.getString("email"),j.getString("role"),
-            (0 until p.length()).map { p.getString(it) }.toSet())
+            (0 until p.length()).map { p.getString(it) }.toSet(),
+            j.optBoolean("passwordChangeRequired", false))
     }
     private fun verifier(j: JSONObject) = ProtectedPassword(j.getString("hash"),j.getString("salt"),j.getString("algorithm"),j.getInt("iterations"))
     private fun encode(user: AuthenticatedUser, proof: ProtectedPassword) = JSONObject()
         .put("project",project).put("id",user.id).put("name",user.fullName).put("email",user.username)
         .put("role",user.roleName).put("permissions",JSONArray(user.permissionIds.sorted()))
+        .put("passwordChangeRequired",user.passwordChangeRequired)
         .put("hash",proof.hash).put("salt",proof.salt).put("algorithm",proof.algorithm).put("iterations",proof.iterations)
     private fun unavailable(e: Exception) = e is UnknownHostException || e is ConnectException || e is SocketTimeoutException || e is NoRouteToHostException
     private fun revoked(e: Exception) = e is CloudAccessDenied || (e is CloudHttpException && e.status in listOf(400,401,403,422))
@@ -56,6 +59,9 @@ class OfflineFirstAuth(
         if (!PasswordHasher.verify(password,proof.hash,proof.salt,proof.algorithm,proof.iterations))
             throw CloudAccessDenied("Correo o contraseña incorrectos.")
         val user=profile(j)
+        if (user.passwordChangeRequired) {
+            throw CloudAccessDenied("Conéctate a internet para cambiar la contraseña temporal.")
+        }
         if (!catalog.active(user.id)) throw CloudAccessDenied("Esta cuenta está inactiva en la tablet.")
         return user
     }
@@ -81,15 +87,36 @@ class OfflineFirstAuth(
         mutex.withLock {
             val j=cached()?.takeIf { it.optString("id")==id } ?: return@withLock null
             if (!catalog.active(id)) return@withLock null
-            if (!online()) return@withLock profile(j)
+            if (!online()) return@withLock profile(j).takeUnless { it.passwordChangeRequired }
             val account=try { gateway.restore(id) } catch(e: Exception) {
-                if (unavailable(e)) return@withLock profile(j)
+                if (unavailable(e)) return@withLock profile(j).takeUnless { it.passwordChangeRequired }
                 if (revoked(e)) { cache.clear(); gateway.clear() }
                 // A server or validation error must not be reported as offline authorization.
                 return@withLock null
             } ?: return@withLock null
             val user=catalog.save(account,verifier(j))
             cache.write(encode(user,verifier(j)).toString())
+            user
+        }
+    }
+
+    suspend fun changePassword(
+        userId: String,
+        currentPassword: String,
+        newPassword: String
+    ): AuthenticatedUser = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (!online()) {
+                throw CloudAccessDenied("Necesitas internet para cambiar la contraseña.")
+            }
+            if (cached()?.optString("id") != userId) {
+                throw CloudAccessDenied("Vuelve a iniciar sesión antes de cambiar la contraseña.")
+            }
+            val change = CloudPasswordChange(currentPassword, newPassword).validated()
+            val account = gateway.changePassword(userId, change)
+            val proof = PasswordHasher.protectValidatedCloudPassword(change.newPassword)
+            val user = catalog.save(account, proof)
+            cache.write(encode(user, proof).toString())
             user
         }
     }

@@ -200,7 +200,17 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
                 actualizadoEn = now
             )
         )
+        animalDao.desactivarAnimalesDeLotesVendidos(now)
         movement.id
+    }
+
+    /**
+     * Repara ventas creadas con versiones anteriores, que cerraban el lote pero
+     * dejaban sus animales visibles en el inventario. Es idempotente y no afecta
+     * animales retirados del lote antes de la venta.
+     */
+    suspend fun reconcileSoldLotAnimals(): Int = database.withTransaction {
+        animalDao.desactivarAnimalesDeLotesVendidos()
     }
 
     private suspend fun requireAnimalAvailable(animalId: String, allowedLotId: String?) {

@@ -124,7 +124,7 @@ fun SanitaryControlScreen(
     animals: List<SanitaryAnimalOption>,
     initialAnimalId: String = "",
     onMenuClick: () -> Unit,
-    onCreateRecord: () -> Unit,
+    onCreateRecord: (String) -> Unit,
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -180,7 +180,7 @@ fun SanitaryControlScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onCreateRecord,
+                onClick = { onCreateRecord(selectedAnimalId) },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("Registrar evento") },
                 containerColor = MaterialTheme.colorScheme.tertiary,
@@ -394,7 +394,8 @@ fun SanitaryRecordFormScreen(
     onSubmit: (SanitaryFormData) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var lotId by rememberSaveable { mutableStateOf("") }
+    val fixedAnimalContext = initialAnimalId.isNotBlank()
+    var lotId by rememberSaveable(initialAnimalId) { mutableStateOf("") }
     var animalId by rememberSaveable(initialAnimalId) { mutableStateOf(initialAnimalId) }
     var eventType by rememberSaveable { mutableStateOf(sanitaryEventTypes.first()) }
     var eventDate by rememberSaveable { mutableStateOf(todayDateText()) }
@@ -408,6 +409,12 @@ fun SanitaryRecordFormScreen(
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (eventDate.isBlank()) eventDate = todayDateText()
+    }
+    LaunchedEffect(initialAnimalId, lots) {
+        if (fixedAnimalContext) {
+            animalId = initialAnimalId
+            lotId = lots.firstOrNull { initialAnimalId in it.animalIds }?.id.orEmpty()
+        }
     }
 
     val filteredAnimals = if (lotId.isBlank()) {
@@ -462,41 +469,47 @@ fun SanitaryRecordFormScreen(
                     ) {
                         Text("Aplicación individual", fontWeight = FontWeight.Bold)
                         Text(
-                            "Primero puede escoger un lote para reducir la lista. Después debe " +
-                                "seleccionar el animal que recibió la atención."
+                            if (fixedAnimalContext) {
+                                "El evento se guardará directamente en la ficha del animal indicado."
+                            } else {
+                                "Primero puede escoger un lote para reducir la lista. Después debe " +
+                                    "seleccionar el animal que recibió la atención."
+                            }
                         )
                     }
                 }
             }
-            item {
-                SelectionDropdown(
-                    label = "Lote para localizar al animal",
-                    selectedId = lotId,
-                    emptyOptionLabel = "Todos los animales / sin lote",
-                    options = lots.map { it.id to it.label },
-                    onSelected = { selectedLotId ->
-                        lotId = selectedLotId
-                        val allowedIds = lots.firstOrNull { it.id == selectedLotId }
-                            ?.animalIds
-                            .orEmpty()
-                        if (selectedLotId.isNotBlank() && animalId !in allowedIds) animalId = ""
-                    }
-                )
-            }
-            item {
-                SelectionDropdown(
-                    label = "Animal que recibió la atención *",
-                    selectedId = animalId,
-                    emptyOptionLabel = if (filteredAnimals.isEmpty()) {
-                        "Este lote no tiene animales asignados"
-                    } else {
-                        "Seleccione un animal"
-                    },
-                    options = filteredAnimals.map { it.id to it.label },
-                    onSelected = { animalId = it },
-                    allowEmptySelection = false,
-                    showError = attemptedSave && animalId.isBlank()
-                )
+            if (!fixedAnimalContext) {
+                item {
+                    SelectionDropdown(
+                        label = "Lote para localizar al animal",
+                        selectedId = lotId,
+                        emptyOptionLabel = "Todos los animales / sin lote",
+                        options = lots.map { it.id to it.label },
+                        onSelected = { selectedLotId ->
+                            lotId = selectedLotId
+                            val allowedIds = lots.firstOrNull { it.id == selectedLotId }
+                                ?.animalIds
+                                .orEmpty()
+                            if (selectedLotId.isNotBlank() && animalId !in allowedIds) animalId = ""
+                        }
+                    )
+                }
+                item {
+                    SelectionDropdown(
+                        label = "Animal que recibió la atención *",
+                        selectedId = animalId,
+                        emptyOptionLabel = if (filteredAnimals.isEmpty()) {
+                            "Este lote no tiene animales asignados"
+                        } else {
+                            "Seleccione un animal"
+                        },
+                        options = filteredAnimals.map { it.id to it.label },
+                        onSelected = { animalId = it },
+                        allowEmptySelection = false,
+                        showError = attemptedSave && animalId.isBlank()
+                    )
+                }
             }
             selectedAnimal?.let { animal ->
                 item {
@@ -512,8 +525,16 @@ fun SanitaryRecordFormScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Ficha clínica seleccionada", fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (fixedAnimalContext) "Animal del registro" else "Ficha clínica seleccionada",
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Text("${animal.label} · ${animal.sex}")
+                                if (fixedAnimalContext && lotId.isNotBlank()) {
+                                    lots.firstOrNull { it.id == lotId }?.let { lot ->
+                                        Text("Lote actual: ${lot.label}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                             }
                         }
                     }

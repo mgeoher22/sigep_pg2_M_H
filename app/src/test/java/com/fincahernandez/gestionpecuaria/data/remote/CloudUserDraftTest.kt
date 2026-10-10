@@ -4,9 +4,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudUserDraftTest {
-    private fun draft()=CloudUserDraft(" Ana Pérez "," ANA@EXAMPLE.COM ","Password123!","Operario",true,setOf("dashboard","animals"))
-    @Test fun normalizesNameAndEmailWithoutChangingPassword() {
-        val d=draft().validated();assertEquals("Ana Pérez",d.name);assertEquals("ana@example.com",d.email);assertEquals("Password123!",d.password)
+    private fun draft()=CloudUserDraft(" Ana Pérez "," ANA@EXAMPLE.COM ","Operario",true,setOf("dashboard","animals"))
+    @Test fun normalizesNameAndEmailForAutomaticPasswordCreation() {
+        val d=draft().validated();assertEquals("Ana Pérez",d.name);assertEquals("ana@example.com",d.email)
     }
     @Test fun rejectsMalformedEmailsAndAcceptsNormalAddresses() {
         assertTrue(CloudUserDraft.validEmail("ana.perez+finca@example.com"))
@@ -31,5 +31,46 @@ class CloudUserDraftTest {
         ).validated()
         assertEquals("Ana Pérez", draft.name)
         assertFalse(draft.active)
+    }
+
+    @Test fun validatesOwnPasswordChange() {
+        val change = CloudPasswordChange("Actual123!", "NuevaClave123!").validated()
+        assertEquals("Actual123!", change.currentPassword)
+        assertEquals("NuevaClave123!", change.newPassword)
+    }
+
+    @Test fun rejectsWeakOrRepeatedOwnPassword() {
+        for (change in listOf(
+            CloudPasswordChange("", "NuevaClave123!"),
+            CloudPasswordChange("Actual123!", "corta"),
+            CloudPasswordChange("Actual123!", "Actual123!")
+        )) {
+            try {
+                change.validated()
+                fail("Debe rechazar el cambio")
+            } catch (_: IllegalArgumentException) {
+            }
+        }
+    }
+
+    @Test fun validatesAdministrativePasswordReset() {
+        val reset = CloudPasswordResetDraft(
+            "11111111-1111-1111-1111-111111111111",
+            "Temporal123!"
+        ).validated()
+        assertEquals("Temporal123!", reset.temporaryPassword)
+    }
+
+    @Test fun rejectsInvalidAdministrativePasswordReset() {
+        for (reset in listOf(
+            CloudPasswordResetDraft("no-es-uuid", "Temporal123!"),
+            CloudPasswordResetDraft("11111111-1111-1111-1111-111111111111", "corta")
+        )) {
+            try {
+                reset.validated()
+                fail("Debe rechazar el restablecimiento")
+            } catch (_: IllegalArgumentException) {
+            }
+        }
     }
 }

@@ -19,6 +19,20 @@ class AnimalItemCollectionsTest {
         assertEquals("EXCELENTE", result.active.single().estado)
     }
 
+    @Test
+    fun animalsSoldWithALotAreExcludedEvenBeforeLegacyRepairFinishes() {
+        val sold = storedAnimal(id = "sold", code = "FH-010", inventoryStatus = "ACTIVO")
+        val available = storedAnimal(id = "available", code = "FH-011", inventoryStatus = "ACTIVO")
+
+        val result = buildAnimalItemCollections(
+            storedAnimals = listOf(sold, available),
+            soldAnimalIds = setOf("sold")
+        )
+
+        assertEquals(listOf("FH-011"), result.active.map { it.codigoIdentificacion })
+        assertEquals(2, result.all.size)
+    }
+
     private fun storedAnimal(
         id: String,
         code: String,

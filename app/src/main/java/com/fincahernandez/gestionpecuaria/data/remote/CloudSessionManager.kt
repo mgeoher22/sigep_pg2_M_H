@@ -16,7 +16,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class CloudAccount(val email: String, val userId: String, val localUserId: String,
-    val role: String, val permissions: Set<String>, val displayName: String? = null)
+    val role: String, val permissions: Set<String>, val displayName: String? = null,
+    val passwordChangeRequired: Boolean = false)
 
 /** Una sesión por dispositivo. Room nunca recibe tokens ni contraseñas remotas. */
 class CloudSessionManager(
@@ -47,14 +48,19 @@ class CloudSessionManager(
 
     private fun tokens(response: String, localId: String): JSONObject {
         val j = JSONObject(response)
-        val uid = j.getJSONObject("user").getString("id")
+        val authUser = j.getJSONObject("user")
+        val uid = authUser.getString("id")
         UUID.fromString(uid)
         require(j.getString("access_token").isNotBlank() && j.getString("refresh_token").isNotBlank())
         val expires = j.optLong("expires_at", 0).takeIf { it > 0 }
             ?: (now() / 1000 + j.getLong("expires_in"))
         return JSONObject().put("project", root()).put("localId", localId).put("uid", uid)
-            .put("email", j.getJSONObject("user").optString("email", ""))
-            .put("displayName", metadataName(j.getJSONObject("user")))
+            .put("email", authUser.optString("email", ""))
+            .put("displayName", metadataName(authUser))
+            .put(
+                "passwordChangeRequired",
+                requiresPasswordChange(authUser)
+            )
             .put("access", j.getString("access_token")).put("refresh", j.getString("refresh_token"))
             .put("expires", expires)
     }
@@ -81,7 +87,8 @@ class CloudSessionManager(
         return CloudAccount(s.getString("email"), s.getString("uid"), s.getString("localId"),
             m.getString("rol"), permissionsForUser(m.getString("rol"),
                 if (m.isNull("permisosPersonalizados")) null else m.getString("permisosPersonalizados")),
-            personName(m.optString("nombreCompleto")) ?: personName(s.optString("displayName")))
+            personName(m.optString("nombreCompleto")) ?: personName(s.optString("displayName")),
+            s.optBoolean("passwordChangeRequired", false))
     }
 
     suspend fun signIn(local: AuthenticatedUser, email: String, password: String): CloudAccount = login(local, email, password)
@@ -145,6 +152,15 @@ class CloudSessionManager(
                     if (e.status != 401 || refreshed) throw e
                     refresh(); member(s)
                 }
+                // Consulta el perfil de Auth para no depender de metadatos viejos
+                // contenidos en un token emitido antes de un restablecimiento.
+                val authUser = JSONObject(request("/auth/v1/user", s.getString("access")))
+                if (authUser.getString("id") != s.getString("uid")) {
+                    throw CloudAccessDenied("La sesión cambió de usuario; vuelve a ingresar.")
+                }
+                s.put("passwordChangeRequired", requiresPasswordChange(authUser))
+                metadataName(authUser)?.let { s.put("displayName", it) }
+                save(s, epoch)
                 synchronized(stateLock) {
                     if (generation != epoch) throw CancellationException("Sesión cerrada")
                     account(s, m)
@@ -163,6 +179,9 @@ class CloudSessionManager(
         val data=user.optJSONObject("user_metadata") ?: return null
         return listOf("full_name","name","display_name").firstNotNullOfOrNull { personName(data.optString(it)) }
     }
+    private fun requiresPasswordChange(user: JSONObject): Boolean =
+        user.optJSONObject("app_metadata")
+            ?.optBoolean("password_change_required", false) == true
     suspend fun updateDisplayName(localId: String, name: String) = withContext(Dispatchers.IO) {
         require(name.trim().length in 1..120 && personName(name)!=null) { "Escribe tu nombre (hasta 120 caracteres)." }
         restore(localId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet.")
@@ -173,6 +192,74 @@ class CloudSessionManager(
             require(user.getString("id")==s.getString("uid"))
             s.put("displayName",metadataName(user) ?: name.trim())
             save(s,epoch)
+        }
+    }
+
+    /**
+     * Comprueba la contraseña vigente contra Auth, realiza el cambio y crea una
+     * sesión nueva porque Supabase puede invalidar sesiones tras esta operación.
+     */
+    suspend fun changeOwnPassword(
+        localId: String,
+        draft: CloudPasswordChange
+    ): CloudAccount = withContext(Dispatchers.IO) {
+        val change = draft.validated()
+        restore(localId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet.")
+        mutex.withLock {
+            val epoch = synchronized(stateLock) { generation }
+            val saved = load(localId) ?: throw CloudAccessDenied("La sesión se cerró.")
+            val email = saved.getString("email")
+            val currentUserId = saved.getString("uid")
+            try {
+                JSONObject(
+                    request(
+                        "/functions/v1/gestionar-usuarios",
+                        saved.getString("access"),
+                        JSONObject()
+                            .put("action", "change_own_password")
+                            .put("currentPassword", change.currentPassword)
+                            .put("newPassword", change.newPassword)
+                    )
+                )
+            } catch (error: CloudHttpException) {
+                if (error.status in setOf(400, 401, 403, 404, 422)) {
+                    throw CloudAccessDenied(
+                        if (error.status == 404) {
+                            "Falta actualizar la función gestionar-usuarios en Supabase."
+                        } else {
+                            "No se pudo cambiar la contraseña. Revisa la contraseña actual, la nueva y que la función gestionar-usuarios esté actualizada."
+                        }
+                    )
+                }
+                throw error
+            }
+
+            val renewed = try {
+                tokens(
+                    request(
+                        "/auth/v1/token?grant_type=password",
+                        body = JSONObject()
+                            .put("email", email)
+                            .put("password", change.newPassword)
+                    ),
+                    localId
+                )
+            } catch (error: Exception) {
+                synchronized(stateLock) {
+                    if (generation == epoch) {
+                        generation++
+                        store.clear()
+                    }
+                }
+                throw CloudAccessDenied(
+                    "La contraseña se actualizó, pero la sesión no pudo renovarse. " +
+                        "Vuelve a iniciar sesión con la contraseña nueva."
+                )
+            }
+            require(renewed.getString("uid") == currentUserId)
+            val profile = account(renewed, member(renewed))
+            save(renewed, epoch)
+            profile
         }
     }
     fun validateSnapshot(snapshot: CloudDownloadSnapshot) = synchronized(stateLock) {
@@ -262,9 +349,12 @@ class CloudSessionManager(
 
     private fun managedUser(row: JSONObject): CloudManagedUser {
         val custom = if(row.isNull("permissions")) null else row.getString("permissions")
+        val temporaryPassword = if (row.isNull("temporaryPassword")) null
+            else row.optString("temporaryPassword").takeIf { it.isNotBlank() }
         return CloudManagedUser(row.getString("id"),row.getString("name"),row.getString("email"),
             row.getString("role"),row.getBoolean("active"),permissionsForUser(row.getString("role"),custom),custom!=null,
-            row.optBoolean("current", false))
+            row.optBoolean("current", false),
+            temporaryPassword)
     }
     private suspend fun manageUsers(localId: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         restore(localId) ?: throw CloudAccessDenied("Ingresa con internet para administrar cuentas.")
@@ -278,21 +368,22 @@ class CloudSessionManager(
             val result = try { JSONObject(request("/functions/v1/gestionar-usuarios",s.getString("access"),body)) }
             catch(e:CloudHttpException) {
                 throw CloudAccessDenied(when(e.status) {
-                    404 -> if(body.optString("action") == "update") {
+                    404 -> if(body.optString("action") in setOf("update", "reset_password")) {
                         "No se encontró la cuenta o falta actualizar la función gestionar-usuarios en Supabase."
                     } else {
                         "Falta activar la función gestionar-usuarios en Supabase."
                     }
                     409 -> "Ese correo ya está registrado. Actualiza la lista antes de intentar otra alta."
-                    400,422 -> if(body.optString("action") == "update") {
-                        "Revisa el nombre, rol, estado y permisos. No puedes retirar el acceso de tu propia cuenta administrativa."
-                    } else {
-                        "Revisa el nombre, correo, contraseña y permisos. Supabase rechazó los datos."
+                    400,422 -> when(body.optString("action")) {
+                        "update" -> "Revisa el nombre, rol, estado y permisos. No puedes retirar el acceso de tu propia cuenta administrativa."
+                        "reset_password" -> "Revisa la contraseña temporal. Debe cumplir la política de seguridad y pertenecer a otra cuenta."
+                        else -> "Revisa el nombre, correo, rol y permisos. Supabase rechazó los datos."
                     }
                     401,403 -> "La sesión no tiene autorización. Ingresa otra vez con el administrador."
                     else -> when(body.optString("action")) {
                         "create" -> "No se pudo confirmar el alta. Actualiza Usuarios antes de reintentar; revisa Supabase si el correo ya existe."
                         "update" -> "No se pudo confirmar la edición. Actualiza Usuarios y vuelve a intentarlo."
+                        "reset_password" -> "No se pudo confirmar el restablecimiento de contraseña. Vuelve a intentarlo."
                         else -> "No se pudo cargar la lista de Supabase. Revisa internet y vuelve a intentarlo."
                     }
                 })
@@ -309,7 +400,7 @@ class CloudSessionManager(
     suspend fun createCloudUser(localId: String, draft: CloudUserDraft): CloudManagedUser {
         val d = draft.validated()
         return managedUser(manageUsers(localId,JSONObject().put("action","create")
-            .put("name",d.name).put("email",d.email).put("password",d.password)
+            .put("name",d.name).put("email",d.email)
             .put("role",d.role).put("active",d.active).put("permissionIds",JSONArray(d.permissions.sorted()))))
     }
 
@@ -325,6 +416,16 @@ class CloudSessionManager(
                     .put("active", d.active)
                     .put("permissionIds", JSONArray(d.permissions.sorted()))
             )
+        )
+    }
+
+    suspend fun resetCloudUserPassword(localId: String, draft: CloudPasswordResetDraft) {
+        val reset = draft.validated()
+        manageUsers(
+            localId,
+            JSONObject().put("action", "reset_password")
+                .put("userId", reset.userId)
+                .put("password", reset.temporaryPassword)
         )
     }
 

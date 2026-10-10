@@ -40,7 +40,14 @@ class FinanceEmployeeRepositoryTest {
     fun persistsManualMovementEmployeeAndRelatedPayment() = runBlocking {
         val date = 1_750_000_000_000
         financeRepository.saveMovement(
-            FinancialMovementDraft("EGRESO", "Alimentación", 850.0, date, "Concentrado")
+            FinancialMovementDraft(
+                type = "EGRESO",
+                category = "Alimentación",
+                amount = 850.0,
+                date = date,
+                lotId = null,
+                notes = "Concentrado"
+            )
         )
         val employeeId = employeeRepository.saveEmployee(
             EmployeeDraft(
@@ -55,7 +62,15 @@ class FinanceEmployeeRepositoryTest {
             )
         )
         employeeRepository.savePayment(
-            EmployeePaymentDraft(employeeId, date, 3_200.0, "Septiembre 2026", null)
+            EmployeePaymentDraft(
+                employeeId = employeeId,
+                paymentDate = date,
+                amount = 3_200.0,
+                period = "Septiembre 2026",
+                lotId = null,
+                activity = null,
+                notes = null
+            )
         )
 
         assertEquals(850.0, financeRepository.observeMovements().first().single().monto, 0.001)

@@ -31,7 +31,8 @@ data class AuthenticatedUser(
     val fullName: String,
     val username: String,
     val roleName: String,
-    val permissionIds: Set<String>
+    val permissionIds: Set<String>,
+    val passwordChangeRequired: Boolean = false
 )
 
 sealed interface AuthenticationResult {

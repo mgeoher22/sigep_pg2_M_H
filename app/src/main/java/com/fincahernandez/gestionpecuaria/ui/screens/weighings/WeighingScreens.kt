@@ -470,6 +470,7 @@ fun WeighingFormScreen(
     saveError: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val fixedAnimalContext = initialAnimalId.isNotBlank()
     var animalId by rememberSaveable(initialAnimalId) { mutableStateOf(initialAnimalId) }
     var weight by rememberSaveable { mutableStateOf("") }
     var date by rememberSaveable { mutableStateOf(todayDateText()) }
@@ -522,13 +523,15 @@ fun WeighingFormScreen(
                     }
                 }
             }
-            item {
-                AnimalWeightDropdown(
-                    options = animalOptions,
-                    selectedId = animalId,
-                    onSelected = { animalId = it },
-                    showError = attemptedSave && animalId.isBlank()
-                )
+            if (!fixedAnimalContext) {
+                item {
+                    AnimalWeightDropdown(
+                        options = animalOptions,
+                        selectedId = animalId,
+                        onSelected = { animalId = it },
+                        showError = attemptedSave && animalId.isBlank()
+                    )
+                }
             }
             selectedAnimal?.let { animal ->
                 item {
@@ -539,7 +542,10 @@ fun WeighingFormScreen(
                         )
                     ) {
                         Column(modifier = Modifier.padding(18.dp)) {
-                            Text("Animal identificado", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                if (fixedAnimalContext) "Animal del registro" else "Animal identificado",
+                                style = MaterialTheme.typography.labelMedium
+                            )
                             Text(animal.label, fontWeight = FontWeight.Bold)
                             Text(
                                 "Peso anterior: ${animal.previousWeightLibras?.let { "${oneDecimal(it)} lb" } ?: "Sin registro"}"

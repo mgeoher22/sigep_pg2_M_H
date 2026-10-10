@@ -64,6 +64,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.animals.buildAnimalBirthHis
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.LoginScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.InitialAdminSetupScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.auth.SplashScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.auth.RequiredPasswordChangeDialog
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardRecentItem
 import com.fincahernandez.gestionpecuaria.ui.screens.dashboard.DashboardUiData
@@ -124,6 +125,8 @@ import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyExitScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyEmployeeOption
 import com.fincahernandez.gestionpecuaria.ui.screens.supplies.SupplyLotOption
 import com.fincahernandez.gestionpecuaria.ui.screens.users.RolePermissionsScreen
+import com.fincahernandez.gestionpecuaria.ui.screens.users.AdminPasswordResetDialog
+import com.fincahernandez.gestionpecuaria.ui.screens.users.TemporaryPasswordDialog
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserManagementScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.users.UserUiModel
@@ -215,8 +218,18 @@ fun AppNavigation() {
             )
         }
     }
-    val animalItemCollections = remember(storedAnimals) {
-        buildAnimalItemCollections(storedAnimals)
+    val soldAnimalIds = remember(storedLots) {
+        storedLots.asSequence()
+            .filter { record -> record.lot.estado == "CERRADO" && record.lot.fechaVenta != null }
+            .flatMap { record ->
+                record.assignments.asSequence()
+                    .filter { assignment -> assignment.motivoSalida == "Venta y cierre del lote" }
+                    .map { assignment -> assignment.animalId }
+            }
+            .toSet()
+    }
+    val animalItemCollections = remember(storedAnimals, soldAnimalIds) {
+        buildAnimalItemCollections(storedAnimals, soldAnimalIds)
     }
     val allAnimalItems = animalItemCollections.all
     val animales = animalItemCollections.active
@@ -678,6 +691,7 @@ fun AppNavigation() {
     var currentUsername by rememberSaveable { mutableStateOf("") }
     var currentUserRole by rememberSaveable { mutableStateOf("") }
     var currentUserPermissions by rememberSaveable { mutableStateOf("") }
+    var currentUserPasswordChangeRequired by rememberSaveable { mutableStateOf(false) }
     var loginIsLoading by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf<String?>(null) }
     var setupIsSaving by remember { mutableStateOf(false) }
@@ -685,6 +699,11 @@ fun AppNavigation() {
     var userIsSaving by remember { mutableStateOf(false) }
     var userSaveError by remember { mutableStateOf<String?>(null) }
     var userEditingId by rememberSaveable { mutableStateOf("") }
+    var passwordResetUserId by rememberSaveable { mutableStateOf("") }
+    var passwordResetIsSaving by remember { mutableStateOf(false) }
+    var passwordResetError by remember { mutableStateOf<String?>(null) }
+    var issuedTemporaryPassword by remember { mutableStateOf<String?>(null) }
+    var issuedTemporaryPasswordFor by remember { mutableStateOf("") }
 
     val selectedLot = remember(lots, selectedLotId) {
         lots.firstOrNull { it.id == selectedLotId }
@@ -706,7 +725,8 @@ fun AppNavigation() {
         currentUserFullName,
         currentUsername,
         currentUserRole,
-        currentPermissionIds
+        currentPermissionIds,
+        currentUserPasswordChangeRequired
     ) {
         currentUserId.takeIf { it.isNotBlank() }?.let {
             AuthenticatedUser(
@@ -714,12 +734,18 @@ fun AppNavigation() {
                 fullName = currentUserFullName,
                 username = currentUsername,
                 roleName = currentUserRole,
-                permissionIds = currentPermissionIds
+                permissionIds = currentPermissionIds,
+                passwordChangeRequired = currentUserPasswordChangeRequired
             )
         }
     }
     LaunchedEffect(currentUserId) {
         milkNotificationsEnabled = milkNotificationPreferences.isEnabled(currentUserId)
+    }
+    LaunchedEffect(currentUserId, soldAnimalIds) {
+        if (currentUserId.isNotBlank() && soldAnimalIds.isNotEmpty()) {
+            lotViewModel.reconcileSoldLotAnimals()
+        }
     }
 
     /** Mantiene programado solo el aviso pendiente más próximo del dispositivo. */
@@ -754,11 +780,13 @@ fun AppNavigation() {
             currentUsername = ""
             currentUserRole = ""
             currentUserPermissions = ""
+            currentUserPasswordChangeRequired = false
         } else {
             currentUserFullName = user.fullName
             currentUsername = user.username
             currentUserRole = user.roleName
             currentUserPermissions = serializePermissions(user.permissionIds)
+            currentUserPasswordChangeRequired = user.passwordChangeRequired
             currentUserId = user.id
         }
     }
@@ -915,14 +943,31 @@ fun AppNavigation() {
     var cloudUserStatus by remember(currentUserId) { mutableStateOf("Conéctate para cargar las cuentas.") }
     var cloudUsersRefresh by remember { mutableStateOf(0) }
     val autoSyncStatus = com.fincahernandez.gestionpecuaria.ui.components.rememberAutoSyncStatus(
-        currentUser?.id, cloudSessionManager, paused = cloudAction != null || currentRoute in setOf(Routes.USERS, Routes.USER_FORM)
+        currentUser?.id, cloudSessionManager,
+        paused = currentUser?.passwordChangeRequired == true || cloudAction != null ||
+            currentRoute in setOf(Routes.USERS, Routes.USER_FORM)
     )
     if (cloudAction != null && currentUser != null) {
         com.fincahernandez.gestionpecuaria.ui.screens.auth.CloudToolsDialog(
             action = cloudAction!!, user = currentUser, manager = cloudSessionManager,
             syncStatus = autoSyncStatus,
             onClose = { cloudAction = null },
-            onProfileSaved = { unifiedAuth.remembered(currentUser.id)?.let(updateCurrentUser) }
+            onProfileSaved = { unifiedAuth.remembered(currentUser.id)?.let(updateCurrentUser) },
+            onPasswordChange = { currentPassword, newPassword ->
+                updateCurrentUser(
+                    unifiedAuth.changePassword(currentUser.id, currentPassword, newPassword)
+                )
+            }
+        )
+    }
+    if (currentUser?.passwordChangeRequired == true) {
+        RequiredPasswordChangeDialog(
+            onChange = { currentPassword, newPassword ->
+                updateCurrentUser(
+                    unifiedAuth.changePassword(currentUser.id, currentPassword, newPassword)
+                )
+            },
+            onLogout = logout
         )
     }
     CompositionLocalProvider(
@@ -1968,7 +2013,8 @@ fun AppNavigation() {
                     animals = sanitaryAnimals,
                     initialAnimalId = sanitaryInitialAnimalId,
                     onMenuClick = openDrawer,
-                    onCreateRecord = {
+                    onCreateRecord = { selectedAnimalId ->
+                        sanitaryInitialAnimalId = selectedAnimalId
                         sanitarySaveError = null
                         navController.navigate(Routes.SANITARY_FORM)
                     },
@@ -2782,9 +2828,62 @@ fun AppNavigation() {
                         userSaveError = null
                         navController.navigate(Routes.USER_FORM)
                     },
+                    onResetPassword = { userId ->
+                        passwordResetUserId = userId
+                        passwordResetError = null
+                    },
                     onViewRolePermissions = { navController.navigate(Routes.ROLE_PERMISSIONS) },
                     onNavigateMain = navigateMain
                 )
+                cloudUsers.firstOrNull { it.id == passwordResetUserId }?.let { resetUser ->
+                    AdminPasswordResetDialog(
+                        user = resetUser,
+                        isSaving = passwordResetIsSaving,
+                        error = passwordResetError,
+                        onDismiss = {
+                            if (!passwordResetIsSaving) {
+                                passwordResetUserId = ""
+                                passwordResetError = null
+                            }
+                        },
+                        onConfirm = { temporaryPassword ->
+                            passwordResetIsSaving = true
+                            passwordResetError = null
+                            coroutineScope.launch {
+                                try {
+                                    cloudSessionManager.resetCloudUserPassword(
+                                        currentUserId,
+                                        com.fincahernandez.gestionpecuaria.data.remote.CloudPasswordResetDraft(
+                                            userId = resetUser.id,
+                                            temporaryPassword = temporaryPassword
+                                        )
+                                    )
+                                    cloudUserStatus = "Contraseña restablecida para ${resetUser.fullName}."
+                                    passwordResetUserId = ""
+                                } catch (error: kotlinx.coroutines.CancellationException) {
+                                    throw error
+                                } catch (error: Exception) {
+                                    passwordResetError = if (
+                                        error is IllegalArgumentException ||
+                                        error is com.fincahernandez.gestionpecuaria.data.remote.CloudAccessDenied
+                                    ) error.message else "No se pudo restablecer la contraseña. Revisa internet."
+                                } finally {
+                                    passwordResetIsSaving = false
+                                }
+                            }
+                        }
+                    )
+                }
+                issuedTemporaryPassword?.let { password ->
+                    TemporaryPasswordDialog(
+                        accountName = issuedTemporaryPasswordFor,
+                        password = password,
+                        onDismiss = {
+                            issuedTemporaryPassword = null
+                            issuedTemporaryPasswordFor = ""
+                        }
+                    )
+                }
             }
             composable(Routes.USER_FORM) {
                 val editingCloudUser = cloudUsers.firstOrNull { it.id == userEditingId }
@@ -2836,10 +2935,10 @@ fun AppNavigation() {
                         userIsSaving=true;userSaveError=null
                         coroutineScope.launch {
                             try {
-                                if (editingCloudUser == null) {
+                                val changedUser = if (editingCloudUser == null) {
                                     cloudSessionManager.createCloudUser(currentUserId,
                                         com.fincahernandez.gestionpecuaria.data.remote.CloudUserDraft(
-                                            form.fullName,form.username,form.temporaryPassword,form.roleName,form.active,form.permissionIds))
+                                            form.fullName,form.username,form.roleName,form.active,form.permissionIds))
                                 } else {
                                     val updatedUser = cloudSessionManager.updateCloudUser(
                                         currentUserId,
@@ -2854,6 +2953,11 @@ fun AppNavigation() {
                                     if (updatedUser.currentAccount) {
                                         unifiedAuth.remembered(currentUserId)?.let(updateCurrentUser)
                                     }
+                                    updatedUser
+                                }
+                                changedUser.temporaryPassword?.let { password ->
+                                    issuedTemporaryPasswordFor = changedUser.name
+                                    issuedTemporaryPassword = password
                                 }
                                 cloudUsersRefresh++
                                 userEditingId = ""
@@ -3070,14 +3174,20 @@ internal data class AnimalItemCollections(
  * `estado` contiene el estado de salud; el estado ACTIVO/INACTIVO vive en la entidad Room.
  */
 internal fun buildAnimalItemCollections(
-    storedAnimals: List<AnimalStoredRecord>
+    storedAnimals: List<AnimalStoredRecord>,
+    soldAnimalIds: Set<String> = emptySet()
 ): AnimalItemCollections {
     val allItems = ArrayList<AnimalListItem>(storedAnimals.size)
     val activeItems = ArrayList<AnimalListItem>(storedAnimals.size)
     storedAnimals.forEach { storedRecord ->
         val item = storedRecord.toListItem()
         allItems += item
-        if (storedRecord.animal.estado == "ACTIVO") activeItems += item
+        if (
+            storedRecord.animal.estado == "ACTIVO" &&
+            storedRecord.animal.id !in soldAnimalIds
+        ) {
+            activeItems += item
+        }
     }
     return AnimalItemCollections(all = allItems, active = activeItems)
 }

@@ -19,6 +19,8 @@ fun createOfflineAuth(context: Context, manager: CloudSessionManager): OfflineFi
         gateway=object:OfflineFirstAuth.Gateway {
             override suspend fun login(email:String,password:String)=manager.signInCloud(email,password)
             override suspend fun restore(localId:String)=manager.restore(localId)
+            override suspend fun changePassword(localId:String,change:CloudPasswordChange)=
+                manager.changeOwnPassword(localId,change)
             override fun clear()=manager.clearLocalSession()
         },
         cache=EncryptedCloudSessionStore(app,"cloud-offline-user.bin"),
@@ -33,7 +35,10 @@ fun createOfflineAuth(context: Context, manager: CloudSessionManager): OfflineFi
                     password.hash,password.salt,password.algorithm,password.iterations,account.role,true,
                     previous?.creadoEn?:System.currentTimeMillis(),serializePermissions(account.permissions))
                 if(previous==null) users.insertar(row) else users.actualizar(row)
-                AuthenticatedUser(row.id,row.nombreCompleto,email,row.rol,account.permissions)
+                AuthenticatedUser(
+                    row.id,row.nombreCompleto,email,row.rol,account.permissions,
+                    account.passwordChangeRequired
+                )
             }
         },
         online={

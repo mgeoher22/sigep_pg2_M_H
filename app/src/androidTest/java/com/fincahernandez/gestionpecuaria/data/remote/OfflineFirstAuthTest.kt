@@ -25,6 +25,9 @@ class OfflineFirstAuthTest {
         val auth=OfflineFirstAuth(object:OfflineFirstAuth.Gateway {
             override suspend fun login(email:String,password:String):CloudAccount {calls++;failure?.let{throw it};return remote}
             override suspend fun restore(localId:String):CloudAccount {calls++;failure?.let{throw it};return remote}
+            override suspend fun changePassword(localId:String,change:CloudPasswordChange):CloudAccount {
+                calls++;failure?.let{throw it};return remote.copy(passwordChangeRequired=false)
+            }
             override fun clear():()->Boolean={true}
         },store,object:OfflineFirstAuth.Catalog {
             override suspend fun active(id:String)=active
@@ -82,5 +85,19 @@ class OfflineFirstAuthTest {
         assertFalse(s.auth.verifyCurrentPassword(id,email,"incorrecta"))
         assertFalse(s.auth.verifyCurrentPassword("otro-id",email,"123456"))
         assertEquals(callsAfterLogin,s.calls)
+    }
+    @Test fun ownPasswordChangeReplacesOfflineVerifier()=runBlocking {
+        val s=Setup();s.auth.login(email,"123456")
+        assertEquals(id,s.auth.changePassword(id,"123456","NuevaClave123!").id)
+        s.connected=false
+        denied{s.auth.login(email,"123456")}
+        assertEquals(id,s.auth.login(email,"NuevaClave123!").id)
+    }
+    @Test fun temporaryPasswordCannotBeUsedOfflineBeforeRequiredChange()=runBlocking {
+        val s=Setup();s.remote=s.remote.copy(passwordChangeRequired=true)
+        assertTrue(s.auth.login(email,"Temporal123!").passwordChangeRequired)
+        s.connected=false
+        denied{s.auth.login(email,"Temporal123!")}
+        assertNull(s.auth.remembered(id))
     }
 }

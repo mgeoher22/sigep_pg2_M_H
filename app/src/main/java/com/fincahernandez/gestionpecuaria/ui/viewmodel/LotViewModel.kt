@@ -30,4 +30,6 @@ class LotViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun sellAndCloseLot(lotId: String, draft: LotSaleDraft) =
         repository.sellAndCloseLot(lotId, draft)
+
+    suspend fun reconcileSoldLotAnimals(): Int = repository.reconcileSoldLotAnimals()
 }
