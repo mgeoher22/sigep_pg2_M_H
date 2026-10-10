@@ -194,10 +194,6 @@ fun LoginScreen(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            "Primer ingreso con internet usando tu correo de Supabase. Después podrás ingresar sin conexión en esta tablet.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
                         OutlinedTextField(
                             value = username,
                             onValueChange = {
@@ -355,7 +351,6 @@ fun LoginScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text("© 2026 Finca Hernández")
-                    Text("Los datos locales permanecen en este dispositivo")
                 }
             }
         }

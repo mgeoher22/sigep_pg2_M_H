@@ -24,8 +24,20 @@ import kotlinx.coroutines.flow.flowOn
 private fun internet(context: Context) = callbackFlow {
     val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     var defaultNetwork: Network? = null
+    fun report(network: Network?) {
+        trySend(
+            network != null && manager.getNetworkCapabilities(network)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        )
+    }
     val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { defaultNetwork = network }
+        override fun onAvailable(network: Network) {
+            defaultNetwork = network
+            // Algunos dispositivos no emiten otro cambio de capacidades después
+            // de recuperar una red que ya está validada. Comprobar aquí evita que
+            // la sincronización permanezca en estado sin conexión.
+            report(network)
+        }
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
             if (network == defaultNetwork) trySend(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
         }
@@ -33,9 +45,13 @@ private fun internet(context: Context) = callbackFlow {
             if (network == defaultNetwork) { defaultNetwork = null; trySend(false) }
         }
     }
-    // Initial snapshot is read before registration; subsequent updates use callback values.
-    trySend(manager.getNetworkCapabilities(manager.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
     manager.registerDefaultNetworkCallback(callback)
+    // La lectura posterior al registro cierra la carrera en la que la conexión
+    // cambia justo mientras se crea el observador.
+    manager.activeNetwork.let { network ->
+        defaultNetwork = network
+        report(network)
+    }
     awaitClose { manager.unregisterNetworkCallback(callback) }
 }.distinctUntilChanged()
 
