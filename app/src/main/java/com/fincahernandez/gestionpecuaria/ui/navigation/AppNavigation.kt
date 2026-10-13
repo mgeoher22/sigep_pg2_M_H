@@ -45,6 +45,7 @@ import com.fincahernandez.gestionpecuaria.data.repository.SupplyAdjustmentDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyAssignmentDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyEntryDraft
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyExitDraft
+import com.fincahernandez.gestionpecuaria.data.repository.SUPPLY_PURCHASE_FINANCIAL_CATEGORY
 import com.fincahernandez.gestionpecuaria.data.security.SessionManager
 import com.fincahernandez.gestionpecuaria.data.security.canEditExistingRecords
 import com.fincahernandez.gestionpecuaria.data.security.canUpdateAnimalFieldStatus
@@ -318,11 +319,13 @@ fun AppNavigation() {
                 runCatching { calculateParcelBoundaryMetrics(boundary) }.getOrNull()
             }
             val effectiveAreaHectares = boundaryMetrics?.areaHectares ?: parcel.areaHectareas
-            val activeLot = storedLots.firstOrNull { lotRecord ->
+            val activeLots = storedLots.filter { lotRecord ->
                 lotRecord.lot.estado == "ACTIVO" &&
                     lotRecord.lot.parcelaNombre.equals(parcel.nombre, ignoreCase = true)
             }
-            val activeAnimalIds = activeLot?.activeAnimalIds.orEmpty()
+            val activeAnimalIds = activeLots
+                .flatMap { lotRecord -> lotRecord.activeAnimalIds }
+                .distinct()
             val knownWeights = activeAnimalIds.mapNotNull(latestWeightByAnimalId::get)
             ParcelUiModel(
                 id = parcel.id,
@@ -330,9 +333,9 @@ fun AppNavigation() {
                 name = parcel.nombre,
                 areaHectares = effectiveAreaHectares,
                 pastureType = parcel.tipoPastura,
-                status = if (record.currentLotName == null) parcel.estado else "OCUPADA",
+                status = if (record.currentLotNames.isEmpty()) parcel.estado else "OCUPADA",
                 capacity = parcel.capacidadAnimales,
-                currentLot = record.currentLotName.orEmpty(),
+                currentLots = record.currentLotNames,
                 boundaryGeoJson = parcel.limitesGeoJson,
                 geographicAreaHectares = boundaryMetrics?.areaHectares,
                 perimeterMeters = boundaryMetrics?.perimeterMeters,
@@ -430,6 +433,8 @@ fun AppNavigation() {
     ) {
         storedFinancialMovements.map { movement ->
             val lotSale = movement.categoria == "Venta de lote" && movement.loteId != null
+            val supplyPurchase = movement.categoria == SUPPLY_PURCHASE_FINANCIAL_CATEGORY
+            val automaticMovement = lotSale || supplyPurchase
             FinancialMovementUiModel(
                 id = "manual-${movement.id}",
                 type = movement.tipo,
@@ -438,9 +443,13 @@ fun AppNavigation() {
                 dateMillis = movement.fecha,
                 date = formatDate(movement.fecha),
                 notes = movement.observaciones.orEmpty(),
-                sourceLabel = if (lotSale) "Generado al vender y cerrar el lote" else "Registro manual",
-                automatic = lotSale,
-                deletableRecordId = movement.id.takeUnless { lotSale },
+                sourceLabel = when {
+                    lotSale -> "Generado al vender y cerrar el lote"
+                    supplyPurchase -> "Generado al registrar una compra de insumo"
+                    else -> "Registro manual"
+                },
+                automatic = automaticMovement,
+                deletableRecordId = movement.id.takeUnless { automaticMovement },
                 lotId = movement.loteId,
                 lotLabel = movement.loteId?.let(lotLabelsById::get)
             )
@@ -490,10 +499,15 @@ fun AppNavigation() {
         employeePayments,
         financialMovements,
         storedLots,
-        storedParcels
+        storedParcels,
+        storedSanitaryRecords,
+        storedSupplies,
+        storedSupplyMovements
     ) {
         val animalItems = allAnimalItems.associateBy { it.id }
+        val storedAnimalsById = storedAnimals.associateBy { it.animal.id }
         val parcelStatusById = parcels.associate { it.id to it.status }
+        val suppliesById = storedSupplies.associateBy { it.supply.id }
         buildList {
             storedAnimals.forEach { stored ->
                 val animal = stored.animal
@@ -522,6 +536,26 @@ fun AppNavigation() {
                         )
                     )
                 )
+                if (animal.tipoOrigen == "NACIDO_EN_FINCA" && animal.fechaNacimiento != null) {
+                    val mother = animal.madreId?.let(storedAnimalsById::get)?.animal
+                    add(
+                        ReportRecord(
+                            id = "birth-${animal.id}",
+                            reportId = "births",
+                            dateMillis = animal.fechaNacimiento,
+                            title = animal.nombre?.takeIf(String::isNotBlank)
+                                ?: animal.codigoIdentificacion,
+                            detail = mother?.let {
+                                "Madre: ${it.nombre?.takeIf(String::isNotBlank) ?: it.codigoIdentificacion}"
+                            } ?: "Madre no registrada",
+                            kind = "NACIMIENTO",
+                            attributes = mapOf(
+                                "motherId" to animal.madreId.orEmpty(),
+                                "sex" to animal.sexo
+                            )
+                        )
+                    )
+                }
             }
             weighings.forEach { weighing ->
                 add(
@@ -636,6 +670,73 @@ fun AppNavigation() {
                     )
                 )
             }
+            storedSanitaryRecords.forEach { record ->
+                val animal = animalItems[record.animalId]
+                add(
+                    ReportRecord(
+                        id = record.id,
+                        reportId = "sanitary",
+                        dateMillis = record.eventDate,
+                        title = buildString {
+                            append(record.eventType.lowercase().replaceFirstChar(Char::uppercase))
+                            append(" · ")
+                            append(animal?.nombre?.takeIf(String::isNotBlank)
+                                ?: animal?.codigoIdentificacion
+                                ?: "Animal no disponible")
+                        },
+                        detail = listOfNotNull(
+                            record.diagnosis.takeIf(String::isNotBlank),
+                            record.medication?.takeIf(String::isNotBlank),
+                            record.healthStatus.takeIf(String::isNotBlank)
+                        ).joinToString(" · "),
+                        primaryValue = record.doseMl,
+                        kind = record.eventType,
+                        attributes = mapOf(
+                            "animalId" to record.animalId,
+                            "healthStatus" to record.healthStatus,
+                            "hasNextControl" to (record.nextControlDate != null).toString()
+                        )
+                    )
+                )
+            }
+            storedSupplyMovements
+                .groupBy { it.operacionId to it.tipo }
+                .forEach { (operation, movements) ->
+                    val first = movements.first()
+                    val storedSupply = suppliesById[first.insumoId]
+                    val supply = storedSupply?.supply
+                    val quantity = movements.sumOf { it.cantidad }
+                    val totalCost = movements.sumOf { movement ->
+                        movement.cantidad * (movement.costoUnitario ?: 0.0)
+                    }
+                    val unitLabel = supply?.unidadMedida
+                        ?.let { SupplyCatalog.units[it] }
+                        .orEmpty()
+                        .lowercase()
+                    add(
+                        ReportRecord(
+                            id = "${operation.first}-${operation.second}",
+                            reportId = "supplies",
+                            dateMillis = first.fecha,
+                            title = supply?.let { "${it.nombre} · ${it.codigo}" }
+                                ?: "Insumo no disponible",
+                            detail = buildString {
+                                append(first.tipo.lowercase().replaceFirstChar(Char::uppercase))
+                                append(" · ${"%.2f".format(Locale.US, quantity)} $unitLabel")
+                                first.responsable?.takeIf(String::isNotBlank)?.let {
+                                    append(" · $it")
+                                }
+                            },
+                            primaryValue = quantity,
+                            secondaryValue = totalCost.takeIf { it > 0.0 },
+                            kind = first.tipo,
+                            attributes = mapOf(
+                                "supplyId" to first.insumoId,
+                                "unit" to (supply?.unidadMedida ?: "")
+                            )
+                        )
+                    )
+                }
         }
     }
     var animalSeleccionado by remember { mutableStateOf<AnimalListItem?>(null) }
@@ -909,13 +1010,13 @@ fun AppNavigation() {
         else -> currentRoute
     }
 
-    /** Navega entre secciones principales sin acumular copias de la misma pantalla. */
+    /** Navega siempre a la portada del módulo, sin restaurar formularios o detalles previos. */
     val navigateMain: (String) -> Unit = { route ->
         if (route in allowedMainRoutes) {
             navController.navigate(route) {
-                popUpTo(Routes.DASHBOARD) { saveState = true }
+                popUpTo(Routes.DASHBOARD) { saveState = false }
                 launchSingleTop = true
-                restoreState = true
+                restoreState = false
             }
         }
     }
@@ -1133,8 +1234,8 @@ fun AppNavigation() {
                         totalLots = lots.size,
                         availableParcels = parcels.count { it.status == "DISPONIBLE" },
                         totalParcels = parcels.size,
-                        weighingRecords = weighings.size,
-                        averageWeightPounds = weighings.map { it.weightLibras }
+                        weighedAnimals = weighingAnimals.count { it.currentWeightLibras != null },
+                        averageWeightPounds = weighingAnimals.mapNotNull { it.currentWeightLibras }
                             .average()
                             .takeUnless { it.isNaN() },
                         latestMilkLiters = latestMilk?.liters,
@@ -1455,7 +1556,7 @@ fun AppNavigation() {
                 LotFormScreen(
                     parcelNames = (
                         parcels.filter { parcel ->
-                            parcel.status == "DISPONIBLE" || parcel.currentLot == editingLot?.name
+                            parcel.status !in setOf("INACTIVA", "DESCANSO")
                         }.map { it.name } + editingLot?.parcelName.orEmpty()
                     )
                         .filter(String::isNotBlank)
@@ -1546,16 +1647,22 @@ fun AppNavigation() {
                     assignments = lotAssignments,
                     weighings = storedWeighings
                 ).map { record ->
+                    val animal = animalItemsById[record.animalId]
                     LotWeightRecord(
                         animalId = record.animalId,
+                        animalLabel = animal?.nombre?.takeIf(String::isNotBlank)
+                            ?: animal?.codigoIdentificacion
+                            ?: "Animal no disponible",
                         dateMillis = record.fechaPesaje,
                         dateLabel = formatDate(record.fechaPesaje),
                         weightPounds = record.pesoLibras
                     )
                 }
-                val lotLatestWeights = allAnimalItems
-                    .filter { it.id in lot.selectedAnimalIds }
-                    .mapNotNull { it.ultimoPesoLibras }
+                val lotLatestWeights = detailWeightRecords
+                    .filter { record -> record.animalId in lot.selectedAnimalIds }
+                    .groupBy { record -> record.animalId }
+                    .values
+                    .mapNotNull { records -> records.maxByOrNull { it.dateMillis }?.weightPounds }
                 val lotFinancialSummary = LotFinancialSummary(
                     directExpenses = storedFinancialMovements
                         .filter { it.loteId == lot.id && it.tipo == "EGRESO" }
@@ -2479,7 +2586,7 @@ fun AppNavigation() {
                                         supplyId = record.supply.id,
                                         quantity = form.quantity.replace(',', '.').toDouble(),
                                         date = parseDate(form.assignmentDate)
-                                            ?: error("La fecha de asignación no es válida."),
+                                            ?: error("La fecha del préstamo no es válida."),
                                         responsible = form.responsible,
                                         lotId = form.lotId.ifBlank { null },
                                         userId = currentUser?.id,
@@ -2494,7 +2601,7 @@ fun AppNavigation() {
                             }.onFailure { error ->
                                 supplyMovementIsSaving = false
                                 supplyMovementSaveError = error.message
-                                    ?: "No fue posible registrar la asignación."
+                                    ?: "No fue posible registrar el préstamo."
                             }
                         }
                     },
@@ -2767,14 +2874,16 @@ fun AppNavigation() {
                         financialBalance = financialMovements.sumOf { movement ->
                             if (movement.type == "INGRESO") movement.amount else -movement.amount
                         },
+                        supplyCount = storedSupplies.count { it.supply.activo },
+                        supplyInventoryValue = storedSupplies.sumOf { it.inventoryValue },
+                        supplyAttentionCount = storedSupplies.count {
+                            it.supply.activo && it.availableQuantity <= it.supply.existenciaMinima
+                        },
                         records = reportRecords
                     ),
                     allowedReportIds = allowedReportIds,
                     isGeneralAdministrator = canImportData,
                     onBulkExport = { uri, modules ->
-                        check(canEditRecords) {
-                            "Solo el Administrador General puede exportar datos operativos."
-                        }
                         bulkDataImportViewModel.export(uri, modules)
                     },
                     onInspectBulkImport = { uri, modules, mode ->
@@ -3067,11 +3176,16 @@ private fun allowedReportsForPermissions(permissions: Set<String>): Set<String> 
         add("weighings")
     }
     if ("employees" in permissions) add("staff")
-    if ("animals" in permissions) add("animals")
+    if ("animals" in permissions) {
+        add("animals")
+        add("births")
+    }
     if ("lots" in permissions) {
         add("lots")
         add("parcels")
     }
+    if ("health" in permissions) add("sanitary")
+    if ("supplies" in permissions) add("supplies")
 }
 
 /** Convierte errores técnicos de Room o validación en mensajes comprensibles. */
@@ -3129,9 +3243,9 @@ private fun AnimalFormData.toEntity(id: String) = AnimalEntity(
     sexo = sexo,
     raza = raza.trim().ifBlank { null },
     fechaNacimiento = parseDate(fechaNacimiento),
-    fechaIngreso = parseDate(fechaIngreso)
-        ?: parseDate(fechaNacimiento)
-        ?: System.currentTimeMillis(),
+    fechaIngreso = requireNotNull(parseDate(fechaIngreso)) {
+        "Seleccione una fecha de llegada válida."
+    },
     categoria = categoria,
     tipoOrigen = tipoOrigen,
     madreId = madreId.ifBlank { null },

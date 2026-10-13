@@ -64,6 +64,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -85,6 +87,10 @@ data class AnimalFormData(
     val madreId: String = "",
     val proximaParto: Boolean = false
 )
+
+/** Los animales procedentes de fuera no reciben una fecha de nacimiento supuesta. */
+internal fun animalBirthDateForOrigin(origin: String, birthDate: String): String =
+    birthDate.takeIf { origin == "NACIDO_EN_FINCA" }.orEmpty()
 
 /** Vaca disponible para registrar la relación de maternidad. */
 data class AnimalMotherOption(
@@ -130,7 +136,12 @@ fun AnimalFormScreen(
     var madreId by rememberSaveable { mutableStateOf(initialData?.madreId.orEmpty()) }
     var proximaParto by rememberSaveable { mutableStateOf(initialData?.proximaParto ?: false) }
     var fechaNacimiento by rememberSaveable {
-        mutableStateOf(initialData?.fechaNacimiento ?: todayDateText())
+        mutableStateOf(
+            animalBirthDateForOrigin(
+                origin = initialData?.tipoOrigen ?: "NACIDO_EN_FINCA",
+                birthDate = initialData?.fechaNacimiento ?: todayDateText()
+            )
+        )
     }
     var fechaIngreso by rememberSaveable {
         mutableStateOf(initialData?.fechaIngreso ?: todayDateText())
@@ -145,7 +156,6 @@ fun AnimalFormScreen(
     var intentoGuardar by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(isEditing) {
         if (!isEditing) {
-            if (fechaNacimiento.isBlank()) fechaNacimiento = todayDateText()
             if (fechaIngreso.isBlank()) fechaIngreso = todayDateText()
         }
     }
@@ -195,6 +205,39 @@ fun AnimalFormScreen(
         errorFechaIngreso == null &&
         pesoInvalido.not()
 
+    val currentFormData = AnimalFormData(
+        codigoIdentificacion = codigo,
+        nombre = nombre,
+        raza = raza,
+        sexo = sexo,
+        categoria = categoria,
+        tipoOrigen = tipoOrigen,
+        fechaNacimiento = fechaNacimiento,
+        fechaIngreso = fechaIngreso,
+        estadoSalud = estadoSalud,
+        pesoInicial = pesoInicial,
+        procedencia = procedencia,
+        observaciones = observaciones,
+        fotoUri = fotoUri,
+        madreId = madreId,
+        proximaParto = proximaParto
+    )
+    val initialFormData = initialData ?: AnimalFormData(
+        codigoIdentificacion = codigo,
+        nombre = "",
+        raza = "",
+        sexo = "MACHO",
+        categoria = "LECHERO",
+        tipoOrigen = "NACIDO_EN_FINCA",
+        fechaNacimiento = todayDateText(),
+        fechaIngreso = todayDateText(),
+        estadoSalud = "EXCELENTE",
+        pesoInicial = "",
+        procedencia = "",
+        observaciones = ""
+    )
+    val requestBack = rememberFormExitHandler(currentFormData != initialFormData, onBack)
+
     // Si la capa de datos devuelve una validación conocida, también se relaciona
     // con el campo correspondiente para que el usuario no tenga que adivinarla.
     val errorNacimientoGuardado = saveError?.takeIf { message ->
@@ -219,7 +262,7 @@ fun AnimalFormScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 },
@@ -246,13 +289,10 @@ fun AnimalFormScreen(
                         },
                         style = MaterialTheme.typography.bodyLarge
                     )
-                    Text(
-                        text = "* Campos obligatorios",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.labelMedium
-                    )
                 }
             }
+
+            item { FormFieldsGuide() }
 
             item {
                 AnimalPhotoSelector(
@@ -289,7 +329,7 @@ fun AnimalFormScreen(
                     value = nombre,
                     onValueChange = { nombre = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Nombre del animal") },
+                    label = { Text("Nombre del animal (opcional)") },
                     singleLine = true
                 )
             }
@@ -344,7 +384,12 @@ fun AnimalFormScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = tipoOrigen == "NACIDO_EN_FINCA",
-                        onClick = { tipoOrigen = "NACIDO_EN_FINCA" },
+                        onClick = {
+                            tipoOrigen = "NACIDO_EN_FINCA"
+                            if (fechaNacimiento.isBlank()) {
+                                fechaNacimiento = todayDateText()
+                            }
+                        },
                         label = { Text("Nacido en la finca/parcela") },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -354,6 +399,8 @@ fun AnimalFormScreen(
                             tipoOrigen = "INGRESADO_A_FINCA"
                             // Un animal comprado o trasladado no usa la maternidad de la finca.
                             madreId = ""
+                            // Su nacimiento no se presume: la llegada conserva su propia fecha.
+                            fechaNacimiento = ""
                         },
                         label = { Text("Ingresado a la finca") },
                         modifier = Modifier.fillMaxWidth()
@@ -361,21 +408,19 @@ fun AnimalFormScreen(
                 }
             }
 
-            item {
-                DateSelectorField(
-                    label = if (tipoOrigen == "NACIDO_EN_FINCA") {
-                        "Fecha de nacimiento *"
-                    } else {
-                        "Fecha de nacimiento"
-                    },
-                    value = fechaNacimiento,
-                    onDateSelected = { fechaNacimiento = it },
-                    errorMessage = if (intentoGuardar) {
-                        errorFechaNacimiento ?: errorNacimientoGuardado
-                    } else {
-                        errorNacimientoGuardado
-                    }
-                )
+            if (tipoOrigen == "NACIDO_EN_FINCA") {
+                item {
+                    DateSelectorField(
+                        label = "Fecha de nacimiento *",
+                        value = fechaNacimiento,
+                        onDateSelected = { fechaNacimiento = it },
+                        errorMessage = if (intentoGuardar) {
+                            errorFechaNacimiento ?: errorNacimientoGuardado
+                        } else {
+                            errorNacimientoGuardado
+                        }
+                    )
+                }
             }
 
             // La fecha se elige antes de la madre. Así también se muestran las vacas
@@ -501,7 +546,10 @@ fun AnimalFormScreen(
                                     sexo = sexo,
                                     categoria = categoria,
                                     tipoOrigen = tipoOrigen,
-                                    fechaNacimiento = fechaNacimiento,
+                                    fechaNacimiento = animalBirthDateForOrigin(
+                                        origin = tipoOrigen,
+                                        birthDate = fechaNacimiento
+                                    ),
                                     fechaIngreso = if (tipoOrigen == "NACIDO_EN_FINCA") {
                                         fechaNacimiento
                                     } else {

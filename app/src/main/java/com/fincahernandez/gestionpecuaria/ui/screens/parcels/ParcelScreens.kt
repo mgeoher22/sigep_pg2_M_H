@@ -69,6 +69,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.data.geo.ImportedParcelBoundary
 import com.fincahernandez.gestionpecuaria.data.geo.calculateParcelBoundaryMetrics
@@ -77,6 +81,7 @@ import com.fincahernandez.gestionpecuaria.data.geo.importParcelBoundaries
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /** Modelo visual generado a partir del inventario persistente de parcelas. */
 data class ParcelUiModel(
@@ -87,7 +92,7 @@ data class ParcelUiModel(
     val pastureType: String,
     val status: String,
     val capacity: Int?,
-    val currentLot: String,
+    val currentLots: List<String>,
     val boundaryGeoJson: String? = null,
     val geographicAreaHectares: Double? = null,
     val perimeterMeters: Double? = null,
@@ -98,6 +103,8 @@ data class ParcelUiModel(
         latestKnownWeightsPounds = emptyList()
     )
 )
+
+private enum class ParcelSort { NAME_ASC, NAME_DESC, AREA_DESC, AREA_ASC }
 
 /** Valores capturados al registrar una parcela. */
 data class ParcelFormData(
@@ -121,12 +128,20 @@ fun ParcelListScreen(
     modifier: Modifier = Modifier
 ) {
     var statusFilter by rememberSaveable { mutableStateOf("ACTIVAS") }
+    var sort by rememberSaveable { mutableStateOf(ParcelSort.NAME_ASC) }
     val activeParcels = parcels.filter { it.status != "INACTIVA" }
     val visibleParcels = parcels.filter { parcel ->
         when (statusFilter) {
             "ACTIVAS" -> parcel.status != "INACTIVA"
             "INACTIVAS" -> parcel.status == "INACTIVA"
             else -> true
+        }
+    }.let { filtered ->
+        when (sort) {
+            ParcelSort.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            ParcelSort.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            ParcelSort.AREA_DESC -> filtered.sortedByDescending { it.geographicAreaHectares ?: it.areaHectares }
+            ParcelSort.AREA_ASC -> filtered.sortedBy { it.geographicAreaHectares ?: it.areaHectares }
         }
     }
     val totalArea = activeParcels.sumOf { it.geographicAreaHectares ?: it.areaHectares }
@@ -181,7 +196,7 @@ fun ParcelListScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ParcelSummaryCard(
                         title = "ÁREA TOTAL",
-                        value = "${formatArea(totalArea)} ha",
+                        value = "${formatParcelArea(totalArea)} ha",
                         modifier = Modifier.weight(1f)
                     )
                     ParcelSummaryCard(
@@ -228,6 +243,18 @@ fun ParcelListScreen(
                         }
                     }
                 }
+            }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(ParcelSort.NAME_ASC, "Nombre A-Z"),
+                        ListSortOption(ParcelSort.NAME_DESC, "Nombre Z-A"),
+                        ListSortOption(ParcelSort.AREA_DESC, "Mayor área"),
+                        ListSortOption(ParcelSort.AREA_ASC, "Menor área")
+                    ),
+                    onSelected = { sort = it }
+                )
             }
             if (visibleParcels.isEmpty()) {
                 item {
@@ -329,12 +356,15 @@ private fun ParcelCard(parcel: ParcelUiModel, onClick: () -> Unit) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(parcel.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("${parcel.code} • ${formatArea(parcel.areaHectares)} ha")
+                    Text("${parcel.code} • ${formatParcelArea(parcel.areaHectares)} ha")
                 }
                 ParcelStatusBadge(parcel.status)
             }
             Text("Pastura: ${parcel.pastureType}")
-            Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
+            Text(
+                if (parcel.currentLots.isEmpty()) "Lotes activos: Ninguno"
+                else "Lotes activos (${parcel.currentLots.size}): ${parcel.currentLots.joinToString()}"
+            )
             Text(
                 parcel.productivity.utilizationPercent?.let { utilization ->
                     "Aprovechamiento: ${formatParcelMetric(utilization)} % " +
@@ -442,6 +472,15 @@ fun ParcelFormScreen(
         mutableStateOf<List<ImportedParcelBoundary>>(emptyList())
     }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val hasUnsavedChanges = if (initialData == null) {
+        name.isNotBlank() || area.isNotBlank() || pastureType.isNotBlank() ||
+            capacity.isNotBlank() || boundaryGeoJson != null
+    } else {
+        name != initialData.name || area != initialData.areaHectares ||
+            pastureType != initialData.pastureType || capacity != initialData.capacity ||
+            boundaryGeoJson != initialData.boundaryGeoJson
+    }
+    val requestBack = rememberFormExitHandler(hasUnsavedChanges, onBack)
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val boundaryPointCount = remember(boundaryGeoJson) {
@@ -521,7 +560,7 @@ fun ParcelFormScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -535,6 +574,7 @@ fun ParcelFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Complete los datos técnicos del terreno para el inventario de pastizales.",
@@ -826,7 +866,7 @@ fun ParcelDetailScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ParcelSummaryCard(
                         "SUPERFICIE",
-                        "${formatArea(parcel.areaHectares)} ha",
+                        "${formatParcelArea(parcel.areaHectares)} ha",
                         Modifier.weight(1f)
                     )
                     ParcelSummaryCard(
@@ -844,7 +884,10 @@ fun ParcelDetailScreen(
                     ) {
                         Text("Información productiva", fontWeight = FontWeight.Bold)
                         Text("Tipo de pastura: ${parcel.pastureType}")
-                        Text("Lote actual: ${parcel.currentLot.ifBlank { "Ninguno" }}")
+                        Text(
+                            if (parcel.currentLots.isEmpty()) "Lotes activos: Ninguno"
+                            else "Lotes activos (${parcel.currentLots.size}): ${parcel.currentLots.joinToString()}"
+                        )
                         Text(
                             "Perímetro del límite: ${parcel.perimeterMeters?.let(::formatPerimeter) ?: "Sin límite geográfico"}"
                         )
@@ -1002,18 +1045,19 @@ private fun ParcelProductivityCard(productivity: ParcelProductivityUiModel) {
     }
 }
 
-private fun formatArea(value: Double): String =
-    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+internal fun formatParcelArea(value: Double): String =
+    String.format(Locale.getDefault(), "%.2f", value)
 
 private fun formatCalculatedArea(value: Double): String = "%.4f".format(value)
 
 private fun formatPerimeter(valueMeters: Double): String = when {
-    valueMeters >= 1_000.0 -> "${formatParcelMetric(valueMeters / 1_000.0)} km"
-    else -> "${formatParcelMetric(valueMeters)} m"
+    valueMeters >= 1_000.0 ->
+        "${String.format(Locale.getDefault(), "%.2f", valueMeters / 1_000.0)} km"
+    else -> "${String.format(Locale.getDefault(), "%.1f", valueMeters)} m"
 }
 
-private fun formatParcelMetric(value: Double): String =
-    if (value % 1.0 == 0.0) value.toInt().toString() else "%.1f".format(value)
+internal fun formatParcelMetric(value: Double): String =
+    String.format(Locale.getDefault(), "%.1f", value)
 
 private fun productivityLevelLabel(level: ParcelProductivityLevel): String = when (level) {
     ParcelProductivityLevel.NO_CAPACITY -> "Sin capacidad"

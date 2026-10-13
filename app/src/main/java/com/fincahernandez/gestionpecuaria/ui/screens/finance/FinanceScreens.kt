@@ -56,7 +56,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
@@ -79,6 +83,8 @@ data class FinancialMovementUiModel(
 )
 
 data class FinancialLotOption(val id: String, val label: String)
+
+private enum class FinanceSort { DATE_DESC, DATE_ASC, CATEGORY_ASC, AMOUNT_DESC }
 
 /** Datos validados que el formulario entrega al contenedor de navegación. */
 data class FinancialMovementFormData(
@@ -111,6 +117,13 @@ fun FinanceListScreen(
     val balanceSignal = financeBalanceSignal(income, expenses)
     var pendingDeletion by remember { mutableStateOf<FinancialMovementUiModel?>(null) }
     var confirmationPassword by remember { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(FinanceSort.DATE_DESC) }
+    val orderedMovements = when (sort) {
+        FinanceSort.DATE_DESC -> movements.sortedByDescending { it.dateMillis }
+        FinanceSort.DATE_ASC -> movements.sortedBy { it.dateMillis }
+        FinanceSort.CATEGORY_ASC -> movements.sortedBy { it.category.lowercase() }
+        FinanceSort.AMOUNT_DESC -> movements.sortedByDescending { it.amount }
+    }
 
     // Cuando Room deja de emitir el movimiento eliminado se cierra la confirmación.
     LaunchedEffect(movements, pendingDeletion?.id) {
@@ -208,6 +221,18 @@ fun FinanceListScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(FinanceSort.DATE_DESC, "Fecha más reciente"),
+                        ListSortOption(FinanceSort.DATE_ASC, "Fecha más antigua"),
+                        ListSortOption(FinanceSort.CATEGORY_ASC, "Categoría A-Z"),
+                        ListSortOption(FinanceSort.AMOUNT_DESC, "Mayor monto")
+                    ),
+                    onSelected = { sort = it }
+                )
+            }
             if (movements.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -224,7 +249,7 @@ fun FinanceListScreen(
                     }
                 }
             } else {
-                items(movements.sortedByDescending { it.dateMillis }, key = { it.id }) { movement ->
+                items(orderedMovements, key = { it.id }) { movement ->
                     FinancialMovementCard(
                         movement = movement,
                         canDelete = canDeleteMovements && movement.deletableRecordId != null,
@@ -417,6 +442,11 @@ fun FinancialMovementFormScreen(
     var lotId by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = type != "INGRESO" || category.isNotBlank() || amount.isNotBlank() ||
+            date != todayDateText() || lotId.isNotBlank() || notes.isNotBlank(),
+        onExit = onBack
+    )
     LaunchedEffect(Unit) {
         if (date.isBlank()) date = todayDateText()
     }
@@ -438,7 +468,7 @@ fun FinancialMovementFormScreen(
             BrandedTopAppBar(
                 title = { Text("Nuevo movimiento", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -452,6 +482,7 @@ fun FinancialMovementFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Registre un ingreso o egreso financiero de la finca.",

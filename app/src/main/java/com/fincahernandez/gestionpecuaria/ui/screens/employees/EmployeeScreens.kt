@@ -54,7 +54,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.NumberFormat
@@ -91,6 +95,8 @@ data class EmployeePaymentUiModel(
 
 data class EmployeePaymentLotOption(val id: String, val label: String)
 
+private enum class EmployeeSort { NAME_ASC, NAME_DESC, HIRE_NEWEST, HIRE_OLDEST }
+
 /** Datos capturados y validados por el formulario de empleados. */
 data class EmployeeFormData(
     val fullName: String,
@@ -126,10 +132,18 @@ fun EmployeeListScreen(
     modifier: Modifier = Modifier
 ) {
     var search by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(EmployeeSort.NAME_ASC) }
     val filteredEmployees = employees.filter { employee ->
         search.isBlank() ||
             employee.fullName.contains(search, ignoreCase = true) ||
             employee.role.contains(search, ignoreCase = true)
+    }.let { filtered ->
+        when (sort) {
+            EmployeeSort.NAME_ASC -> filtered.sortedBy { it.fullName.lowercase() }
+            EmployeeSort.NAME_DESC -> filtered.sortedByDescending { it.fullName.lowercase() }
+            EmployeeSort.HIRE_NEWEST -> filtered.sortedByDescending { it.hireDateMillis }
+            EmployeeSort.HIRE_OLDEST -> filtered.sortedBy { it.hireDateMillis }
+        }
     }
     val activeCount = employees.count { it.active }
     val totalPayroll = employees.filter { it.active }.sumOf { it.salary }
@@ -206,6 +220,18 @@ fun EmployeeListScreen(
                     placeholder = { Text("Nombre o cargo") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true
+                )
+            }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(EmployeeSort.NAME_ASC, "Nombre A-Z"),
+                        ListSortOption(EmployeeSort.NAME_DESC, "Nombre Z-A"),
+                        ListSortOption(EmployeeSort.HIRE_NEWEST, "Ingreso más reciente"),
+                        ListSortOption(EmployeeSort.HIRE_OLDEST, "Ingreso más antiguo")
+                    ),
+                    onSelected = { sort = it }
                 )
             }
             item {
@@ -340,6 +366,13 @@ fun EmployeeFormScreen(
     var phone by rememberSaveable { mutableStateOf("") }
     var active by rememberSaveable { mutableStateOf(true) }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = fullName.isNotBlank() || role.isNotBlank() ||
+            hireDate != todayDateText() || salary.isNotBlank() ||
+            paymentFrequency != "Mensual" || assignedSector.isNotBlank() ||
+            phone.isNotBlank() || !active,
+        onExit = onBack
+    )
     LaunchedEffect(Unit) {
         if (hireDate.isBlank()) hireDate = todayDateText()
     }
@@ -355,7 +388,7 @@ fun EmployeeFormScreen(
             BrandedTopAppBar(
                 title = { Text("Registrar empleado", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -369,6 +402,7 @@ fun EmployeeFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Ingrese la información laboral del colaborador.",
@@ -641,6 +675,11 @@ fun EmployeePaymentFormScreen(
     var activity by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestPaymentBack = rememberFormExitHandler(
+        hasUnsavedChanges = paymentDate != todayDateText() || amount != employee.salary.toString() ||
+            period.isNotBlank() || lotId.isNotBlank() || activity.isNotBlank() || notes.isNotBlank(),
+        onExit = onBack
+    )
     LaunchedEffect(employee.id) {
         if (paymentDate.isBlank()) paymentDate = todayDateText()
     }
@@ -654,7 +693,7 @@ fun EmployeePaymentFormScreen(
             BrandedTopAppBar(
                 title = { Text("Registrar pago", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestPaymentBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -666,6 +705,7 @@ fun EmployeePaymentFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),

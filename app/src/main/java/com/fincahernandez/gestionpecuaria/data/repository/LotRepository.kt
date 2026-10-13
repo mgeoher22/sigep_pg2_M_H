@@ -72,7 +72,8 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
     /** Crea un lote y asigna únicamente animales activos y disponibles. */
     suspend fun createLot(draft: LotDraft): String = database.withTransaction {
         validateDraft(draft)
-        validateParcelAvailability(draft.parcelName, allowedLotId = null, allowLegacyName = false)
+        validateParcelSelection(draft.parcelName, allowLegacyName = false)
+        validateParcelCapacity(draft.parcelName, draft.selectedAnimalIds, allowedLotId = null)
         val lotId = java.util.UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val lot = LoteEntity(
@@ -100,11 +101,11 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
         validateDraft(draft)
         val current = checkNotNull(lotDao.buscarPorId(lotId)) { "No se encontró el lote." }
         check(current.estado == "ACTIVO") { "Un lote cerrado ya no se puede editar." }
-        validateParcelAvailability(
+        validateParcelSelection(
             parcelName = draft.parcelName,
-            allowedLotId = lotId,
             allowLegacyName = draft.parcelName.equals(current.parcelaNombre, ignoreCase = true)
         )
+        validateParcelCapacity(draft.parcelName, draft.selectedAnimalIds, allowedLotId = lotId)
 
         val now = System.currentTimeMillis()
         val selectedIds = draft.selectedAnimalIds.distinct().toSet()
@@ -239,19 +240,37 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
         }
     }
 
-    private suspend fun validateParcelAvailability(
+    private suspend fun validateParcelSelection(
         parcelName: String?,
-        allowedLotId: String?,
         allowLegacyName: Boolean
     ) {
         val name = parcelName?.trim()?.takeIf(String::isNotBlank) ?: return
         val parcel = database.parcelaDao().buscarPorNombre(name)
         check(parcel != null || allowLegacyName) { "La parcela seleccionada ya no existe." }
-        check(parcel == null || parcel.estado == "DISPONIBLE") {
+        check(parcel == null || parcel.estado !in setOf("INACTIVA", "DESCANSO")) {
             "La parcela seleccionada no está disponible."
         }
-        check(lotDao.buscarActivoPorParcela(name, allowedLotId.orEmpty()) == null) {
-            "La parcela seleccionada ya está ocupada por otro lote activo."
+    }
+
+    /** Suma los animales únicos de todos los lotes activos de la parcela. */
+    private suspend fun validateParcelCapacity(
+        parcelName: String?,
+        selectedAnimalIds: List<String>,
+        allowedLotId: String?
+    ) {
+        val name = parcelName?.trim()?.takeIf(String::isNotBlank) ?: return
+        val parcel = database.parcelaDao().buscarPorNombre(name) ?: return
+        val capacity = parcel.capacidadAnimales ?: return
+        val otherAnimalIds = lotDao.obtenerTodos()
+            .filter { lot ->
+                lot.estado == "ACTIVO" && lot.id != allowedLotId &&
+                    lot.parcelaNombre.equals(name, ignoreCase = true)
+            }
+            .flatMap { lot -> lotDao.obtenerAsignacionesActivasDelLote(lot.id) }
+            .map { assignment -> assignment.animalId }
+        val occupiedAnimals = (otherAnimalIds + selectedAnimalIds).distinct().size
+        require(occupiedAnimals <= capacity) {
+            "La parcela admite $capacity animales y los lotes activos sumarían $occupiedAnimals."
         }
     }
 }

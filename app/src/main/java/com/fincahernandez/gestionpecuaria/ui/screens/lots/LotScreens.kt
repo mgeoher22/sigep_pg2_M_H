@@ -67,6 +67,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
 import com.fincahernandez.gestionpecuaria.ui.components.WeightTrendChart
 import com.fincahernandez.gestionpecuaria.ui.components.formatDatePickerMillis
@@ -91,6 +95,8 @@ data class LotUiModel(
     val saleAmount: Double? = null,
     val saleDate: String = ""
 )
+
+private enum class LotSort { NAME_ASC, NAME_DESC, NEWEST, OLDEST }
 
 /** Costos e ingresos reales relacionados con el lote. */
 data class LotFinancialSummary(
@@ -155,7 +161,8 @@ data class LotWeightRecord(
     val animalId: String,
     val dateMillis: Long,
     val dateLabel: String,
-    val weightPounds: Double
+    val weightPounds: Double,
+    val animalLabel: String = ""
 )
 
 /** Resultado de sumar el cambio entre el primer y último pesaje de cada animal. */
@@ -190,11 +197,19 @@ fun LotListScreen(
     modifier: Modifier = Modifier
 ) {
     var statusFilter by rememberSaveable { mutableStateOf("ACTIVOS") }
+    var sort by rememberSaveable { mutableStateOf(LotSort.NAME_ASC) }
     val visibleLots = lots.filter { lot ->
         when (statusFilter) {
             "ACTIVOS" -> lot.status == "ACTIVO"
             "CERRADOS" -> lot.status != "ACTIVO"
             else -> true
+        }
+    }.let { filtered ->
+        when (sort) {
+            LotSort.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            LotSort.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            LotSort.NEWEST -> filtered.sortedByDescending { it.creationDateMillis }
+            LotSort.OLDEST -> filtered.sortedBy { it.creationDateMillis }
         }
     }
 
@@ -259,6 +274,18 @@ fun LotListScreen(
                         }
                     }
                 }
+            }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(LotSort.NAME_ASC, "Nombre A-Z"),
+                        ListSortOption(LotSort.NAME_DESC, "Nombre Z-A"),
+                        ListSortOption(LotSort.NEWEST, "Más recientes"),
+                        ListSortOption(LotSort.OLDEST, "Más antiguos")
+                    ),
+                    onSelected = { sort = it }
+                )
             }
             if (visibleLots.isEmpty()) {
                 item {
@@ -410,6 +437,14 @@ fun LotFormScreen(
         mutableStateOf(initialData?.estimatedExitDate.orEmpty())
     }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val hasUnsavedChanges = if (initialData == null) {
+        name.isNotBlank() || type != "ENGORDE" || parcelName.isNotBlank() ||
+            targetWeight.isNotBlank() || exitDate.isNotBlank()
+    } else {
+        name != initialData.name || type != initialData.type || parcelName != initialData.parcelName ||
+            targetWeight != initialData.targetWeight || exitDate != initialData.estimatedExitDate
+    }
+    val requestBack = rememberFormExitHandler(hasUnsavedChanges, onBack)
 
     // El promedio se obtiene únicamente de los animales seleccionados que tienen un peso registrado.
     val selectedAnimals = animalOptions.filter { it.id in selectedAnimalIds }
@@ -431,7 +466,7 @@ fun LotFormScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -445,6 +480,7 @@ fun LotFormScreen(
             contentPadding = PaddingValues(18.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Configure la agrupación de animales y su meta productiva.",
@@ -997,6 +1033,49 @@ fun LotDetailScreen(
                     points = weightTrend,
                     emptyMessage = "No hay pesajes asociados a este lote durante el período."
                 )
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Pesajes registrados", fontWeight = FontWeight.Bold)
+                        if (filteredWeightRecords.isEmpty()) {
+                            Text("No hay pesajes del lote en el período seleccionado.")
+                        } else {
+                            filteredWeightRecords
+                                .sortedWith(
+                                    compareByDescending<LotWeightRecord> { it.dateMillis }
+                                        .thenBy { it.animalLabel }
+                                )
+                                .forEach { record ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                record.animalLabel.ifBlank { "Animal sin nombre" },
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                record.dateLabel,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Text(
+                                            formatLotWeight(record.weightPounds),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                        }
+                    }
+                }
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {

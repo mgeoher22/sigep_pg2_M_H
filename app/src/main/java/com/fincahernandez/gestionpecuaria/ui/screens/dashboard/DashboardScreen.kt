@@ -66,7 +66,7 @@ data class DashboardUiData(
     val totalLots: Int = 0,
     val availableParcels: Int = 0,
     val totalParcels: Int = 0,
-    val weighingRecords: Int = 0,
+    val weighedAnimals: Int = 0,
     val averageWeightPounds: Double? = null,
     val latestMilkLiters: Double? = null,
     val latestMilkDate: String = "",
@@ -393,8 +393,12 @@ private fun dashboardStats(data: DashboardUiData): List<DashboardStat> = listOf(
     ),
     DashboardStat(
         "PESAJES",
-        data.weighingRecords.toString(),
-        data.averageWeightPounds?.let { "Promedio ${formatPounds(it)}" } ?: "Sin pesajes",
+        data.averageWeightPounds?.let(::formatPounds) ?: "Sin datos",
+        if (data.weighedAnimals > 0) {
+            "Promedio actual de ${data.weighedAnimals} animales"
+        } else {
+            "Sin pesajes registrados"
+        },
         Icons.Default.Scale,
         Routes.WEIGHINGS
     ),
@@ -460,7 +464,7 @@ private fun DashboardTabletPreview() {
                 totalLots = 2,
                 availableParcels = 1,
                 totalParcels = 3,
-                weighingRecords = 4,
+                weighedAnimals = 4,
                 averageWeightPounds = 512.5,
                 latestMilkLiters = 118.0,
                 latestMilkDate = "29/08/2026",

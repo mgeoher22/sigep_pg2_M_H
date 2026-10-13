@@ -7,10 +7,10 @@ import com.fincahernandez.gestionpecuaria.data.geo.decodeParcelBoundary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
-/** Parcela persistida con el lote activo que la ocupa, cuando corresponda. */
+/** Parcela persistida con todos los lotes activos que la ocupan. */
 data class ParcelStoredRecord(
     val parcel: ParcelaEntity,
-    val currentLotName: String?
+    val currentLotNames: List<String>
 )
 
 /** Datos validados que recibe el repositorio desde el formulario. */
@@ -36,9 +36,9 @@ class ParcelRepository(private val database: GestionPecuariaDatabase) {
         parcels.map { parcel ->
             ParcelStoredRecord(
                 parcel = parcel,
-                currentLotName = activeLots.firstOrNull {
+                currentLotNames = activeLots.filter {
                     it.parcelaNombre.equals(parcel.nombre, ignoreCase = true)
-                }?.nombre
+                }.map { it.nombre }.distinct()
             )
         }
     }

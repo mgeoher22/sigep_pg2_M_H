@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -72,6 +71,7 @@ import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportResult
 import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportMode
 import com.fincahernandez.gestionpecuaria.data.transfer.DataTransferModule
 import com.fincahernandez.gestionpecuaria.data.transfer.bulkImportTemplateCsv
+import com.fincahernandez.gestionpecuaria.data.repository.SupplyCatalog
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.SimpleDateFormat
 import java.text.NumberFormat
@@ -123,6 +123,13 @@ fun ReportsCenterScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val visibleReportOptions = reportOptions.filter { it.id in allowedReportIds }
+    val visibleTransferModules = DataTransferModule.entries.filter { module ->
+        when (module) {
+            DataTransferModule.ANIMALS -> "animals" in allowedReportIds
+            DataTransferModule.WEIGHINGS -> "weighings" in allowedReportIds
+            DataTransferModule.SANITARY -> "sanitary" in allowedReportIds
+        }
+    }
     if (visibleReportOptions.isEmpty()) {
         EmptyReportsScreen(
             onMenuClick = onMenuClick,
@@ -146,8 +153,8 @@ fun ReportsCenterScreen(
     var pendingBulkImportModules by remember { mutableStateOf<Set<DataTransferModule>>(emptySet()) }
     var pendingBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
     var selectedBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
-    var selectedTransferModules by remember {
-        mutableStateOf(setOf(DataTransferModule.ANIMALS))
+    var selectedTransferModules by remember(allowedReportIds) {
+        mutableStateOf(visibleTransferModules.firstOrNull()?.let(::setOf).orEmpty())
     }
 
     val selectedReport = visibleReportOptions.first { it.id == selectedReportId }
@@ -166,7 +173,7 @@ fun ReportsCenterScreen(
         }
     }
 
-    /** Exporta las métricas y los últimos registros visibles del reporte seleccionado. */
+    /** Exporta las métricas y todos los registros incluidos en el rango seleccionado. */
     val reportCsvExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -178,7 +185,7 @@ fun ReportsCenterScreen(
                     .onSuccess {
                         operationTitle = "Reporte exportado"
                         operationMessage =
-                            "Las métricas y los 10 registros más recientes se guardaron para Excel."
+                            "Las métricas y ${analysis.allRecords.size} registros se guardaron para Excel."
                     }
                     .onFailure {
                         operationTitle = "No fue posible exportar"
@@ -221,9 +228,6 @@ fun ReportsCenterScreen(
             coroutineScope.launch {
                 isTransferring = true
                 runCatching {
-                    check(isGeneralAdministrator) {
-                        "Solo el Administrador General puede exportar datos operativos."
-                    }
                     onBulkExport(it, selectedTransferModules)
                 }.onSuccess { result ->
                     operationTitle = "Datos exportados"
@@ -332,76 +336,103 @@ fun ReportsCenterScreen(
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
-            if (isGeneralAdministrator) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        ),
-                        shape = RoundedCornerShape(14.dp)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
-                                Column {
-                                    Text(
-                                        "Exportación e importación masiva",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        "Exclusivo del Administrador General",
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                }
-                            }
-                            Text(
-                                "Seleccione qué módulos desea exportar o importar. Al exportar " +
-                                    "Animales se incluyen todos los campos del formulario, el peso " +
-                                    "actual y su fecha para corregirlos en Excel y reimportarlos.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            Text("Módulos", fontWeight = FontWeight.SemiBold)
-                            DataTransferModule.entries.forEach { module ->
-                                FilterChip(
-                                    selected = module in selectedTransferModules,
-                                    onClick = {
-                                        val updatedModules = if (
-                                            module in selectedTransferModules
-                                        ) {
-                                            selectedTransferModules - module
-                                        } else {
-                                            selectedTransferModules + module
-                                        }
-                                        selectedTransferModules = updatedModules
-                                        if (DataTransferModule.ANIMALS !in updatedModules) {
-                                            selectedBulkImportMode = BulkImportMode.MERGE
-                                        }
+                            Icon(Icons.Default.TableChart, contentDescription = null)
+                            Column {
+                                Text(
+                                    "Archivos de datos",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (isGeneralAdministrator) {
+                                        "Puede exportar e importar archivos CSV compatibles con Excel."
+                                    } else {
+                                        "Puede exportar archivos CSV compatibles con Excel."
                                     },
-                                    label = { Text(module.displayName) },
-                                    enabled = !isTransferring,
-                                    modifier = Modifier.fillMaxWidth()
+                                    style = MaterialTheme.typography.labelMedium
                                 )
                             }
+                        }
+                        Text(
+                            "Seleccione los módulos. La exportación está disponible para todos " +
+                                "los usuarios con acceso a Reportes; la importación solo para el " +
+                                "Administrador General.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text("Módulos", fontWeight = FontWeight.SemiBold)
+                        visibleTransferModules.forEach { module ->
+                            FilterChip(
+                                selected = module in selectedTransferModules,
+                                onClick = {
+                                    val updatedModules = if (module in selectedTransferModules) {
+                                        selectedTransferModules - module
+                                    } else {
+                                        selectedTransferModules + module
+                                    }
+                                    selectedTransferModules = updatedModules
+                                    if (DataTransferModule.ANIMALS !in updatedModules) {
+                                        selectedBulkImportMode = BulkImportMode.MERGE
+                                    }
+                                },
+                                label = { Text(module.displayName) },
+                                enabled = !isTransferring,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (selectedTransferModules.isEmpty()) {
+                                    operationTitle = "Seleccione módulos"
+                                    operationMessage = "Seleccione al menos un módulo para exportar."
+                                } else {
+                                    bulkDataExporter.launch(bulkDataFileName())
+                                }
+                            },
+                            enabled = !isTransferring,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null)
+                            Text(" Exportar datos actuales")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                if (selectedTransferModules.isEmpty()) {
+                                    operationTitle = "Seleccione módulos"
+                                    operationMessage = "Seleccione al menos un módulo para la plantilla."
+                                } else {
+                                    bulkTemplateExporter.launch(bulkTemplateFileName())
+                                }
+                            },
+                            enabled = !isTransferring,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null)
+                            Text(" Descargar plantilla")
+                        }
+                        if (isGeneralAdministrator) {
                             if (DataTransferModule.ANIMALS in selectedTransferModules) {
                                 FilterChip(
-                                    selected = selectedBulkImportMode ==
-                                        BulkImportMode.INITIAL_LOAD_REPLACE,
+                                    selected = selectedBulkImportMode == BulkImportMode.INITIAL_LOAD_REPLACE,
                                     onClick = {
                                         selectedBulkImportMode = if (
                                             selectedBulkImportMode == BulkImportMode.MERGE
-                                        ) {
-                                            BulkImportMode.INITIAL_LOAD_REPLACE
-                                        } else {
-                                            BulkImportMode.MERGE
-                                        }
+                                        ) BulkImportMode.INITIAL_LOAD_REPLACE else BulkImportMode.MERGE
                                     },
                                     label = { Text("Carga inicial: reemplazar historial anterior") },
                                     enabled = !isTransferring,
@@ -409,9 +440,8 @@ fun ReportsCenterScreen(
                                 )
                                 if (selectedBulkImportMode == BulkImportMode.INITIAL_LOAD_REPLACE) {
                                     Text(
-                                        "Al importar se eliminarán los pesajes, controles sanitarios " +
-                                            "y asignaciones anteriores de los códigos incluidos. " +
-                                            "Los códigos se conservarán.",
+                                        "Se reemplazarán pesajes, controles sanitarios y asignaciones " +
+                                            "anteriores de los códigos incluidos.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error
                                     )
@@ -427,57 +457,23 @@ fun ReportsCenterScreen(
                                 onClick = {
                                     if (selectedTransferModules.isEmpty()) {
                                         operationTitle = "Seleccione módulos"
-                                        operationMessage = "Seleccione al menos un módulo para exportar."
+                                        operationMessage = "Seleccione al menos un módulo para importar."
                                     } else {
-                                        bulkDataExporter.launch(bulkDataFileName())
+                                        bulkImporter.launch(
+                                            arrayOf(
+                                                "text/csv",
+                                                "text/comma-separated-values",
+                                                "application/vnd.ms-excel",
+                                                "text/plain"
+                                            )
+                                        )
                                     }
                                 },
                                 enabled = !isTransferring,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.FileDownload, contentDescription = null)
-                                Text(" Exportar datos actuales")
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        if (selectedTransferModules.isEmpty()) {
-                                            operationTitle = "Seleccione módulos"
-                                            operationMessage =
-                                                "Seleccione al menos un módulo para la plantilla."
-                                        } else {
-                                            bulkTemplateExporter.launch(bulkTemplateFileName())
-                                        }
-                                    },
-                                    enabled = !isTransferring,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.FileDownload, contentDescription = null)
-                                    Text(" Plantilla")
-                                }
-                                Button(
-                                    onClick = {
-                                        if (selectedTransferModules.isEmpty()) {
-                                            operationTitle = "Seleccione módulos"
-                                            operationMessage =
-                                                "Seleccione al menos un módulo para importar."
-                                        } else {
-                                            bulkImporter.launch(
-                                                arrayOf(
-                                                    "text/csv",
-                                                    "text/comma-separated-values",
-                                                    "application/vnd.ms-excel",
-                                                    "text/plain"
-                                                )
-                                            )
-                                        }
-                                    },
-                                    enabled = !isTransferring,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.FileUpload, contentDescription = null)
-                                    Text(" Importar datos")
-                                }
+                                Icon(Icons.Default.FileUpload, contentDescription = null)
+                                Text(" Importar datos")
                             }
                         }
                     }
@@ -896,7 +892,7 @@ private fun ReportRecordCard(record: ReportRecord) {
             }
             record.primaryValue?.let { value ->
                 Text(
-                    formatRecordValue(record.reportId, record.kind, value),
+                    formatRecordValue(record, value),
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
@@ -931,6 +927,12 @@ private val reportOptions = listOf(
         icon = Icons.Default.Pets
     ),
     ReportOption(
+        id = "births",
+        title = "Partos y nacimientos",
+        description = "Partos, crías nacidas en finca y relaciones pendientes de madre.",
+        icon = Icons.Default.Pets
+    ),
+    ReportOption(
         id = "weighings",
         title = "Pesajes",
         description = "Peso promedio, ganancias y pérdidas de peso.",
@@ -947,20 +949,37 @@ private val reportOptions = listOf(
         title = "Parcelas",
         description = "Superficie, capacidad y ocupación de terrenos.",
         icon = Icons.Default.Landscape
+    ),
+    ReportOption(
+        id = "sanitary",
+        title = "Sanidad",
+        description = "Atenciones, animales tratados, dosis y próximos controles.",
+        icon = Icons.Default.Assessment
+    ),
+    ReportOption(
+        id = "supplies",
+        title = "Insumos",
+        description = "Compras, consumos, préstamos y valor del inventario.",
+        icon = Icons.Default.TableChart
     )
 )
 
-private fun formatRecordValue(reportId: String, kind: String, value: Double): String {
+private fun formatRecordValue(record: ReportRecord, value: Double): String {
     val number = NumberFormat.getNumberInstance(Locale.US).apply {
         maximumFractionDigits = 2
     }.format(value)
-    return when (reportId) {
+    return when (record.reportId) {
         "financial", "staff" -> "Q $number"
         "production" -> "$number L"
         "animals", "weighings" -> "$number lb"
         "lots" -> "$number animales"
         "parcels" -> "$number ha"
-        else -> if (kind.isBlank()) number else "$number $kind"
+        "sanitary" -> if (value > 0.0) "$number ml" else number
+        "supplies" -> record.attributes["unit"]
+            ?.let(SupplyCatalog.units::get)
+            ?.let { "$number ${it.lowercase()}" }
+            ?: number
+        else -> if (record.kind.isBlank()) number else "$number ${record.kind}"
     }
 }
 
@@ -1079,7 +1098,7 @@ private suspend fun writeReportCsv(
     }
 }
 
-/** Guarda exactamente las métricas y filas que la persona revisó en la vista previa. */
+/** Guarda las métricas y todos los registros del rango; la vista solo resume los últimos diez. */
 private suspend fun writeReportAnalysisCsv(
     context: Context,
     uri: Uri,
@@ -1102,12 +1121,14 @@ private suspend fun writeReportAnalysisCsv(
                     metric.explanation.toCsvCell()
             )
         }
-        writer.appendLine("registro;fecha;nombre;detalle")
+        writer.appendLine("registro;fecha;nombre;detalle;tipo;valor_principal;valor_secundario")
         val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        analysis.recentRecords.forEach { record ->
+        analysis.allRecords.forEach { record ->
             writer.appendLine(
                 "registro;${dateFormatter.format(Date(record.dateMillis))};" +
-                    "${record.title.toCsvCell()};${record.detail.toCsvCell()}"
+                    "${record.title.toCsvCell()};${record.detail.toCsvCell()};" +
+                    "${record.kind.toCsvCell()};${record.primaryValue?.toString().orEmpty()};" +
+                    record.secondaryValue?.toString().orEmpty()
             )
         }
     }

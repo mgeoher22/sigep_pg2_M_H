@@ -64,6 +64,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.data.security.definedRoles
 import com.fincahernandez.gestionpecuaria.data.security.rolePermissions
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
@@ -91,6 +95,8 @@ data class UserFormData(
     val permissionIds: Set<String>
 )
 
+private enum class UserSort { NAME_ASC, NAME_DESC, ROLE_ASC, ACTIVE_FIRST }
+
 /** Listado administrativo desde el cual se crean cuentas y se revisa el RBAC. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,6 +114,13 @@ fun UserManagementScreen(
     cloudStatus: String = "",
     onRefresh: () -> Unit = {}
 ) {
+    var sort by rememberSaveable { mutableStateOf(UserSort.NAME_ASC) }
+    val orderedUsers = when (sort) {
+        UserSort.NAME_ASC -> users.sortedBy { it.fullName.lowercase() }
+        UserSort.NAME_DESC -> users.sortedByDescending { it.fullName.lowercase() }
+        UserSort.ROLE_ASC -> users.sortedWith(compareBy<UserUiModel> { it.roleName.lowercase() }.thenBy { it.fullName.lowercase() })
+        UserSort.ACTIVE_FIRST -> users.sortedWith(compareByDescending<UserUiModel> { it.active }.thenBy { it.fullName.lowercase() })
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -205,6 +218,18 @@ fun UserManagementScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(UserSort.NAME_ASC, "Nombre A-Z"),
+                        ListSortOption(UserSort.NAME_DESC, "Nombre Z-A"),
+                        ListSortOption(UserSort.ROLE_ASC, "Rol A-Z"),
+                        ListSortOption(UserSort.ACTIVE_FIRST, "Activos primero")
+                    ),
+                    onSelected = { sort = it }
+                )
+            }
             if (users.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -221,7 +246,7 @@ fun UserManagementScreen(
                     }
                 }
             } else {
-                items(users, key = { it.id }) { user ->
+                items(orderedUsers, key = { it.id }) { user ->
                     Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                         Row(
                             modifier = Modifier.padding(16.dp),
@@ -465,6 +490,16 @@ fun UserFormScreen(
     else password.length >= 8
     val formValid = fullName.isNotBlank() && usernameValid &&
         !usernameExists && passwordValid
+    val baselineRole = initialUser?.roleName ?: if (cloudMode) "Operario" else definedRoles.first().name
+    val baselinePermissions = (initialUser?.permissionIds
+        ?: definedRoles.first { it.name == baselineRole }.permissionIds).sorted().joinToString(",")
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = fullName != initialUser?.fullName.orEmpty() ||
+            username != initialUser?.username.orEmpty() || password.isNotBlank() ||
+            selectedRoleName != baselineRole || selectedPermissionsValue != baselinePermissions ||
+            active != (initialUser?.active ?: true),
+        onExit = onBack
+    )
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -477,7 +512,7 @@ fun UserFormScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -491,6 +526,7 @@ fun UserFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     if (isEditing) {

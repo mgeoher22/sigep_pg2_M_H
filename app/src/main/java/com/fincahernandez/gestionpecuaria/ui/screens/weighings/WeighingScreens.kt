@@ -51,6 +51,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
 import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.components.WeightChartPoint
@@ -93,6 +97,8 @@ data class WeighingAnimalSummary(
     val recordCount: Int
 )
 
+private enum class WeighingSort { NAME_ASC, NAME_DESC, WEIGHT_DESC, WEIGHT_ASC }
+
 /** Datos validados entregados por el formulario. */
 data class WeighingFormData(
     val animalId: String,
@@ -113,10 +119,18 @@ fun WeighingListScreen(
     modifier: Modifier = Modifier
 ) {
     var search by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(WeighingSort.NAME_ASC) }
     val filteredAnimals = animals.filter { animal ->
         search.isBlank() ||
             animal.animalName.contains(search, ignoreCase = true) ||
             animal.animalCode.contains(search, ignoreCase = true)
+    }.let { filtered ->
+        when (sort) {
+            WeighingSort.NAME_ASC -> filtered.sortedBy { it.animalName.lowercase() }
+            WeighingSort.NAME_DESC -> filtered.sortedByDescending { it.animalName.lowercase() }
+            WeighingSort.WEIGHT_DESC -> filtered.sortedByDescending { it.currentWeightLibras ?: Double.NEGATIVE_INFINITY }
+            WeighingSort.WEIGHT_ASC -> filtered.sortedBy { it.currentWeightLibras ?: Double.POSITIVE_INFINITY }
+        }
     }
     val currentWeights = animals.mapNotNull { it.currentWeightLibras }
     val averageWeight = currentWeights.average().takeUnless { it.isNaN() }
@@ -171,6 +185,18 @@ fun WeighingListScreen(
                     placeholder = { Text("Código o nombre del animal") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true
+                )
+            }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(WeighingSort.NAME_ASC, "Animal A-Z"),
+                        ListSortOption(WeighingSort.NAME_DESC, "Animal Z-A"),
+                        ListSortOption(WeighingSort.WEIGHT_DESC, "Mayor peso"),
+                        ListSortOption(WeighingSort.WEIGHT_ASC, "Menor peso")
+                    ),
+                    onSelected = { sort = it }
                 )
             }
             item {
@@ -476,6 +502,11 @@ fun WeighingFormScreen(
     var date by rememberSaveable { mutableStateOf(todayDateText()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = animalId != initialAnimalId || weight.isNotBlank() ||
+            date != todayDateText() || notes.isNotBlank(),
+        onExit = onBack
+    )
     LaunchedEffect(Unit) {
         if (date.isBlank()) date = todayDateText()
     }
@@ -491,7 +522,7 @@ fun WeighingFormScreen(
             BrandedTopAppBar(
                 title = { Text("Registro de pesaje", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -505,6 +536,7 @@ fun WeighingFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text("Ingrese los datos del pesaje actual.", style = MaterialTheme.typography.bodyLarge)
             }

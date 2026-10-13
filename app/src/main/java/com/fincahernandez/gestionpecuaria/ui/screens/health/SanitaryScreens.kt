@@ -52,6 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.BrandedTopAppBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
 import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
@@ -100,6 +104,8 @@ data class SanitaryRecordUiModel(
     val notes: String?
 )
 
+private enum class SanitarySort { DATE_DESC, DATE_ASC, ANIMAL_ASC, EVENT_ASC }
+
 /** Datos validados que se guardan como un evento de un solo animal. */
 data class SanitaryFormData(
     val animalId: String,
@@ -133,6 +139,7 @@ fun SanitaryControlScreen(
     var selectedAnimalId by rememberSaveable(initialAnimalId) {
         mutableStateOf(initialAnimalId)
     }
+    var sort by rememberSaveable { mutableStateOf(SanitarySort.DATE_DESC) }
 
     val animalsInSelectedLot = if (selectedLotId.isBlank()) {
         animals
@@ -149,6 +156,13 @@ fun SanitaryControlScreen(
                 record.diagnosis,
                 record.medication.orEmpty()
             ).any { it.contains(search, ignoreCase = true) })
+    }.let { filtered ->
+        when (sort) {
+            SanitarySort.DATE_DESC -> filtered.sortedByDescending { it.eventDate }
+            SanitarySort.DATE_ASC -> filtered.sortedBy { it.eventDate }
+            SanitarySort.ANIMAL_ASC -> filtered.sortedBy { it.animalLabel.lowercase() }
+            SanitarySort.EVENT_ASC -> filtered.sortedBy { it.eventType.lowercase() }
+        }
     }
     val scheduledControls = records.count {
         it.nextControlDate != null && it.nextControlDate >= startOfToday()
@@ -258,6 +272,18 @@ fun SanitaryControlScreen(
                             selectedAnimalId = ""
                         }
                     }
+                )
+            }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(SanitarySort.DATE_DESC, "Fecha más reciente"),
+                        ListSortOption(SanitarySort.DATE_ASC, "Fecha más antigua"),
+                        ListSortOption(SanitarySort.ANIMAL_ASC, "Animal A-Z"),
+                        ListSortOption(SanitarySort.EVENT_ASC, "Tipo de evento A-Z")
+                    ),
+                    onSelected = { sort = it }
                 )
             }
             item {
@@ -407,6 +433,14 @@ fun SanitaryRecordFormScreen(
     var responsible by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = lotId.isNotBlank() || animalId != initialAnimalId ||
+            eventType != sanitaryEventTypes.first() || eventDate != todayDateText() ||
+            diagnosis.isNotBlank() || supplyId.isNotBlank() || doseMl.isNotBlank() ||
+            healthStatus != "EXCELENTE" || nextControlDate.isNotBlank() ||
+            responsible.isNotBlank() || notes.isNotBlank(),
+        onExit = onBack
+    )
     LaunchedEffect(Unit) {
         if (eventDate.isBlank()) eventDate = todayDateText()
     }
@@ -443,7 +477,7 @@ fun SanitaryRecordFormScreen(
             BrandedTopAppBar(
                 title = { Text("Registrar evento sanitario", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -457,6 +491,7 @@ fun SanitaryRecordFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Card(
                     colors = CardDefaults.cardColors(

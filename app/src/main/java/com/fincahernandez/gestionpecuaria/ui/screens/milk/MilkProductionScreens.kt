@@ -59,7 +59,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.FormFieldsGuide
+import com.fincahernandez.gestionpecuaria.ui.components.rememberFormExitHandler
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.components.todayDateText
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.data.repository.MilkConfiguration
@@ -100,6 +104,8 @@ data class MilkProductionFormData(
     val notes: String
 )
 
+private enum class MilkSort { DATE_DESC, DATE_ASC, LITERS_DESC, LITERS_ASC }
+
 /** Panel de producción, precio histórico e ingreso bruto con datos de Room. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +126,13 @@ fun MilkProductionListScreen(
     onNavigateMain: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var sort by rememberSaveable { mutableStateOf(MilkSort.DATE_DESC) }
+    val orderedRecords = when (sort) {
+        MilkSort.DATE_DESC -> records.sortedByDescending { it.dateMillis }
+        MilkSort.DATE_ASC -> records.sortedBy { it.dateMillis }
+        MilkSort.LITERS_DESC -> records.sortedByDescending { it.liters }
+        MilkSort.LITERS_ASC -> records.sortedBy { it.liters }
+    }
     val totalLiters = records.sumOf { it.liters }
     val totalGrossIncome = records.sumOf { it.grossIncome }
     val confirmedIncome = records
@@ -273,6 +286,18 @@ fun MilkProductionListScreen(
                     fontWeight = FontWeight.Bold
                 )
             }
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(MilkSort.DATE_DESC, "Fecha más reciente"),
+                        ListSortOption(MilkSort.DATE_ASC, "Fecha más antigua"),
+                        ListSortOption(MilkSort.LITERS_DESC, "Mayor producción"),
+                        ListSortOption(MilkSort.LITERS_ASC, "Menor producción")
+                    ),
+                    onSelected = { sort = it }
+                )
+            }
             if (records.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -283,7 +308,7 @@ fun MilkProductionListScreen(
                     }
                 }
             } else {
-                items(records, key = { it.id }) { record ->
+                items(orderedRecords, key = { it.id }) { record ->
                     MilkRecordCard(record)
                 }
             }
@@ -562,6 +587,10 @@ fun MilkProductionFormScreen(
     var liters by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
     var attemptedSave by rememberSaveable { mutableStateOf(false) }
+    val requestBack = rememberFormExitHandler(
+        hasUnsavedChanges = date != todayDateText() || liters.isNotBlank() || notes.isNotBlank(),
+        onExit = onBack
+    )
     LaunchedEffect(Unit) {
         if (date.isBlank()) date = todayDateText()
     }
@@ -579,7 +608,7 @@ fun MilkProductionFormScreen(
             BrandedTopAppBar(
                 title = { Text("Registro de producción", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -593,6 +622,7 @@ fun MilkProductionFormScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Registre la producción total obtenida en el ordeño de la mañana.",
@@ -729,6 +759,11 @@ fun MilkConfigurationScreen(
     val priceValue = price.replace(',', '.').toDoubleOrNull()
     val priceInvalid = priceValue == null || priceValue <= 0.0
     val selectedFrequency = MilkPaymentFrequency.valueOf(frequencyName)
+    val requestConfigurationBack = rememberFormExitHandler(
+        hasUnsavedChanges = price != configuration?.pricePerLiter?.let(::twoDecimals).orEmpty() ||
+            frequencyName != (configuration?.paymentFrequency?.name ?: MilkPaymentFrequency.DAILY.name),
+        onExit = onBack
+    )
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -736,7 +771,7 @@ fun MilkConfigurationScreen(
             BrandedTopAppBar(
                 title = { Text("Configuración de leche", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = requestConfigurationBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
                     }
                 }
@@ -750,6 +785,7 @@ fun MilkConfigurationScreen(
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { FormFieldsGuide() }
             item {
                 Text(
                     "Estos valores se aplicarán automáticamente a los nuevos registros. " +

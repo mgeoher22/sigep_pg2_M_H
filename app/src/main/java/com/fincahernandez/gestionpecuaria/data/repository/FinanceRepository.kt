@@ -45,8 +45,14 @@ class FinanceRepository(private val database: GestionPecuariaDatabase) {
     /** Solo admite identificadores de movimientos manuales almacenados en esta tabla. */
     suspend fun deleteManualMovement(id: String) {
         require(id.isNotBlank()) { "El movimiento contable no es válido." }
-        check(dao.buscarPorId(id) != null) {
+        val movement = checkNotNull(dao.buscarPorId(id)) {
             "El movimiento ya no existe o pertenece a otro módulo."
+        }
+        check(
+            movement.categoria != SUPPLY_PURCHASE_FINANCIAL_CATEGORY &&
+                movement.categoria != "Venta de lote"
+        ) {
+            "Este movimiento fue generado automáticamente y debe conservar su trazabilidad."
         }
         check(dao.eliminarPorId(id) == 1) { "No fue posible eliminar el movimiento." }
     }

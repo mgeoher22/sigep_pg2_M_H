@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortControl
+import com.fincahernandez.gestionpecuaria.ui.components.ListSortOption
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import com.fincahernandez.gestionpecuaria.ui.theme.GestionPecuariaTheme
 
@@ -79,6 +81,17 @@ data class AnimalListItem(
     val fotoUri: String = ""
 )
 
+private enum class AnimalSort { NAME_ASC, NAME_DESC, ENTRY_NEWEST, ENTRY_OLDEST }
+
+private fun animalDateKey(value: String): Int {
+    val parts = value.split("/")
+    return if (parts.size == 3) {
+        (parts[2].toIntOrNull() ?: 0) * 10_000 +
+            (parts[1].toIntOrNull() ?: 0) * 100 +
+            (parts[0].toIntOrNull() ?: 0)
+    } else 0
+}
+
 /**
  * Pantalla principal del módulo de animales.
  *
@@ -101,6 +114,7 @@ fun AnimalListScreen(
     var estadoSeleccionado by rememberSaveable { mutableStateOf(FILTER_ALL) }
     var soloProximasParto by rememberSaveable { mutableStateOf(false) }
     var showFilters by rememberSaveable { mutableStateOf(false) }
+    var sort by rememberSaveable { mutableStateOf(AnimalSort.NAME_ASC) }
 
     val activeFilterCount = remember(
         categoriaSeleccionada,
@@ -117,7 +131,8 @@ fun AnimalListScreen(
         busqueda,
         categoriaSeleccionada,
         estadoSeleccionado,
-        soloProximasParto
+        soloProximasParto,
+        sort
     ) {
         animales.filter { animal ->
             val coincideBusqueda = busqueda.isBlank() ||
@@ -131,6 +146,13 @@ fun AnimalListScreen(
             val coincideParto = !soloProximasParto || animal.proximaParto
 
             coincideBusqueda && coincideCategoria && coincideEstado && coincideParto
+        }.let { filtered ->
+            when (sort) {
+                AnimalSort.NAME_ASC -> filtered.sortedBy { it.nombre.orEmpty().ifBlank { it.codigoIdentificacion }.lowercase() }
+                AnimalSort.NAME_DESC -> filtered.sortedByDescending { it.nombre.orEmpty().ifBlank { it.codigoIdentificacion }.lowercase() }
+                AnimalSort.ENTRY_NEWEST -> filtered.sortedByDescending { animalDateKey(it.fechaIngreso) }
+                AnimalSort.ENTRY_OLDEST -> filtered.sortedBy { animalDateKey(it.fechaIngreso) }
+            }
         }
     }
 
@@ -194,6 +216,19 @@ fun AnimalListScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+                )
+            }
+
+            item {
+                ListSortControl(
+                    selected = sort,
+                    options = listOf(
+                        ListSortOption(AnimalSort.NAME_ASC, "Nombre A-Z"),
+                        ListSortOption(AnimalSort.NAME_DESC, "Nombre Z-A"),
+                        ListSortOption(AnimalSort.ENTRY_NEWEST, "Ingreso más reciente"),
+                        ListSortOption(AnimalSort.ENTRY_OLDEST, "Ingreso más antiguo")
+                    ),
+                    onSelected = { sort = it }
                 )
             }
 

@@ -28,6 +28,9 @@ data class ReportDashboardData(
     val milkLiters: Double,
     val employeeCount: Int,
     val financialBalance: Double,
+    val supplyCount: Int = 0,
+    val supplyInventoryValue: Double = 0.0,
+    val supplyAttentionCount: Int = 0,
     val records: List<ReportRecord> = emptyList()
 )
 
@@ -50,6 +53,9 @@ data class ReportAnalysis(
     val headline: String,
     val headlineLabel: String,
     val metrics: List<ReportMetric>,
+    /** Todos los registros del rango; se usan en los archivos exportados. */
+    val allRecords: List<ReportRecord>,
+    /** Resumen visual limitado a los diez registros más recientes. */
     val recentRecords: List<ReportRecord>
 )
 
@@ -115,6 +121,7 @@ internal fun buildReportAnalysis(
         headline = headline,
         headlineLabel = headlineLabel,
         metrics = metrics,
+        allRecords = records,
         recentRecords = recent
     )
 
@@ -189,6 +196,26 @@ internal fun buildReportAnalysis(
                 )
             )
         }
+        "births" -> {
+            val withMother = records.filter { it.attributes["motherId"].orEmpty().isNotBlank() }
+            val births = withMother
+                .map { "${it.attributes["motherId"]}|${dayKey(it.dateMillis)}" }
+                .distinct()
+                .size
+            val withoutMother = records.size - withMother.size
+            val females = records.count { it.attributes["sex"] == "HEMBRA" }
+            val males = records.count { it.attributes["sex"] == "MACHO" }
+            analysis(
+                headline = records.size.toString(),
+                headlineLabel = "Crías nacidas en finca",
+                metrics = listOf(
+                    metric("Partos", births.toString(), "Madres y fechas de parto distintas"),
+                    metric("Crías", records.size.toString(), "Nacimientos dentro del rango"),
+                    metric("Sin madre asociada", withoutMother.toString(), "Crías pendientes de relación genealógica"),
+                    metric("Hembras / machos", "$females / $males", "Distribución de las crías")
+                )
+            )
+        }
         "weighings" -> {
             val weights = records.mapNotNull(ReportRecord::primaryValue)
             val differences = records.mapNotNull(ReportRecord::secondaryValue)
@@ -237,6 +264,42 @@ internal fun buildReportAnalysis(
                     metric("Superficie", "${formatNumber(hectares)} ha", "Área total de nuevas parcelas"),
                     metric("Capacidad", formatNumber(capacity), "Capacidad animal declarada"),
                     metric("Ocupadas", occupied.toString(), "Nuevas parcelas con lote activo")
+                )
+            )
+        }
+        "sanitary" -> {
+            val animalsAttended = records.mapNotNull { it.attributes["animalId"] }.distinct().size
+            val appliedMilliliters = records.mapNotNull(ReportRecord::primaryValue).sum()
+            val critical = records.count { it.attributes["healthStatus"] == "CRÍTICO" }
+            val followUps = records.count { it.attributes["hasNextControl"] == "true" }
+            analysis(
+                headline = records.size.toString(),
+                headlineLabel = "Eventos sanitarios del periodo",
+                metrics = listOf(
+                    metric("Atenciones", records.size.toString(), "Eventos registrados dentro del rango"),
+                    metric("Animales atendidos", animalsAttended.toString(), "Animales distintos con atención"),
+                    metric("Medicamento aplicado", "${formatNumber(appliedMilliliters)} ml", "Dosis descontadas del inventario"),
+                    metric("Estado crítico", critical.toString(), "Atenciones que dejaron estado crítico"),
+                    metric("Próximos controles", followUps.toString(), "Eventos con seguimiento programado")
+                )
+            )
+        }
+        "supplies" -> {
+            val entries = records.filter { it.kind == "ENTRADA" }
+            val exits = records.filter { it.kind == "SALIDA" }
+            val assignments = records.filter { it.kind == "ASIGNACION" }
+            val returns = records.filter { it.kind == "DEVOLUCION" }
+            val purchaseValue = entries.sumOf { it.secondaryValue ?: 0.0 }
+            analysis(
+                headline = formatQuetzales(purchaseValue),
+                headlineLabel = "Compras de insumos del periodo",
+                metrics = listOf(
+                    metric("Entradas", entries.size.toString(), "Operaciones de compra o ingreso"),
+                    metric("Salidas", exits.size.toString(), "Operaciones de consumo"),
+                    metric("Préstamos / devoluciones", "${assignments.size} / ${returns.size}", "Movimientos de herramientas y equipos"),
+                    metric("Productos activos", data.supplyCount.toString(), "Catálogo disponible actualmente"),
+                    metric("Valor en inventario", formatQuetzales(data.supplyInventoryValue), "Existencia disponible y asignada actual"),
+                    metric("Requieren atención", data.supplyAttentionCount.toString(), "Productos agotados o bajo el mínimo")
                 )
             )
         }
