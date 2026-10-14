@@ -37,7 +37,10 @@ data class ReportDashboardData(
 data class ReportDateRange(
     val startMillis: Long,
     val endMillis: Long,
-    val label: String
+    val label: String,
+    val previousStartMillis: Long? = null,
+    val previousEndMillis: Long? = null,
+    val previousLabel: String? = null
 )
 
 data class ReportMetric(
@@ -53,47 +56,113 @@ data class ReportAnalysis(
     val headline: String,
     val headlineLabel: String,
     val metrics: List<ReportMetric>,
+    val financialStatement: FinancialStatement? = null,
     /** Todos los registros del rango; se usan en los archivos exportados. */
     val allRecords: List<ReportRecord>,
     /** Resumen visual limitado a los diez registros más recientes. */
     val recentRecords: List<ReportRecord>
 )
 
+data class ExpenseCategoryShare(
+    val category: String,
+    val amount: Double,
+    val percentage: Double
+)
+
+/** Estado de resultados administrativo construido exclusivamente con movimientos registrados. */
+data class FinancialStatement(
+    val sales: Double,
+    val otherIncome: Double,
+    val costOfSales: Double,
+    val operatingExpenses: Double,
+    val grossProfit: Double,
+    val netProfit: Double,
+    val expenseCategories: List<ExpenseCategoryShare>
+)
+
 /** Convierte los accesos rápidos de periodo en límites inclusivos y verificables. */
 internal fun resolveReportDateRange(
     period: String,
     nowMillis: Long = System.currentTimeMillis(),
+    anchorMillis: Long = nowMillis,
     customStart: String = "",
     customEnd: String = ""
 ): ReportDateRange? {
     val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+    val anchor = Calendar.getInstance().apply { timeInMillis = anchorMillis }
     val endToday = (now.clone() as Calendar).endOfDay()
     val start = when (period) {
         "30 días" -> (now.clone() as Calendar).apply {
             add(Calendar.DAY_OF_YEAR, -29)
         }.startOfDay()
-        "Mes actual" -> (now.clone() as Calendar).apply {
+        "Mes actual", "Mensual" -> (anchor.clone() as Calendar).apply {
             set(Calendar.DAY_OF_MONTH, 1)
         }.startOfDay()
-        "Año actual" -> (now.clone() as Calendar).apply {
+        "Año actual", "Anual" -> (anchor.clone() as Calendar).apply {
             set(Calendar.DAY_OF_YEAR, 1)
         }.startOfDay()
         "Personalizado" -> parseReportDate(customStart)?.startOfDay() ?: return null
         else -> return null
     }
-    val end = if (period == "Personalizado") {
-        parseReportDate(customEnd)?.endOfDay() ?: return null
-    } else {
-        endToday
+    val end = when (period) {
+        "Personalizado" -> parseReportDate(customEnd)?.endOfDay() ?: return null
+        "Mes actual", "Mensual" -> (anchor.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
+        }.endOfDay().let { selectedEnd ->
+            if (sameMonth(anchor, now) && selectedEnd.after(endToday)) endToday else selectedEnd
+        }
+        "Año actual", "Anual" -> (anchor.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_YEAR, getActualMaximum(Calendar.DAY_OF_YEAR))
+        }.endOfDay().let { selectedEnd ->
+            if (anchor.get(Calendar.YEAR) == now.get(Calendar.YEAR) && selectedEnd.after(endToday)) {
+                endToday
+            } else selectedEnd
+        }
+        else -> endToday
     }
     if (start.timeInMillis > end.timeInMillis) return null
     val formatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    val previous = previousComparableRange(period, start, end)
     return ReportDateRange(
         startMillis = start.timeInMillis,
         endMillis = end.timeInMillis,
         label = "${formatter.format(Date(start.timeInMillis))} – " +
-            formatter.format(Date(end.timeInMillis))
+            formatter.format(Date(end.timeInMillis)),
+        previousStartMillis = previous?.first?.timeInMillis,
+        previousEndMillis = previous?.second?.timeInMillis,
+        previousLabel = previous?.let {
+            "${formatter.format(Date(it.first.timeInMillis))} – " +
+                formatter.format(Date(it.second.timeInMillis))
+        }
     )
+}
+
+internal fun shiftReportPeriodAnchor(period: String, anchorMillis: Long, amount: Int): Long {
+    val anchor = Calendar.getInstance().apply { timeInMillis = anchorMillis }
+    when (period) {
+        "Mes actual", "Mensual" -> anchor.add(Calendar.MONTH, amount)
+        "Año actual", "Anual" -> anchor.add(Calendar.YEAR, amount)
+    }
+    return anchor.timeInMillis
+}
+
+internal fun canMoveReportPeriodForward(
+    period: String,
+    anchorMillis: Long,
+    nowMillis: Long = System.currentTimeMillis()
+): Boolean {
+    if (period !in setOf("Mes actual", "Mensual", "Año actual", "Anual")) return false
+    val next = Calendar.getInstance().apply {
+        timeInMillis = shiftReportPeriodAnchor(period, anchorMillis, 1)
+    }
+    val now = Calendar.getInstance().apply { timeInMillis = nowMillis }
+    return if (period in setOf("Mes actual", "Mensual")) {
+        next.get(Calendar.YEAR) < now.get(Calendar.YEAR) ||
+            next.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+            next.get(Calendar.MONTH) <= now.get(Calendar.MONTH)
+    } else {
+        next.get(Calendar.YEAR) <= now.get(Calendar.YEAR)
+    }
 }
 
 /** Calcula indicadores distintos según el módulo y conserva solo los 10 registros más recientes. */
@@ -113,7 +182,8 @@ internal fun buildReportAnalysis(
     fun analysis(
         headline: String,
         headlineLabel: String,
-        metrics: List<ReportMetric>
+        metrics: List<ReportMetric>,
+        financialStatement: FinancialStatement? = null
     ) = ReportAnalysis(
         reportId = reportId,
         title = title,
@@ -121,24 +191,56 @@ internal fun buildReportAnalysis(
         headline = headline,
         headlineLabel = headlineLabel,
         metrics = metrics,
+        financialStatement = financialStatement,
         allRecords = records,
         recentRecords = recent
     )
 
     return when (reportId) {
         "financial" -> {
-            val income = records.filter { it.kind == "INGRESO" }.sumOfValue()
-            val expenses = records.filter { it.kind == "EGRESO" }.sumOfValue()
-            val balance = income - expenses
+            val statement = buildFinancialStatement(records)
+            val income = statement.sales + statement.otherIncome
+            val expenses = statement.costOfSales + statement.operatingExpenses
+            val previousStart = range.previousStartMillis
+            val previousEnd = range.previousEndMillis
+            val previousRecords = if (previousStart != null && previousEnd != null) {
+                data.records.filter {
+                    it.reportId == reportId &&
+                        it.dateMillis in previousStart..previousEnd
+                }
+            } else emptyList()
+            val previousStatement = if (previousStart != null && previousEnd != null) {
+                buildFinancialStatement(previousRecords)
+            } else null
+            val comparisonMetrics = previousStatement?.let { previous ->
+                val difference = statement.netProfit - previous.netProfit
+                listOf(
+                    metric(
+                        "Resultado anterior",
+                        formatQuetzales(previous.netProfit),
+                        range.previousLabel ?: "Período anterior comparable"
+                    ),
+                    metric(
+                        "Variación vs. anterior",
+                        comparisonValue(difference, previous.netProfit),
+                        comparisonDecision(difference)
+                    )
+                )
+            }.orEmpty()
             analysis(
-                headline = formatQuetzales(balance),
-                headlineLabel = "Balance del periodo",
+                headline = formatQuetzales(statement.netProfit),
+                headlineLabel = "Resultado administrativo del período",
                 metrics = listOf(
                     metric("Ingresos", formatQuetzales(income), "Entradas registradas"),
                     metric("Egresos", formatQuetzales(expenses), "Salidas registradas"),
-                    metric("Balance", formatQuetzales(balance), balanceDecision(balance)),
-                    metric("Movimientos", records.size.toString(), "Registros dentro del rango")
-                )
+                    metric("Ventas", formatQuetzales(statement.sales), "Venta de ganado, lotes y leche"),
+                    metric("Otros ingresos", formatQuetzales(statement.otherIncome), "Ingresos distintos de ventas"),
+                    metric("Costo de ventas", formatQuetzales(statement.costOfSales), "Egresos vinculados directamente a lotes"),
+                    metric("Utilidad bruta", formatQuetzales(statement.grossProfit), "Ventas menos costo de ventas"),
+                    metric("Gastos operativos", formatQuetzales(statement.operatingExpenses), "Egresos generales sin lote"),
+                    metric("Utilidad neta", formatQuetzales(statement.netProfit), balanceDecision(statement.netProfit))
+                ) + comparisonMetrics,
+                financialStatement = statement
             )
         }
         "production" -> {
@@ -306,6 +408,97 @@ internal fun buildReportAnalysis(
         else -> analysis("0", "Sin datos", emptyList())
     }
 }
+
+/**
+ * Clasificación administrativa: un egreso con lote es costo directo de la venta;
+ * los demás egresos son operativos. No se presenta como balance patrimonial porque
+ * la aplicación aún no registra cuentas de activos ni pasivos.
+ */
+internal fun buildFinancialStatement(records: List<ReportRecord>): FinancialStatement {
+    val incomes = records.filter { it.kind == "INGRESO" }
+    val expenses = records.filter { it.kind == "EGRESO" }
+    val sales = incomes.filter(::isSale).sumOfValue()
+    val otherIncome = incomes.filterNot(::isSale).sumOfValue()
+    val costOfSales = expenses.filter(::isDirectLotCost).sumOfValue()
+    val operatingExpenses = expenses.filterNot(::isDirectLotCost).sumOfValue()
+    val expenseTotal = expenses.sumOfValue()
+    val distribution = expenses
+        .groupBy { it.attributes["category"].orEmpty().ifBlank { it.title } }
+        .map { (category, categoryRecords) ->
+            val amount = categoryRecords.sumOfValue()
+            ExpenseCategoryShare(
+                category = category,
+                amount = amount,
+                percentage = if (expenseTotal == 0.0) 0.0 else amount / expenseTotal * 100.0
+            )
+        }
+        .sortedWith(compareByDescending<ExpenseCategoryShare> { it.amount }.thenBy { it.category })
+    return FinancialStatement(
+        sales = sales,
+        otherIncome = otherIncome,
+        costOfSales = costOfSales,
+        operatingExpenses = operatingExpenses,
+        grossProfit = sales - costOfSales,
+        netProfit = sales + otherIncome - costOfSales - operatingExpenses,
+        expenseCategories = distribution
+    )
+}
+
+private fun isSale(record: ReportRecord): Boolean {
+    val category = record.attributes["category"].orEmpty().ifBlank { record.title }
+    return category.startsWith("Venta", ignoreCase = true) ||
+        category.equals("Producción de leche", ignoreCase = true)
+}
+
+private fun isDirectLotCost(record: ReportRecord): Boolean =
+    record.attributes["lotId"].orEmpty().isNotBlank()
+
+private fun comparisonValue(difference: Double, previous: Double): String {
+    val amount = "${if (difference > 0.0) "+" else ""}${formatQuetzales(difference)}"
+    if (previous == 0.0) return "$amount · sin base porcentual"
+    val percentage = difference / kotlin.math.abs(previous) * 100.0
+    return "$amount · ${if (percentage > 0.0) "+" else ""}${formatNumber(percentage)} %"
+}
+
+private fun comparisonDecision(difference: Double): String = when {
+    difference > 0.0 -> "El resultado mejoró frente al período anterior"
+    difference < 0.0 -> "El resultado disminuyó frente al período anterior"
+    else -> "Sin variación frente al período anterior"
+}
+
+private fun previousComparableRange(
+    period: String,
+    start: Calendar,
+    end: Calendar
+): Pair<Calendar, Calendar>? = when (period) {
+    "30 días" -> {
+        val previousEnd = (start.clone() as Calendar).apply {
+            add(Calendar.DAY_OF_YEAR, -1)
+        }.endOfDay()
+        val previousStart = (previousEnd.clone() as Calendar).apply {
+            add(Calendar.DAY_OF_YEAR, -29)
+        }.startOfDay()
+        previousStart to previousEnd
+    }
+    "Mes actual", "Mensual" -> {
+        val previousStart = (start.clone() as Calendar).apply { add(Calendar.MONTH, -1) }
+        val elapsedDay = end.get(Calendar.DAY_OF_MONTH)
+        val previousEnd = (previousStart.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_MONTH, elapsedDay.coerceAtMost(getActualMaximum(Calendar.DAY_OF_MONTH)))
+        }.endOfDay()
+        previousStart to previousEnd
+    }
+    "Año actual", "Anual" -> {
+        val previousStart = (start.clone() as Calendar).apply { add(Calendar.YEAR, -1) }
+        val previousEnd = (end.clone() as Calendar).apply { add(Calendar.YEAR, -1) }
+        previousStart to previousEnd
+    }
+    else -> null
+}
+
+private fun sameMonth(first: Calendar, second: Calendar): Boolean =
+    first.get(Calendar.YEAR) == second.get(Calendar.YEAR) &&
+        first.get(Calendar.MONTH) == second.get(Calendar.MONTH)
 
 private fun metric(label: String, value: String, explanation: String) =
     ReportMetric(label, value, explanation)

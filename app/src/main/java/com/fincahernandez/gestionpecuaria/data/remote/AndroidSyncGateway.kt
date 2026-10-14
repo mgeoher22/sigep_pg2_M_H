@@ -1,8 +1,23 @@
 package com.fincahernandez.gestionpecuaria.data.remote
 
-class AndroidSyncGateway(private val manager: CloudSessionManager, private val localId: String): SyncGateway {
+import android.content.Context
+import com.fincahernandez.gestionpecuaria.data.local.database.GestionPecuariaDatabase
+
+class AndroidSyncGateway(
+    private val manager: CloudSessionManager,
+    private val localId: String,
+    context: Context? = null,
+    database: GestionPecuariaDatabase? = null
+): SyncGateway {
+    private val photoSync = if (context != null && database != null) {
+        AnimalPhotoCloudSync(context, database, manager, localId)
+    } else null
+
     override suspend fun read(): SyncRemoteState {
         val snapshot = manager.download(localId, forSync = true)
+        // La descarga valida primero que Supabase tenga la migración requerida.
+        // Solo entonces se suben archivos y se actualiza la referencia local.
+        photoSync?.uploadPendingPhotos()
         val rows = linkedMapOf<SyncKey, SyncVersion>()
         snapshot.rows.forEach { (table, records) -> records.forEach { record ->
             val data = SyncCodec.data(table, record)

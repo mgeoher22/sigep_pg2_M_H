@@ -71,7 +71,10 @@ fun rememberAutoSyncStatus(userId: String?, manager: CloudSessionManager, paused
     LaunchedEffect(userId, manager, paused, lifecycle) {
         if (userId.isNullOrBlank() || paused) return@LaunchedEffect
         val database = GestionPecuariaDatabase.obtenerInstancia(context)
-        val coordinator = SyncCoordinator(RoomSyncStore(database, manager.syncProject()), AndroidSyncGateway(manager, userId))
+        val coordinator = SyncCoordinator(
+            RoomSyncStore(database, manager.syncProject()),
+            AndroidSyncGateway(manager, userId, context, database)
+        )
         try {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 internet(context).collectLatest { online ->

@@ -24,11 +24,16 @@ interface SyncStore {
 class SyncRejected(message: String): Exception(message)
 
 class SyncCoordinator(private val store: SyncStore, private val gateway: SyncGateway) {
-    companion object { private val mutex = Mutex() }
+    companion object {
+        private val mutex = Mutex()
+        private const val MAX_CHANGES_PER_REQUEST = 100
+        private const val MAX_BATCHES_PER_RUN = 500
+    }
     suspend fun run(choices: List<SyncChoice> = emptyList()): SyncResult = mutex.withLock {
         var remote = gateway.read()
         var local = store.read(remote.readable)
         var sent = 0
+        var received = 0
         suspend fun send(operation: SyncOperation) {
             require(operation.owner == remote.owner) { "Hay un envío pendiente de otra cuenta. Ingresa con esa cuenta para completarlo." }
             gateway.validate(remote)
@@ -43,22 +48,33 @@ class SyncCoordinator(private val store: SyncStore, private val gateway: SyncGat
             send(it)
             remote = gateway.read(); local = store.read(remote.readable)
         }
-        val plan = SyncPlanner.plan(local.rows, remote.rows, local.baseline, choices)
-        if (plan.conflicts.isNotEmpty()) return@withLock SyncResult(sent, 0, plan.uploads.size, plan.conflicts)
-        require(plan.uploads.size <= 100) { "Hay más de 100 cambios pendientes. Esta primera versión necesita dividir esa carga antes de enviarla; tus datos siguen guardados." }
-        val operation = plan.uploads.takeIf { it.isNotEmpty() }?.let { SyncOperation(UUID.randomUUID().toString(), remote.owner, it) }
-        store.prepare(local, plan, operation) { gateway.validate(remote) }
-        var received = plan.pulls.size
-        if (operation != null) {
+        var firstPlan = true
+        repeat(MAX_BATCHES_PER_RUN) {
+            val plan = SyncPlanner.plan(
+                local = local.rows,
+                remote = remote.rows,
+                baseline = local.baseline,
+                choices = if (firstPlan) choices else emptyList()
+            )
+            firstPlan = false
+            if (plan.conflicts.isNotEmpty()) {
+                return@withLock SyncResult(sent, received, plan.uploads.size, plan.conflicts)
+            }
+            val batch = plan.uploads.take(MAX_CHANGES_PER_REQUEST)
+            val operation = batch.takeIf { it.isNotEmpty() }?.let {
+                SyncOperation(UUID.randomUUID().toString(), remote.owner, it)
+            }
+            store.prepare(local, plan.copy(uploads = batch), operation) {
+                gateway.validate(remote)
+            }
+            received += plan.pulls.size
+            if (operation == null) return@withLock SyncResult(sent, received, 0)
+
             send(operation)
-            // Read back trigger-generated values and edits from other devices.
-            remote = gateway.read(); local = store.read(remote.readable)
-            val finalPlan = SyncPlanner.plan(local.rows, remote.rows, local.baseline)
-            if (finalPlan.conflicts.isNotEmpty()) return@withLock SyncResult(sent, received, finalPlan.uploads.size, finalPlan.conflicts)
-            store.prepare(local, finalPlan, null) { gateway.validate(remote) }
-            received += finalPlan.pulls.size
-            return@withLock SyncResult(sent, received, finalPlan.uploads.size)
+            // Cada confirmación libera la bandeja durable antes de preparar el siguiente lote.
+            remote = gateway.read()
+            local = store.read(remote.readable)
         }
-        SyncResult(sent, received, 0)
+        error("La sincronización excede $MAX_BATCHES_PER_RUN envíos consecutivos; los cambios restantes siguen guardados.")
     }
 }

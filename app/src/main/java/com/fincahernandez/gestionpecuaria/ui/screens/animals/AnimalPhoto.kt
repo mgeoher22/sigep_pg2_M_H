@@ -32,6 +32,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.fincahernandez.gestionpecuaria.BuildConfig
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.net.URI
+import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -124,8 +129,11 @@ private suspend fun loadAnimalImagePreview(
     AnimalPhotoMemoryCache.get(cacheKey)?.let { return@withContext it }
 
     runCatching {
-        val uri = Uri.parse(uriValue)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val resolvedUriValue = resolveAnimalPhotoReference(uriValue)
+        val uri = Uri.parse(resolvedUriValue)
+        if (uri.scheme == "https") {
+            decodeRemoteBitmap(resolvedUriValue, safeMaxDimension)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             decodeWithImageDecoder(context, uri, safeMaxDimension)
         } else {
             decodeLegacyBitmap(context, uri, safeMaxDimension)
@@ -134,6 +142,77 @@ private suspend fun loadAnimalImagePreview(
         AnimalPhotoMemoryCache.put(cacheKey, bitmap)
     }
 }
+
+/** Convierte la referencia estable de Storage en una URL; conserva URLs de versiones previas. */
+internal fun resolveAnimalPhotoReference(reference: String): String =
+    if (REMOTE_ANIMAL_PHOTO_PATH.matches(reference)) {
+        "${BuildConfig.SUPABASE_URL.trimEnd('/')}/storage/v1/object/public/fotos-animales/$reference"
+    } else {
+        reference
+    }
+
+private val REMOTE_ANIMAL_PHOTO_PATH = Regex(
+    "^animales/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+/** Descarga únicamente fotografías del bucket público configurado para la finca. */
+private fun decodeRemoteBitmap(url: String, maxDimensionPx: Int): Bitmap? {
+    val uri = URI(url)
+    val configuredHost = runCatching { URI(BuildConfig.SUPABASE_URL).host }.getOrNull()
+    require(
+        uri.scheme == "https" && uri.host == configuredHost &&
+            uri.path.startsWith("/storage/v1/object/public/fotos-animales/")
+    ) { "Dirección de fotografía no permitida." }
+    val connection = uri.toURL().openConnection() as HttpsURLConnection
+    return try {
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 20_000
+        connection.instanceFollowRedirects = false
+        connection.useCaches = true
+        require(connection.responseCode in 200..299) { "No se pudo descargar la fotografía." }
+        val declaredSize = connection.contentLengthLong
+        require(declaredSize <= MAX_REMOTE_PHOTO_BYTES) { "La fotografía remota es demasiado grande." }
+        val bytes = connection.inputStream.use { input ->
+            ByteArrayOutputStream().use { output ->
+                val buffer = ByteArray(16 * 1024)
+                var total = 0
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    require(total <= MAX_REMOTE_PHOTO_BYTES) {
+                        "La fotografía remota es demasiado grande."
+                    }
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (
+            bounds.outWidth / sample > maxDimensionPx ||
+            bounds.outHeight / sample > maxDimensionPx
+        ) sample *= 2
+        val orientation = ByteArrayInputStream(bytes).use { stream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        }
+        BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sample }
+        )?.correctExifOrientation(orientation)
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private const val MAX_REMOTE_PHOTO_BYTES = 10L * 1024L * 1024L
 
 /**
  * Desde Android 9, ImageDecoder lee tamaño, orientación EXIF y píxeles en una sola carga.

@@ -185,7 +185,7 @@ fun FinanceListScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            "BALANCE ACTUAL · ${balanceSignal.label}",
+                            "RESULTADO ADMINISTRATIVO · ${balanceSignal.label}",
                             color = Color.White.copy(alpha = 0.85f)
                         )
                         Text(

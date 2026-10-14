@@ -131,7 +131,7 @@ fun CloudToolsDialog(action: String, user: AuthenticatedUser, manager: CloudSess
                     },
                     modifier=Modifier.fillMaxWidth()
                 ) { Text("Cambiar contraseña") }
-            } else Text("Añade a este dispositivo los registros que faltan. Conserva los datos locales y avisa si hay diferencias. Requiere internet. Las fotos y el envío de cambios quedan pendientes.")
+            } else Text("Añade a este dispositivo los registros y fotografías que faltan. Conserva los datos locales y avisa si hay diferencias. Requiere internet.")
             if(busy) { LinearProgressIndicator(modifier=Modifier.fillMaxWidth());Text("Espera un momento…") }
             message?.let { Text(it, modifier=Modifier.padding(top=4.dp)) }
         }},

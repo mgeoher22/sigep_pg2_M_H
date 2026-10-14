@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -1155,81 +1156,87 @@ fun LotDetailScreen(
                 }
             }
             if (lot.status == "ACTIVO") {
-                if (canChangeParcel) {
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                selectedParcelName = lot.parcelName
-                                showParcelDialog = true
-                            },
-                            enabled = !isSaving,
-                            modifier = Modifier.fillMaxWidth().height(54.dp)
-                        ) {
-                            Icon(Icons.Default.SwapHoriz, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cambiar parcela")
-                        }
-                    }
-                }
-                if (canEditRecords) {
-                    item {
-                        Button(
-                            onClick = onEdit,
-                            enabled = !isSaving,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp)
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Editar lote")
-                        }
-                    }
-                }
                 item {
-                    OutlinedButton(
-                        onClick = onRegisterWeight,
-                        enabled = !isSaving && lot.selectedAnimalIds.isNotEmpty(),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                    ) {
-                        Icon(Icons.Default.Scale, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Registrar pesaje")
-                    }
-                }
-                if (canEditRecords) {
-                    item {
-                        Button(
-                            onClick = {
-                                attemptedSale = false
-                                salePricePerPound = ""
-                                saleDate = todayDateText()
-                                saleNotes = ""
-                                showSaleDialog = true
-                            },
-                            enabled = !isSaving &&
-                                financialSummary.weightedAnimalCount > 0 &&
-                                financialSummary.weightedAnimalCount == lot.selectedAnimalIds.size,
-                            modifier = Modifier.fillMaxWidth().height(54.dp)
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(Icons.Default.PointOfSale, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Registrar venta y cerrar lote")
-                        }
-                    }
-                    item {
-                        OutlinedButton(
-                            onClick = { confirmDeactivate = true },
-                            enabled = !isSaving,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp)
-                        ) {
-                            Icon(Icons.Default.StopCircle, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(if (isSaving) "Cerrando…" else "Cerrar lote")
+                            Text("Acciones del lote", fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = onRegisterWeight,
+                                    enabled = !isSaving && lot.selectedAnimalIds.isNotEmpty(),
+                                    modifier = Modifier.weight(1f).height(54.dp)
+                                ) {
+                                    Icon(Icons.Default.Scale, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Registrar pesaje")
+                                }
+                                if (canChangeParcel) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedParcelName = lot.parcelName
+                                            showParcelDialog = true
+                                        },
+                                        enabled = !isSaving,
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Cambiar parcela")
+                                    }
+                                }
+                            }
+                            if (canEditRecords) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = onEdit,
+                                        enabled = !isSaving,
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Editar lote")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            attemptedSale = false
+                                            salePricePerPound = ""
+                                            saleDate = todayDateText()
+                                            saleNotes = ""
+                                            showSaleDialog = true
+                                        },
+                                        enabled = !isSaving &&
+                                            financialSummary.weightedAnimalCount > 0 &&
+                                            financialSummary.weightedAnimalCount == lot.selectedAnimalIds.size,
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Icon(Icons.Default.PointOfSale, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Vender y cerrar")
+                                    }
+                                }
+                                HorizontalDivider()
+                                TextButton(
+                                    onClick = { confirmDeactivate = true },
+                                    enabled = !isSaving,
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.StopCircle, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(if (isSaving) "Cerrando…" else "Cerrar lote sin venta")
+                                }
+                            }
                         }
                     }
                 }

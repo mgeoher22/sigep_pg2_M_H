@@ -610,7 +610,12 @@ fun AppNavigation() {
                         title = movement.category,
                         detail = "${movement.type.lowercase().replaceFirstChar(Char::uppercase)} · ${movement.sourceLabel}",
                         primaryValue = movement.amount,
-                        kind = movement.type
+                        kind = movement.type,
+                        attributes = buildMap {
+                            put("category", movement.category)
+                            put("source", movement.sourceLabel)
+                            movement.lotId?.takeIf(String::isNotBlank)?.let { put("lotId", it) }
+                        }
                     )
                 )
             }

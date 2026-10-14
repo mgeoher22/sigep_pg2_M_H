@@ -24,7 +24,11 @@ fun CloudSyncDialog(
 ) {
     val context = LocalContext.current
     val coordinator = remember(manager,user.id) {
-        SyncCoordinator(RoomSyncStore(GestionPecuariaDatabase.obtenerInstancia(context),manager.syncProject()), AndroidSyncGateway(manager,user.id))
+        val database = GestionPecuariaDatabase.obtenerInstancia(context)
+        SyncCoordinator(
+            RoomSyncStore(database, manager.syncProject()),
+            AndroidSyncGateway(manager, user.id, context.applicationContext, database)
+        )
     }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -49,7 +53,7 @@ fun CloudSyncDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-            Text("Envía tus registros y recibe los cambios de la nube. Necesitas internet. Las fotos siguen guardadas solo en su dispositivo.")
+            Text("Envía tus registros y fotografías, y recibe los cambios de la nube. Necesitas internet.")
             if(busy) { LinearProgressIndicator();Text("Sincronizando…") }
             message?.let { Text(it) }
             conflicts.forEach { conflict ->

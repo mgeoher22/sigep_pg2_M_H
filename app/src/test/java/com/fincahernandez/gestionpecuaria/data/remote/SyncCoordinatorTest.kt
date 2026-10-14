@@ -66,9 +66,8 @@ class SyncCoordinatorTest {
         server.duringSend={local.rows=mapOf(key to data("Editado durante envío"))}
         val result=SyncCoordinator(local,server).run()
         assertEquals("Editado durante envío",local.rows.getValue(key)["nombre"])
-        assertEquals("A",server.rows.getValue(key).data["nombre"]);assertEquals(1,result.pending)
-        SyncCoordinator(local,server).run()
         assertEquals("Editado durante envío",server.rows.getValue(key).data["nombre"])
+        assertEquals(0,result.pending);assertEquals(2,server.calls.size)
     }
     @Test fun disjointMergeDoesNotUndoRemoteFieldOnReadback()=runBlocking {
         val original=data()+mapOf("estado" to "SANO")
@@ -96,9 +95,10 @@ class SyncCoordinatorTest {
         val result=SyncCoordinator(local,server).run()
         assertEquals(1,result.conflicts.size);assertTrue(server.calls.isEmpty());assertEquals("Local",local.rows.getValue(key)["nombre"])
     }
-    @Test fun moreThan100ChangesStopsBeforeSavingOrSending()=runBlocking {
+    @Test fun moreThan100ChangesAreSentInDurableBatches()=runBlocking {
         val local=Memory((1..101).associate { SyncKey("animales","$it") to data() });val server=Server()
-        try {SyncCoordinator(local,server).run();fail()}catch(_:IllegalArgumentException){}
-        assertTrue(server.calls.isEmpty());assertNull(local.pending)
+        val result=SyncCoordinator(local,server).run()
+        assertEquals(listOf(100,1),server.calls.map { it.changes.size })
+        assertEquals(101,result.sent);assertEquals(0,result.pending);assertNull(local.pending)
     }
 }

@@ -25,7 +25,8 @@ class CloudSessionManager(
     private val baseUrl: String = BuildConfig.SUPABASE_URL,
     private val publicKey: String = BuildConfig.SUPABASE_PUBLISHABLE_KEY,
     private val transport: SupabaseConnectionProbe.Transport = SupabaseConnectionProbe.HttpsTransport(),
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    private val objectTransport: CloudObjectTransport = CloudObjectTransport.Https()
 ) {
     private val mutex = Mutex()
     private val stateLock = Any()
@@ -276,8 +277,8 @@ class CloudSessionManager(
             val token=s.getString("access")
             fun state()=JSONObject(request("/rest/v1/rpc/estado_sincronizacion",token,JSONObject()))
             val before=state()
-            require(before.getString("versionEsquema")=="20261012_room23_compras_insumos") {
-                "La nube requiere ejecutar 24_integrar_compras_insumos_finanzas.sql antes de sincronizar."
+            require(before.getString("versionEsquema")=="20261013_room24_referencia_fotos") {
+                "La nube requiere ejecutar 26_corregir_referencia_fotografias.sql antes de sincronizar."
             }
             val rows=linkedMapOf<String,List<JSONObject>>()
             var total=0
@@ -313,6 +314,40 @@ class CloudSessionManager(
 
 
     fun syncProject(): String = root()
+
+    /** Sube una versión optimizada y devuelve la ruta estable que viajará con el animal. */
+    suspend fun uploadAnimalPhoto(
+        localId: String,
+        animalId: String,
+        jpegBytes: ByteArray
+    ): String = withContext(Dispatchers.IO) {
+        UUID.fromString(animalId)
+        require(jpegBytes.isNotEmpty() && jpegBytes.size <= 8 * 1024 * 1024) {
+            "La fotografía no tiene un tamaño válido."
+        }
+        restore(localId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet para subir fotografías.")
+        mutex.withLock {
+            val session = load(localId) ?: throw CloudAccessDenied("La sesión se cerró.")
+            val profile = account(session, member(session))
+            check("animals" in profile.permissions) {
+                "No tiene permiso para sincronizar fotografías de animales."
+            }
+            val token = session.getString("access")
+            val objectPath = "animales/$animalId"
+            objectTransport.put(
+                url = "${root()}/storage/v1/object/fotos-animales/$objectPath",
+                headers = mapOf(
+                    "apikey" to publicKey,
+                    "Authorization" to "Bearer $token",
+                    "Content-Type" to "image/jpeg",
+                    "x-upsert" to "true"
+                ),
+                body = jpegBytes
+            )
+            objectPath
+        }
+    }
+
     suspend fun sendSync(operation: SyncOperation, snapshot: CloudDownloadSnapshot): Map<SyncKey, Long> = withContext(Dispatchers.IO) {
         validateSnapshot(snapshot)
         restore(snapshot.account.localUserId) ?: throw CloudAccessDenied("Vuelve a ingresar con internet.")

@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Groups
@@ -46,6 +48,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
@@ -68,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fincahernandez.gestionpecuaria.ui.components.AppBottomBar
 import com.fincahernandez.gestionpecuaria.ui.components.CompactDateSelector
@@ -155,7 +159,8 @@ fun ReportsCenterScreen(
         )
         return
     }
-    var selectedPeriod by rememberSaveable { mutableStateOf("Mes actual") }
+    var selectedPeriod by rememberSaveable { mutableStateOf("Mensual") }
+    var periodAnchorMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var customStartDate by rememberSaveable { mutableStateOf("") }
     var customEndDate by rememberSaveable { mutableStateOf("") }
     var selectedReportId by rememberSaveable {
@@ -179,9 +184,15 @@ fun ReportsCenterScreen(
     val selectedReport = visibleReportOptions.first { it.id == selectedReportId }
     val generatedReport = visibleReportOptions.firstOrNull { it.id == generatedPreviewId }
     val effectiveData = data
-    val selectedRange = remember(selectedPeriod, customStartDate, customEndDate) {
+    val selectedRange = remember(
+        selectedPeriod,
+        periodAnchorMillis,
+        customStartDate,
+        customEndDate
+    ) {
         resolveReportDateRange(
             period = selectedPeriod,
+            anchorMillis = periodAnchorMillis,
             customStart = customStartDate,
             customEnd = customEndDate
         )
@@ -537,7 +548,7 @@ fun ReportsCenterScreen(
             item {
                 Text("Periodo", fontWeight = FontWeight.SemiBold)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("30 días", "Mes actual", "Año actual", "Personalizado")
+                    listOf("30 días", "Mensual", "Anual", "Personalizado")
                         .chunked(2)
                         .forEach { periods ->
                             Row(
@@ -549,6 +560,7 @@ fun ReportsCenterScreen(
                                         selected = selectedPeriod == period,
                                         onClick = {
                                             selectedPeriod = period
+                                            periodAnchorMillis = System.currentTimeMillis()
                                             generatedPreviewId = null
                                         },
                                         label = { Text(period) },
@@ -567,6 +579,52 @@ fun ReportsCenterScreen(
                         }
                     }
                 }
+            if (selectedPeriod == "Mensual" || selectedPeriod == "Anual") {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    periodAnchorMillis = shiftReportPeriodAnchor(
+                                        selectedPeriod,
+                                        periodAnchorMillis,
+                                        -1
+                                    )
+                                    generatedPreviewId = null
+                                }
+                            ) {
+                                Icon(Icons.Default.ChevronLeft, contentDescription = "Período anterior")
+                            }
+                            Text(
+                                selectedRange?.label.orEmpty(),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelLarge,
+                                textAlign = TextAlign.Center
+                            )
+                            IconButton(
+                                onClick = {
+                                    periodAnchorMillis = shiftReportPeriodAnchor(
+                                        selectedPeriod,
+                                        periodAnchorMillis,
+                                        1
+                                    )
+                                    generatedPreviewId = null
+                                },
+                                enabled = canMoveReportPeriodForward(
+                                    selectedPeriod,
+                                    periodAnchorMillis
+                                )
+                            ) {
+                                Icon(Icons.Default.ChevronRight, contentDescription = "Período siguiente")
+                            }
+                        }
+                    }
+                }
+            }
             if (selectedPeriod == "Personalizado") {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -703,6 +761,13 @@ fun ReportsCenterScreen(
                                 color = Color.White
                             )
                         }
+                    }
+                }
+                item {
+                    analysis.financialStatement?.takeIf {
+                        it.expenseCategories.isNotEmpty()
+                    }?.let { statement ->
+                        FinancialExpenseDistributionCard(statement)
                     }
                 }
                 item {
@@ -894,6 +959,45 @@ private fun EmptyReportsScreen(
 }
 
 @Composable
+private fun FinancialExpenseDistributionCard(statement: FinancialStatement) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Distribución de egresos por categoría",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            statement.expenseCategories.forEach { share ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(share.category, modifier = Modifier.weight(1f))
+                        Text(
+                            "${formatMoney(share.amount)} · ${formatPercentage(share.percentage)}",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { (share.percentage / 100.0).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReportMetricCard(metric: ReportMetric, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier,
@@ -916,6 +1020,12 @@ private fun ReportMetricCard(metric: ReportMetric, modifier: Modifier = Modifier
         }
     }
 }
+
+private fun formatMoney(value: Double): String =
+    "Q ${NumberFormat.getNumberInstance(Locale.US).apply { maximumFractionDigits = 2 }.format(value)}"
+
+private fun formatPercentage(value: Double): String =
+    "${NumberFormat.getNumberInstance(Locale.US).apply { maximumFractionDigits = 1 }.format(value)} %"
 
 @Composable
 private fun ReportRecordCard(record: ReportRecord) {
@@ -950,7 +1060,7 @@ private val reportOptions = listOf(
     ReportOption(
         id = "financial",
         title = "Reportes financieros",
-        description = "Ingresos, egresos, balance y movimientos del periodo.",
+        description = "Estado de resultados, egresos por categoría y comparación con el período anterior.",
         icon = Icons.Default.AccountBalance
     ),
     ReportOption(
@@ -1178,29 +1288,40 @@ private suspend fun writeReportAnalysisCsv(
         ?: error("No fue posible abrir el archivo seleccionado.")
     output.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.write("\uFEFF")
-        writer.appendLine("seccion;campo;valor;detalle")
-        writer.appendLine("reporte;titulo;${analysis.title.toCsvCell()};")
-        writer.appendLine("reporte;periodo;${analysis.periodLabel.toCsvCell()};")
-        writer.appendLine(
-            "reporte;indicador_principal;${analysis.headline.toCsvCell()};" +
-                analysis.headlineLabel.toCsvCell()
+        writer.write(analysis.toAnalysisCsv())
+    }
+}
+
+/** Serialización verificable que conserva estado de resultados, comparación y categorías. */
+internal fun ReportAnalysis.toAnalysisCsv(): String = buildString {
+    appendLine("seccion;campo;valor;detalle")
+    appendLine("reporte;titulo;${title.toCsvCell()};")
+    appendLine("reporte;periodo;${periodLabel.toCsvCell()};")
+    appendLine(
+        "reporte;indicador_principal;${headline.toCsvCell()};" +
+            headlineLabel.toCsvCell()
+    )
+    metrics.forEach { metric ->
+        appendLine(
+            "metrica;${metric.label.toCsvCell()};${metric.value.toCsvCell()};" +
+                metric.explanation.toCsvCell()
         )
-        analysis.metrics.forEach { metric ->
-            writer.appendLine(
-                "metrica;${metric.label.toCsvCell()};${metric.value.toCsvCell()};" +
-                    metric.explanation.toCsvCell()
-            )
-        }
-        writer.appendLine("registro;fecha;nombre;detalle;tipo;valor_principal;valor_secundario")
-        val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        analysis.allRecords.forEach { record ->
-            writer.appendLine(
-                "registro;${dateFormatter.format(Date(record.dateMillis))};" +
-                    "${record.title.toCsvCell()};${record.detail.toCsvCell()};" +
-                    "${record.kind.toCsvCell()};${record.primaryValue?.toString().orEmpty()};" +
-                    record.secondaryValue?.toString().orEmpty()
-            )
-        }
+    }
+    financialStatement?.expenseCategories?.forEach { share ->
+        appendLine(
+            "egreso_categoria;${share.category.toCsvCell()};${share.amount};" +
+                "${formatPercentage(share.percentage).toCsvCell()}"
+        )
+    }
+    appendLine("registro;fecha;nombre;detalle;tipo;valor_principal;valor_secundario")
+    val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    allRecords.forEach { record ->
+        appendLine(
+            "registro;${dateFormatter.format(Date(record.dateMillis))};" +
+                "${record.title.toCsvCell()};${record.detail.toCsvCell()};" +
+                "${record.kind.toCsvCell()};${record.primaryValue?.toString().orEmpty()};" +
+                record.secondaryValue?.toString().orEmpty()
+        )
     }
 }
 
@@ -1299,29 +1420,24 @@ private suspend fun writeReportPdf(
             y += 24f
         }
 
-        y += 14f
-        textPaint.isFakeBoldText = true
-        textPaint.textSize = 15f
-        canvas.drawText("10 registros más recientes del rango", 48f, y, textPaint)
-        y += 27f
-        textPaint.textSize = 11f
-        val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-        if (analysis.recentRecords.isEmpty()) {
-            textPaint.isFakeBoldText = false
-            canvas.drawText("No existen registros dentro del rango seleccionado.", 48f, y, textPaint)
-        } else {
-            analysis.recentRecords.forEachIndexed { index, record ->
+        analysis.financialStatement?.expenseCategories?.takeIf { it.isNotEmpty() }?.let { shares ->
+            y += 14f
+            textPaint.isFakeBoldText = true
+            textPaint.textSize = 15f
+            canvas.drawText("Distribución de egresos por categoría", 48f, y, textPaint)
+            y += 26f
+            textPaint.textSize = 11f
+            shares.forEach { share ->
+                textPaint.isFakeBoldText = false
+                canvas.drawText(share.category.fitPdfLine(textPaint, 250f), 48f, y, textPaint)
                 textPaint.isFakeBoldText = true
                 canvas.drawText(
-                    "${index + 1}. ${dateFormatter.format(Date(record.dateMillis))}  " +
-                        record.title.fitPdfLine(textPaint, 280f),
-                    48f,
+                    "${formatMoney(share.amount)} · ${formatPercentage(share.percentage)}",
+                    330f,
                     y,
                     textPaint
                 )
-                textPaint.isFakeBoldText = false
-                canvas.drawText(record.detail.fitPdfLine(textPaint, 210f), 335f, y, textPaint)
-                y += 25f
+                y += 21f
             }
         }
         canvas.drawText(
@@ -1331,6 +1447,51 @@ private suspend fun writeReportPdf(
             textPaint
         )
         document.finishPage(page)
+
+        val detailPage = document.startPage(
+            PdfDocument.PageInfo.Builder(595, 842, 2).create()
+        )
+        val detailCanvas = detailPage.canvas
+        detailCanvas.drawColor(android.graphics.Color.WHITE)
+        primaryPaint.textSize = 22f
+        primaryPaint.isFakeBoldText = true
+        detailCanvas.drawText("Registros del reporte", 48f, 70f, primaryPaint)
+        textPaint.isFakeBoldText = false
+        textPaint.textSize = 13f
+        detailCanvas.drawText(analysis.title, 48f, 96f, textPaint)
+        detailCanvas.drawText("Período: ${analysis.periodLabel}", 48f, 118f, textPaint)
+        detailCanvas.drawLine(48f, 135f, 547f, 135f, primaryPaint)
+        var detailY = 175f
+        textPaint.textSize = 11f
+        val dateFormatter = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        if (analysis.recentRecords.isEmpty()) {
+            detailCanvas.drawText(
+                "No existen registros dentro del rango seleccionado.",
+                48f,
+                detailY,
+                textPaint
+            )
+        } else {
+            analysis.recentRecords.forEachIndexed { index, record ->
+                textPaint.isFakeBoldText = true
+                detailCanvas.drawText(
+                    "${index + 1}. ${dateFormatter.format(Date(record.dateMillis))}  " +
+                        record.title.fitPdfLine(textPaint, 300f),
+                    48f,
+                    detailY,
+                    textPaint
+                )
+                textPaint.isFakeBoldText = false
+                detailCanvas.drawText(
+                    record.detail.fitPdfLine(textPaint, 455f),
+                    70f,
+                    detailY + 19f,
+                    textPaint
+                )
+                detailY += 52f
+            }
+        }
+        document.finishPage(detailPage)
 
         val output = context.contentResolver.openOutputStream(uri, "wt")
             ?: error("No fue posible abrir el archivo seleccionado.")

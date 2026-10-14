@@ -326,7 +326,7 @@ private fun FinancialSummary(data: DashboardUiData) {
         FinancialValue("Ingresos", formatCurrency(data.income), BalanceHealthyColor)
         FinancialValue("Egresos", formatCurrency(data.expenses), MaterialTheme.colorScheme.error)
         FinancialValue(
-            label = "Balance",
+            label = "Resultado",
             value = formatCurrency(balance),
             valueColor = balanceSignal.color,
             status = balanceSignal.label

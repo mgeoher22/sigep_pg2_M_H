@@ -3,11 +3,11 @@ package com.fincahernandez.gestionpecuaria.data.remote
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Local image URIs never leave the device, nor overwrite remote photo paths. */
+/** Codifica datos productivos, incluidas las referencias públicas de fotografías. */
 object SyncCodec {
     fun data(table: String, json: JSONObject): SyncData {
         val columns = CloudTables.all.first { it.name == table }.columns
-        return columns.filter { it.name != "fotoUri" }.associate { field ->
+        return columns.associate { field ->
             // Los baselines creados antes de Room 16 no incluían esta marca. Se interpretan
             // como false para poder migrar sin descartar el historial de sincronización.
             val legacyNearCalving = field.name == "proximaParto" && !json.has(field.name)
@@ -28,16 +28,19 @@ object SyncCodec {
                 field = field.name,
                 hasField = json.has(field.name)
             )
+            // Las líneas base anteriores a la sincronización de fotos no incluían el campo.
+            val legacyPhotoField = isLegacyPhotoField(table, field.name, json.has(field.name))
             require(
                 json.has(field.name) || legacyNearCalving || legacyParcelBoundary ||
-                    legacySanitarySupplyField || legacyLotFinancialField
+                    legacySanitarySupplyField || legacyLotFinancialField || legacyPhotoField
             ) {
                 "Falta ${table}.${field.name} en los datos de sincronización."
             }
             val value: Any? = if (legacyNearCalving) {
                 false
             } else if (
-                legacyParcelBoundary || legacySanitarySupplyField || legacyLotFinancialField
+                legacyParcelBoundary || legacySanitarySupplyField || legacyLotFinancialField ||
+                    legacyPhotoField
             ) {
                 null
             } else if (json.isNull(field.name)) {
@@ -82,6 +85,9 @@ object SyncCodec {
         }).also { require(it.toString().toByteArray(Charsets.UTF_8).size <= 900000) { "El envío supera el tamaño permitido; los datos siguen guardados." } }
     }
 }
+
+internal fun isLegacyPhotoField(table: String, field: String, hasField: Boolean): Boolean =
+    !hasField && table == "animales" && field == "fotoUri"
 
 /** Reconoce datos locales generados antes de que Room 22 añadiera estos campos anulables. */
 internal fun isLegacySanitarySupplyField(

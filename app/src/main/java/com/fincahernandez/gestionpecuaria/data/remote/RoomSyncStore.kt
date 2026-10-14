@@ -13,7 +13,7 @@ class RoomSyncStore(private val database: GestionPecuariaDatabase, private val p
         val table = CloudTables.all.first { it.name == key.table }
         db.query("SELECT * FROM ${table.name} WHERE id=?", arrayOf(key.id)).use { c ->
             if (!c.moveToFirst()) return null
-            return table.columns.filter { it.name != "fotoUri" }.associate { f ->
+            return table.columns.associate { f ->
                 val i = c.getColumnIndexOrThrow(f.name)
                 f.name to if (c.isNull(i)) null else when (f.kind) {
                     "String" -> c.getString(i)
@@ -48,7 +48,7 @@ class RoomSyncStore(private val database: GestionPecuariaDatabase, private val p
         }
     }
     private fun writeRow(db: SupportSQLiteDatabase, key: SyncKey, data: SyncData) {
-        val fields = CloudTables.all.first { it.name == key.table }.columns.filter { it.name != "fotoUri" }
+        val fields = CloudTables.all.first { it.name == key.table }.columns
         val values = fields.map { f -> when (val value = data[f.name]) { is Boolean -> if(value) 1L else 0L; else -> value } }
         if (readRow(db, key) == null) {
             db.execSQL("INSERT INTO ${key.table} (${fields.joinToString { "\"${it.name}\"" }}) VALUES (${fields.joinToString { "?" }})", values.toTypedArray())

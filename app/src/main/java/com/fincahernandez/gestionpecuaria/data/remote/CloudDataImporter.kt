@@ -44,7 +44,7 @@ class CloudDataImporter(private val database: GestionPecuariaDatabase) {
                     val id=values[table.columns.indexOfFirst { it.name=="id" }]!!.toString()
                     require(ids.add(id)) { "La descarga repite un identificador." }
                     val photo=table.columns.indexOfFirst { it.name=="fotoUri" }
-                    if(photo>=0) { if(values[photo]!=null)photos++;values[photo]=null }
+                    if(photo>=0 && values[photo]!=null) photos++
                     val columns=table.columns.joinToString { "\"${it.name}\"" }
                     var found=false
                     db.query("SELECT $columns FROM ${table.name} WHERE id = ?",arrayOf(id)).use { cursor ->
