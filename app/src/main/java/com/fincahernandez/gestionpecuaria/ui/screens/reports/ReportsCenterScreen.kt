@@ -1,5 +1,6 @@
 package com.fincahernandez.gestionpecuaria.ui.screens.reports
 
+import android.Manifest
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
@@ -39,11 +40,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,6 +78,8 @@ import com.fincahernandez.gestionpecuaria.data.transfer.BulkImportMode
 import com.fincahernandez.gestionpecuaria.data.transfer.DataTransferModule
 import com.fincahernandez.gestionpecuaria.data.transfer.bulkImportTemplateCsv
 import com.fincahernandez.gestionpecuaria.data.repository.SupplyCatalog
+import com.fincahernandez.gestionpecuaria.notification.ExportedFile
+import com.fincahernandez.gestionpecuaria.notification.ExportNotifications
 import com.fincahernandez.gestionpecuaria.ui.navigation.Routes
 import java.text.SimpleDateFormat
 import java.text.NumberFormat
@@ -101,6 +109,7 @@ fun ReportsCenterScreen(
     onMenuClick: () -> Unit,
     onNavigateMain: (String) -> Unit,
     isGeneralAdministrator: Boolean = false,
+    canManageUsers: Boolean = false,
     onBulkExport: suspend (Uri, Set<DataTransferModule>) -> BulkExportResult = { _, _ ->
         error("La exportación masiva no está disponible en esta vista previa.")
     },
@@ -126,8 +135,16 @@ fun ReportsCenterScreen(
     val visibleTransferModules = DataTransferModule.entries.filter { module ->
         when (module) {
             DataTransferModule.ANIMALS -> "animals" in allowedReportIds
+            DataTransferModule.PARCELS -> "parcels" in allowedReportIds
+            DataTransferModule.LOTS -> "lots" in allowedReportIds
             DataTransferModule.WEIGHINGS -> "weighings" in allowedReportIds
+            DataTransferModule.MILK_PRODUCTION,
+            DataTransferModule.MILK_CONFIGURATION -> "production" in allowedReportIds
             DataTransferModule.SANITARY -> "sanitary" in allowedReportIds
+            DataTransferModule.SUPPLIES -> "supplies" in allowedReportIds
+            DataTransferModule.EMPLOYEES -> "staff" in allowedReportIds
+            DataTransferModule.FINANCE -> "financial" in allowedReportIds
+            DataTransferModule.USERS -> canManageUsers
         }
     }
     if (visibleReportOptions.isEmpty()) {
@@ -153,9 +170,11 @@ fun ReportsCenterScreen(
     var pendingBulkImportModules by remember { mutableStateOf<Set<DataTransferModule>>(emptySet()) }
     var pendingBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
     var selectedBulkImportMode by remember { mutableStateOf(BulkImportMode.MERGE) }
-    var selectedTransferModules by remember(allowedReportIds) {
-        mutableStateOf(visibleTransferModules.firstOrNull()?.let(::setOf).orEmpty())
+    var selectedTransferModule by remember(visibleTransferModules) {
+        mutableStateOf(visibleTransferModules.firstOrNull())
     }
+    var transferModuleMenuExpanded by remember { mutableStateOf(false) }
+    val selectedTransferModules = selectedTransferModule?.let(::setOf).orEmpty()
 
     val selectedReport = visibleReportOptions.first { it.id == selectedReportId }
     val generatedReport = visibleReportOptions.firstOrNull { it.id == generatedPreviewId }
@@ -172,6 +191,24 @@ fun ReportsCenterScreen(
             buildReportAnalysis(effectiveData, selectedReport.id, selectedReport.title, range)
         }
     }
+    var pendingExportNotification by remember { mutableStateOf<ExportedFile?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        pendingExportNotification?.let { file ->
+            if (granted) ExportNotifications.show(context, file)
+        }
+        pendingExportNotification = null
+    }
+    val notifyExportedFile: (Uri, String) -> Unit = { uri, mimeType ->
+        val file = ExportedFile(uri, mimeType)
+        if (ExportNotifications.hasRuntimePermission(context)) {
+            ExportNotifications.show(context, file)
+        } else {
+            pendingExportNotification = file
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     /** Exporta las métricas y todos los registros incluidos en el rango seleccionado. */
     val reportCsvExporter = rememberLauncherForActivityResult(
@@ -183,6 +220,7 @@ fun ReportsCenterScreen(
                 isTransferring = true
                 runCatching { writeReportAnalysisCsv(context, uri, analysis) }
                     .onSuccess {
+                        notifyExportedFile(uri, "text/csv")
                         operationTitle = "Reporte exportado"
                         operationMessage =
                             "Las métricas y ${analysis.allRecords.size} registros se guardaron para Excel."
@@ -200,15 +238,16 @@ fun ReportsCenterScreen(
     val pdfExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
-        uri?.let {
+        uri?.let { exportedUri ->
             coroutineScope.launch {
                 isTransferring = true
                 runCatching {
                     val analysis = requireNotNull(selectedAnalysis) {
                         "Seleccione un rango de fechas válido."
                     }
-                    writeReportPdf(context = context, uri = it, analysis = analysis)
+                    writeReportPdf(context = context, uri = exportedUri, analysis = analysis)
                 }.onSuccess {
+                    notifyExportedFile(exportedUri, "application/pdf")
                     operationTitle = "PDF generado"
                     operationMessage = "El reporte se guardó correctamente."
                 }.onFailure {
@@ -224,12 +263,13 @@ fun ReportsCenterScreen(
     val bulkDataExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        uri?.let {
+        uri?.let { exportedUri ->
             coroutineScope.launch {
                 isTransferring = true
                 runCatching {
-                    onBulkExport(it, selectedTransferModules)
+                    onBulkExport(exportedUri, selectedTransferModules)
                 }.onSuccess { result ->
+                    notifyExportedFile(exportedUri, "text/csv")
                     operationTitle = "Datos exportados"
                     operationMessage = result.successMessage()
                 }.onFailure { error ->
@@ -246,13 +286,14 @@ fun ReportsCenterScreen(
     val bulkTemplateExporter = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
-        uri?.let {
+        uri?.let { exportedUri ->
             coroutineScope.launch {
                 isTransferring = true
                 runCatching {
-                    writeBulkImportTemplate(context, it, selectedTransferModules)
+                    writeBulkImportTemplate(context, exportedUri, selectedTransferModules)
                 }
                     .onSuccess {
+                        notifyExportedFile(exportedUri, "text/csv")
                         operationTitle = "Plantilla descargada"
                         operationMessage =
                             "Complete la plantilla con Excel sin cambiar sus encabezados."
@@ -370,30 +411,44 @@ fun ReportsCenterScreen(
                             }
                         }
                         Text(
-                            "Seleccione los módulos. La exportación está disponible para todos " +
+                            "Seleccione un módulo. La exportación está disponible para todos " +
                                 "los usuarios con acceso a Reportes; la importación solo para el " +
                                 "Administrador General.",
                             style = MaterialTheme.typography.bodySmall
                         )
-                        Text("Módulos", fontWeight = FontWeight.SemiBold)
-                        visibleTransferModules.forEach { module ->
-                            FilterChip(
-                                selected = module in selectedTransferModules,
-                                onClick = {
-                                    val updatedModules = if (module in selectedTransferModules) {
-                                        selectedTransferModules - module
-                                    } else {
-                                        selectedTransferModules + module
-                                    }
-                                    selectedTransferModules = updatedModules
-                                    if (DataTransferModule.ANIMALS !in updatedModules) {
-                                        selectedBulkImportMode = BulkImportMode.MERGE
-                                    }
+                        ExposedDropdownMenuBox(
+                            expanded = transferModuleMenuExpanded,
+                            onExpandedChange = {
+                                if (!isTransferring) transferModuleMenuExpanded = !transferModuleMenuExpanded
+                            }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedTransferModule?.displayName.orEmpty(),
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Módulo de datos") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(transferModuleMenuExpanded)
                                 },
-                                label = { Text(module.displayName) },
-                                enabled = !isTransferring,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable, !isTransferring)
+                                    .fillMaxWidth()
                             )
+                            ExposedDropdownMenu(
+                                expanded = transferModuleMenuExpanded,
+                                onDismissRequest = { transferModuleMenuExpanded = false }
+                            ) {
+                                visibleTransferModules.forEach { module ->
+                                    DropdownMenuItem(
+                                        text = { Text(module.displayName) },
+                                        onClick = {
+                                            selectedTransferModule = module
+                                            selectedBulkImportMode = BulkImportMode.MERGE
+                                            transferModuleMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                         Button(
                             onClick = {
@@ -740,17 +795,7 @@ fun ReportsCenterScreen(
                 Text(if (replacesInitialData) "Confirmar carga inicial" else "Confirmar importación masiva")
             },
             text = {
-                Text(
-                    "Se procesarán ${preview.animalCount} animales, " +
-                        "${preview.weighingCount} pesajes y " +
-                        "${preview.sanitaryCount} registros sanitarios. " +
-                        if (replacesInitialData) {
-                            "Se conservarán sus códigos, pero se eliminará definitivamente " +
-                                "el historial anterior de los animales incluidos."
-                        } else {
-                            "Los animales cuyo código ya exista serán actualizados sin borrar su historial."
-                        }
-                )
+                Text(preview.confirmationMessage(replacesInitialData))
             },
             dismissButton = {
                 TextButton(onClick = {
@@ -1006,15 +1051,40 @@ private fun bulkDataFileName(): String =
     reportFileName(reportTitle = "datos_gestion_pecuaria", extension = "csv")
 
 private fun BulkExportResult.successMessage(): String =
-    "Se exportaron $animalCount animales, $weighingCount pesajes y " +
-        "$sanitaryCount registros sanitarios. Puede editar el archivo en Excel e importarlo nuevamente."
+    if (moduleCounts.isNotEmpty()) {
+        "Se exportaron ${moduleCounts.entries.joinToString { "${it.value} registros de ${it.key.displayName}" }}. " +
+            "Puede editar el archivo en Excel e importarlo nuevamente."
+    } else {
+        "Se exportaron $animalCount animales, $weighingCount pesajes y " +
+            "$sanitaryCount registros sanitarios. Puede editar el archivo en Excel e importarlo nuevamente."
+    }
 
 private fun BulkImportResult.successMessage(): String = buildString {
+    if (moduleCounts.isNotEmpty()) {
+        append("Se importaron ")
+        append(moduleCounts.entries.joinToString { "${it.value} registros de ${it.key.displayName}" })
+        append(".")
+        return@buildString
+    }
     append("Se crearon $animalsCreated animales, se actualizaron $animalsUpdated, ")
     append("se importaron $weighingsImported pesajes y ")
     append("$sanitaryRecordsImported registros sanitarios.")
     if (animalHistoriesReplaced > 0) {
         append(" Se reemplazó el historial anterior de $animalHistoriesReplaced animales.")
+    }
+}
+
+private fun BulkImportPreview.confirmationMessage(replacesInitialData: Boolean): String {
+    if (moduleCounts.isNotEmpty()) {
+        return "Se procesarán ${moduleCounts.entries.joinToString { "${it.value} registros de ${it.key.displayName}" }}. " +
+            "Los identificadores conservados actualizarán registros existentes sin duplicarlos."
+    }
+    return "Se procesarán $animalCount animales, $weighingCount pesajes y " +
+        "$sanitaryCount registros sanitarios. " + if (replacesInitialData) {
+        "Se conservarán sus códigos, pero se eliminará definitivamente " +
+            "el historial anterior de los animales incluidos."
+    } else {
+        "Los animales cuyo código ya exista serán actualizados sin borrar su historial."
     }
 }
 

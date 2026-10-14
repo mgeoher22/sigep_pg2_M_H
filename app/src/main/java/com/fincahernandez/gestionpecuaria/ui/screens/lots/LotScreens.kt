@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Edit
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Scale
 import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -112,16 +114,6 @@ data class LotFinancialSummary(
     val profit: Double get() = income - totalCosts
     val breakEvenPerPound: Double? get() =
         currentWeightPounds.takeIf { it > 0.0 }?.let { totalCosts / it }
-    val suggestedSalePrice: Double get() = totalCosts * 1.20
-    val suggestedPricePerPound: Double? get() =
-        currentWeightPounds.takeIf { it > 0.0 }?.let { suggestedSalePrice / it }
-
-    fun suggestedSalePrice(marginPercent: Double): Double =
-        totalCosts * (1.0 + marginPercent.coerceAtLeast(0.0) / 100.0)
-
-    fun suggestedPricePerPound(marginPercent: Double): Double? =
-        currentWeightPounds.takeIf { it > 0.0 }
-            ?.let { suggestedSalePrice(marginPercent) / it }
 }
 
 data class LotSaleFormData(val amount: String, val date: String, val notes: String)
@@ -761,8 +753,13 @@ fun LotDetailScreen(
     onDeactivate: () -> Unit,
     onSellAndClose: (LotSaleFormData) -> Unit,
     onRegisterWeight: () -> Unit,
+    parcelNames: List<String>,
+    onChangeParcel: (String) -> Unit,
+    onOpenFinancials: () -> Unit,
     onNavigateMain: (String) -> Unit,
     canEditRecords: Boolean = false,
+    canChangeParcel: Boolean = false,
+    canViewFinancials: Boolean = false,
     isSaving: Boolean = false,
     saveError: String? = null,
     modifier: Modifier = Modifier
@@ -773,13 +770,11 @@ fun LotDetailScreen(
     var saleDate by rememberSaveable(lot.id) { mutableStateOf(todayDateText()) }
     var saleNotes by rememberSaveable { mutableStateOf("") }
     var attemptedSale by rememberSaveable { mutableStateOf(false) }
-    var desiredMargin by rememberSaveable(lot.id) { mutableStateOf("20") }
-    var marketPricePerPound by rememberSaveable(lot.id) { mutableStateOf("") }
+    var showParcelDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedParcelName by rememberSaveable(lot.id) { mutableStateOf(lot.parcelName) }
     LaunchedEffect(lot.id) {
         if (saleDate.isBlank()) saleDate = todayDateText()
     }
-    val desiredMarginValue = desiredMargin.replace(',', '.').toDoubleOrNull()
-        ?.coerceAtLeast(0.0) ?: 0.0
     var selectedWeightPeriod by rememberSaveable { mutableStateOf("TODO") }
     val periodStart = weightPeriodStart(selectedWeightPeriod)
     val filteredWeightRecords = weightRecords.filter { record ->
@@ -911,6 +906,44 @@ fun LotDetailScreen(
         )
     }
 
+    if (showParcelDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isSaving) showParcelDialog = false },
+            title = { Text("Cambiar parcela") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Esta acción solo cambia la ubicación del lote. Los animales y los demás datos permanecerán iguales."
+                    )
+                    ParcelDropdown(
+                        options = parcelNames,
+                        value = selectedParcelName,
+                        onSelected = { selectedParcelName = it }
+                    )
+                    Text(
+                        "Se comprobará la capacidad de la parcela antes de guardar.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isSaving && selectedParcelName != lot.parcelName,
+                    onClick = {
+                        showParcelDialog = false
+                        onChangeParcel(selectedParcelName)
+                    }
+                ) { Text("Guardar cambio") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isSaving,
+                    onClick = { showParcelDialog = false }
+                ) { Text("Cancelar") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -989,14 +1022,17 @@ fun LotDetailScreen(
                     )
                 }
             }
-            item {
-                LotProfitabilityCard(
-                    summary = financialSummary,
-                    desiredMargin = desiredMargin,
-                    onDesiredMarginChange = { desiredMargin = it },
-                    marketPricePerPound = marketPricePerPound,
-                    onMarketPricePerPoundChange = { marketPricePerPound = it }
-                )
+            if (canViewFinancials) {
+                item {
+                    OutlinedButton(
+                        onClick = onOpenFinancials,
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    ) {
+                        Icon(Icons.Default.AccountBalanceWallet, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Ver costos y rentabilidad")
+                    }
+                }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1119,6 +1155,22 @@ fun LotDetailScreen(
                 }
             }
             if (lot.status == "ACTIVO") {
+                if (canChangeParcel) {
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                selectedParcelName = lot.parcelName
+                                showParcelDialog = true
+                            },
+                            enabled = !isSaving,
+                            modifier = Modifier.fillMaxWidth().height(54.dp)
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cambiar parcela")
+                        }
+                    }
+                }
                 if (canEditRecords) {
                     item {
                         Button(
@@ -1152,11 +1204,7 @@ fun LotDetailScreen(
                         Button(
                             onClick = {
                                 attemptedSale = false
-                                salePricePerPound = marketPricePerPound.ifBlank {
-                                    financialSummary.suggestedPricePerPound(desiredMarginValue)
-                                        ?.let { String.format(Locale.US, "%.2f", it) }
-                                        .orEmpty()
-                                }
+                                salePricePerPound = ""
                                 saleDate = todayDateText()
                                 saleNotes = ""
                                 showSaleDialog = true
@@ -1190,18 +1238,72 @@ fun LotDetailScreen(
     }
 }
 
+/** Vista financiera separada para no saturar el detalle operativo del lote. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LotFinancialScreen(
+    lot: LotUiModel,
+    summary: LotFinancialSummary,
+    onBack: () -> Unit,
+    onNavigateMain: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var marketPricePerPound by rememberSaveable(lot.id) { mutableStateOf("") }
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            BrandedTopAppBar(
+                title = { Text("Costos y rentabilidad", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Regresar")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            AppBottomBar(selectedRoute = Routes.LOTS, onNavigate = onNavigateMain)
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(lot.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("${lot.code} · ${lot.status.lowercase().replaceFirstChar { it.uppercase() }}")
+                        Text("Peso contabilizado: ${formatLotWeight(summary.currentWeightPounds)}")
+                    }
+                }
+            }
+            item {
+                LotProfitabilityCard(
+                    summary = summary,
+                    marketPricePerPound = marketPricePerPound,
+                    onMarketPricePerPoundChange = { marketPricePerPound = it }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun LotProfitabilityCard(
     summary: LotFinancialSummary,
-    desiredMargin: String,
-    onDesiredMarginChange: (String) -> Unit,
     marketPricePerPound: String,
     onMarketPricePerPoundChange: (String) -> Unit
 ) {
-    val margin = if (summary.income > 0.0) summary.profit / summary.income * 100.0 else null
-    val desiredMarginValue = desiredMargin.replace(',', '.').toDoubleOrNull()
-    val safeMargin = desiredMarginValue?.coerceAtLeast(0.0) ?: 0.0
-    val suggestedSalePrice = summary.suggestedSalePrice(safeMargin)
     val marketPriceValue = marketPricePerPound.replace(',', '.').toDoubleOrNull()
     val projectedSaleValue = marketPriceValue?.let { price ->
         calculateLotSaleValue(summary.currentWeightPounds, price)
@@ -1241,29 +1343,6 @@ private fun LotProfitabilityCard(
                 Text(summary.breakEvenPerPound?.let { "${formatLotMoney(it)}/lb" } ?: "Sin peso")
             }
             OutlinedTextField(
-                value = desiredMargin,
-                onValueChange = onDesiredMarginChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Margen deseado") },
-                suffix = { Text("%") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                isError = desiredMarginValue == null || desiredMarginValue < 0.0,
-                supportingText = { Text("Puede cambiarlo para simular el precio de venta.") },
-                singleLine = true
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Precio sugerido (${formatLotPercent(safeMargin)} %)")
-                Text(formatLotMoney(suggestedSalePrice), color = MaterialTheme.colorScheme.primary)
-            }
-            summary.suggestedPricePerPound(safeMargin)?.let { price ->
-                Text(
-                    "Equivale a ${formatLotMoney(price)} por libra sobre " +
-                        "${String.format(Locale.getDefault(), "%.1f", summary.currentWeightPounds)} lb registradas.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            HorizontalDivider()
-            OutlinedTextField(
                 value = marketPricePerPound,
                 onValueChange = onMarketPricePerPoundChange,
                 modifier = Modifier.fillMaxWidth(),
@@ -1302,10 +1381,6 @@ private fun LotProfitabilityCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Text(
-                    "Margen: ${String.format(Locale.getDefault(), "%.1f", margin)} %",
-                    style = MaterialTheme.typography.bodySmall
-                )
             } else {
                 Text("La rentabilidad final aparecerá al registrar la venta.", style = MaterialTheme.typography.bodySmall)
             }

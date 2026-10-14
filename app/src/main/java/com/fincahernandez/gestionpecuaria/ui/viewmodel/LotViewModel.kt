@@ -26,6 +26,9 @@ class LotViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun updateLot(lotId: String, draft: LotDraft) = repository.updateLot(lotId, draft)
 
+    suspend fun changeLotParcel(lotId: String, parcelName: String?) =
+        repository.changeLotParcel(lotId, parcelName)
+
     suspend fun deactivateLot(lotId: String) = repository.deactivateLot(lotId)
 
     suspend fun sellAndCloseLot(lotId: String, draft: LotSaleDraft) =

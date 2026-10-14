@@ -52,6 +52,9 @@ import com.fincahernandez.gestionpecuaria.data.security.canUpdateAnimalFieldStat
 import com.fincahernandez.gestionpecuaria.data.security.canConfirmMilkPayments
 import com.fincahernandez.gestionpecuaria.data.security.canImportApplicationData
 import com.fincahernandez.gestionpecuaria.data.security.canManageSupplies
+import com.fincahernandez.gestionpecuaria.data.security.canRecordSupplyMovements
+import com.fincahernandez.gestionpecuaria.data.security.canViewLotFinancials
+import com.fincahernandez.gestionpecuaria.data.security.mandatoryPermissionsForRole
 import com.fincahernandez.gestionpecuaria.data.security.serializePermissions
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalConfirmationScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.animals.AnimalBirthPeriodScreen
@@ -94,6 +97,7 @@ import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotListScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotUiModel
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFinancialSummary
+import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotFinancialScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.lots.LotWeightRecord
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkProductionFormScreen
 import com.fincahernandez.gestionpecuaria.ui.screens.milk.MilkConfigurationScreen
@@ -816,10 +820,11 @@ fun AppNavigation() {
         employees.firstOrNull { it.id == selectedEmployeeId }
     }
 
-    val currentPermissionIds = remember(currentUserPermissions) {
+    val currentPermissionIds = remember(currentUserPermissions, currentUserRole) {
         currentUserPermissions
             .split(',')
             .filterTo(linkedSetOf()) { permission -> permission.isNotBlank() }
+            .plus(mandatoryPermissionsForRole(currentUserRole))
     }
     val currentUser = remember(
         currentUserId,
@@ -874,6 +879,10 @@ fun AppNavigation() {
     val canConfirmMilkPayment = canConfirmMilkPayments(currentUser?.roleName)
     val canImportData = canImportApplicationData(currentUser?.roleName)
     val canManageSupplyInventory = canManageSupplies(currentUser?.roleName)
+    val canRecordSupplyInventoryMovements =
+        "supplies" in currentPermissionIds && canRecordSupplyMovements(currentUser?.roleName)
+    val canViewLotFinancialData =
+        "lots" in currentPermissionIds && canViewLotFinancials(currentUser?.roleName)
     val updateCurrentUser: (AuthenticatedUser?) -> Unit = { user ->
         if (user == null) {
             currentUserId = ""
@@ -986,7 +995,8 @@ fun AppNavigation() {
         Routes.ANIMAL_BIRTH_PERIOD -> Routes.ANIMAL_LIST
         Routes.LOT_FORM,
         Routes.LOT_ANIMAL_SELECTION,
-        Routes.LOT_DETAIL -> Routes.LOTS
+        Routes.LOT_DETAIL,
+        Routes.LOT_FINANCIAL -> Routes.LOTS
         Routes.PARCEL_FORM,
         Routes.PARCEL_DETAIL,
         Routes.PARCEL_MAP -> Routes.PARCELS
@@ -1689,6 +1699,8 @@ fun AppNavigation() {
                 LotDetailScreen(
                     lot = lot,
                     canEditRecords = canEditRecords,
+                    canChangeParcel = "lots" in currentPermissionIds,
+                    canViewFinancials = canViewLotFinancialData,
                     financialSummary = lotFinancialSummary,
                     selectedAnimalLabels = allAnimalItems
                         .filter { it.id in lot.selectedAnimalIds }
@@ -1748,9 +1760,90 @@ fun AppNavigation() {
                         weighingSaveError = null
                         navController.navigate(Routes.WEIGHING_FORM)
                     },
+                    parcelNames = (
+                        parcels.filter { parcel ->
+                            parcel.status !in setOf("INACTIVA", "DESCANSO")
+                        }.map { it.name } + lot.parcelName
+                    ).filter(String::isNotBlank).distinct(),
+                    onChangeParcel = { parcelName ->
+                        coroutineScope.launch {
+                            lotIsSaving = true
+                            lotSaveError = null
+                            runCatching {
+                                check("lots" in currentPermissionIds) {
+                                    "No tiene permiso para cambiar la parcela del lote."
+                                }
+                                lotViewModel.changeLotParcel(
+                                    lotId = lot.id,
+                                    parcelName = parcelName.takeIf(String::isNotBlank)
+                                )
+                            }.onFailure { error ->
+                                lotSaveError = error.message ?: "No se pudo cambiar la parcela."
+                            }
+                            lotIsSaving = false
+                        }
+                    },
+                    onOpenFinancials = {
+                        if (canViewLotFinancialData) {
+                            navController.navigate(Routes.LOT_FINANCIAL)
+                        }
+                    },
                     onNavigateMain = navigateMain,
                     isSaving = lotIsSaving,
                     saveError = lotSaveError
+                )
+            }
+
+            composable(Routes.LOT_FINANCIAL) {
+                if (!canViewLotFinancialData) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
+                val lot = selectedLot
+                if (lot == null) {
+                    LaunchedEffect(Unit) { navigateMain(Routes.LOTS) }
+                    return@composable
+                }
+                val lotAssignments = storedLots
+                    .firstOrNull { it.lot.id == lot.id }
+                    ?.assignments
+                    .orEmpty()
+                val latestWeights = lotWeighingsWithinAssignments(
+                    assignments = lotAssignments,
+                    weighings = storedWeighings
+                )
+                    .filter { it.animalId in lot.selectedAnimalIds }
+                    .groupBy { it.animalId }
+                    .values
+                    .mapNotNull { records -> records.maxByOrNull { it.fechaPesaje }?.pesoLibras }
+                val summary = LotFinancialSummary(
+                    directExpenses = storedFinancialMovements
+                        .filter { it.loteId == lot.id && it.tipo == "EGRESO" }
+                        .sumOf { it.monto },
+                    supplyCosts = storedSupplyMovements
+                        .filter {
+                            it.loteId == lot.id && it.tipo in setOf("SALIDA", "SALIDA_SANITARIA")
+                        }
+                        .sumOf { it.cantidad * (it.costoUnitario ?: 0.0) },
+                    laborCosts = storedEmployeePayments
+                        .filter { it.loteId == lot.id }
+                        .sumOf { it.monto },
+                    income = storedFinancialMovements
+                        .filter { it.loteId == lot.id && it.tipo == "INGRESO" }
+                        .sumOf { it.monto },
+                    currentWeightPounds = latestWeights.sum(),
+                    weightedAnimalCount = latestWeights.size,
+                    unvaluedSupplyConsumptions = storedSupplyMovements.count {
+                        it.loteId == lot.id &&
+                            it.tipo in setOf("SALIDA", "SALIDA_SANITARIA") &&
+                            it.costoUnitario == null
+                    }
+                )
+                LotFinancialScreen(
+                    lot = lot,
+                    summary = summary,
+                    onBack = { navController.popBackStack() },
+                    onNavigateMain = navigateMain
                 )
             }
 
@@ -2270,6 +2363,8 @@ fun AppNavigation() {
                 SupplyListScreen(
                     supplies = storedSupplies,
                     canManageSupplies = canManageSupplyInventory,
+                    canRecordMovements = canRecordSupplyInventoryMovements,
+                    canManageAssignments = canManageSupplyInventory,
                     onMenuClick = openDrawer,
                     onCreateSupply = {
                         supplyEditingId = ""
@@ -2426,7 +2521,7 @@ fun AppNavigation() {
             }
 
             composable(Routes.SUPPLY_ENTRY) {
-                if (!canManageSupplyInventory) {
+                if (!canRecordSupplyInventoryMovements) {
                     LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
                     return@composable
                 }
@@ -2488,7 +2583,7 @@ fun AppNavigation() {
             }
 
             composable(Routes.SUPPLY_EXIT) {
-                if (!canManageSupplyInventory) {
+                if (!canRecordSupplyInventoryMovements) {
                     LaunchedEffect(Unit) { navigateMain(Routes.SUPPLIES) }
                     return@composable
                 }
@@ -2883,6 +2978,7 @@ fun AppNavigation() {
                     ),
                     allowedReportIds = allowedReportIds,
                     isGeneralAdministrator = canImportData,
+                    canManageUsers = "users" in currentPermissionIds,
                     onBulkExport = { uri, modules ->
                         bulkDataImportViewModel.export(uri, modules)
                     },

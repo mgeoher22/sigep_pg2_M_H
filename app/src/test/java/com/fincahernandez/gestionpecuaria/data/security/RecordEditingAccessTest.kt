@@ -51,4 +51,28 @@ class RecordEditingAccessTest {
         assertFalse(canManageSupplies("Operario"))
         assertFalse(canManageSupplies(null))
     }
+
+    @Test
+    fun operatorsAndAccountingAssistantsCanRecordSupplyEntriesAndExits() {
+        assertTrue(canRecordSupplyMovements(GENERAL_ADMIN_ROLE))
+        assertTrue(canRecordSupplyMovements(FIELD_ADMIN_ROLE))
+        assertTrue(canRecordSupplyMovements("Operario"))
+        assertTrue(canRecordSupplyMovements(FINANCIAL_ROLE))
+        assertFalse(canRecordSupplyMovements("Técnico Veterinario"))
+        assertFalse(canRecordSupplyMovements(null))
+        assertTrue("supplies" in permissionsForRole("Operario"))
+        assertTrue("supplies" in permissionsForRole(FINANCIAL_ROLE))
+        assertTrue("supplies" in permissionsForUser("Operario", "dashboard,animals"))
+        assertTrue("supplies" in permissionsForUser(FINANCIAL_ROLE, "dashboard,finance"))
+    }
+
+    @Test
+    fun onlyAdministratorsAndAccountingAssistantsCanViewLotFinancials() {
+        assertTrue(canViewLotFinancials(GENERAL_ADMIN_ROLE))
+        assertTrue(canViewLotFinancials(FIELD_ADMIN_ROLE))
+        assertTrue(canViewLotFinancials(FINANCIAL_ROLE))
+        assertFalse(canViewLotFinancials("Operario"))
+        assertFalse(canViewLotFinancials("Técnico Veterinario"))
+        assertTrue("lots" in permissionsForUser(FINANCIAL_ROLE, "dashboard,finance"))
+    }
 }

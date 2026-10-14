@@ -10,6 +10,46 @@ import org.junit.Test
 /** Valida la plantilla que usará el Administrador General en Excel. */
 class BulkImportCsvTest {
     @Test
+    fun everyPersistentModuleHasAnExcelTemplate() {
+        val completeModules = DataTransferModule.entries - setOf(
+            DataTransferModule.ANIMALS,
+            DataTransferModule.WEIGHINGS,
+            DataTransferModule.SANITARY
+        )
+
+        completeModules.forEach { module ->
+            val template = bulkImportTemplateCsv(setOf(module))
+            assertTrue("Falta encabezado para ${module.displayName}", template.startsWith("tabla;"))
+            assertTrue("Falta fila para ${module.displayName}", template.lineSequence().count() >= 2)
+        }
+    }
+
+    @Test
+    fun relationalModulesIncludeAllTheirTables() {
+        val supplies = bulkImportTemplateCsv(setOf(DataTransferModule.SUPPLIES))
+        assertTrue(";insumos;" in ";${supplies.replace('\n', ';')}")
+        assertTrue(";existencias_insumos;" in ";${supplies.replace('\n', ';')}")
+        assertTrue(";asignaciones_insumos;" in ";${supplies.replace('\n', ';')}")
+        assertTrue(";movimientos_insumos;" in ";${supplies.replace('\n', ';')}")
+
+        val lots = bulkImportTemplateCsv(setOf(DataTransferModule.LOTS))
+        assertTrue(";lotes;" in ";${lots.replace('\n', ';')}")
+        assertTrue(";lote_animales;" in ";${lots.replace('\n', ';')}")
+    }
+
+    @Test
+    fun userTemplateNeverExportsCredentials() {
+        val template = bulkImportTemplateCsv(setOf(DataTransferModule.USERS)).lowercase()
+
+        assertTrue("nombrecompleto" in template)
+        assertTrue("permisospersonalizados" in template)
+        assertTrue("password" !in template)
+        assertTrue("contrasena" !in template)
+        assertTrue("hash" !in template)
+        assertTrue("salt" !in template)
+    }
+
+    @Test
     fun officialTemplateParsesAllSupportedRecordTypes() {
         val payload = parseBulkImportCsv(bulkImportTemplateCsv())
 

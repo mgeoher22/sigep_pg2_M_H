@@ -21,8 +21,16 @@ import kotlinx.coroutines.withContext
 /** Módulos persistentes que pueden intercambiarse mediante el archivo de Excel/CSV. */
 enum class DataTransferModule(val csvType: String, val displayName: String) {
     ANIMALS("ANIMAL", "Animales"),
+    PARCELS("PARCELA", "Parcelas"),
+    LOTS("LOTE", "Lotes"),
     WEIGHINGS("PESAJE", "Pesajes"),
-    SANITARY("SANITARIO", "Control sanitario");
+    MILK_PRODUCTION("LECHE", "Producción de leche"),
+    SANITARY("SANITARIO", "Control sanitario"),
+    SUPPLIES("INSUMO", "Insumos"),
+    EMPLOYEES("EMPLEADO", "Empleados y pagos"),
+    FINANCE("FINANZA", "Finanzas"),
+    USERS("USUARIO", "Usuarios y permisos"),
+    MILK_CONFIGURATION("CONFIG_LECHE", "Configuración de leche");
 
     companion object {
         fun fromCsvType(value: String): DataTransferModule? =
@@ -39,9 +47,10 @@ enum class BulkImportMode {
 data class BulkImportPreview(
     val animalCount: Int,
     val weighingCount: Int,
-    val sanitaryCount: Int
+    val sanitaryCount: Int,
+    val moduleCounts: Map<DataTransferModule, Int> = emptyMap()
 ) {
-    val totalCount: Int get() = animalCount + weighingCount + sanitaryCount
+    val totalCount: Int get() = animalCount + weighingCount + sanitaryCount + moduleCounts.values.sum()
 }
 
 data class BulkImportResult(
@@ -49,15 +58,17 @@ data class BulkImportResult(
     val animalsUpdated: Int,
     val weighingsImported: Int,
     val sanitaryRecordsImported: Int,
-    val animalHistoriesReplaced: Int = 0
+    val animalHistoriesReplaced: Int = 0,
+    val moduleCounts: Map<DataTransferModule, Int> = emptyMap()
 )
 
 data class BulkExportResult(
     val animalCount: Int,
     val weighingCount: Int,
-    val sanitaryCount: Int
+    val sanitaryCount: Int,
+    val moduleCounts: Map<DataTransferModule, Int> = emptyMap()
 ) {
-    val totalCount: Int get() = animalCount + weighingCount + sanitaryCount
+    val totalCount: Int get() = animalCount + weighingCount + sanitaryCount + moduleCounts.values.sum()
 }
 
 internal data class BulkImportPayload(
@@ -126,10 +137,15 @@ class BulkDataImportRepository(
         GestionPecuariaDatabase.obtenerInstancia(context.applicationContext)
 ) {
     private val applicationContext = context.applicationContext
+    private val completeTransfer = CompleteModuleDataTransfer(applicationContext, database)
 
     suspend fun export(uri: Uri, modules: Set<DataTransferModule>): BulkExportResult =
         withContext(Dispatchers.IO) {
             requireModules(modules)
+            modules.singleOrNull()?.takeIf { !it.usesLegacyTransfer }?.let { module ->
+                val count = completeTransfer.export(uri, module)
+                return@withContext BulkExportResult(0, 0, 0, mapOf(module to count))
+            }
             val animals = database.animalDao().observarTodos().first()
             val weighings = database.pesajeDao().observarTodos().first()
             val sanitaryRecords = database.eventoSanitarioDao().observarTodos().first()
@@ -150,10 +166,14 @@ class BulkDataImportRepository(
 
     suspend fun inspect(
         uri: Uri,
-        modules: Set<DataTransferModule> = DataTransferModule.entries.toSet(),
+        modules: Set<DataTransferModule> = legacyTransferModules,
         mode: BulkImportMode = BulkImportMode.MERGE
     ): BulkImportPreview = withContext(Dispatchers.IO) {
         requireModules(modules)
+        modules.singleOrNull()?.takeIf { !it.usesLegacyTransfer }?.let { module ->
+            val count = completeTransfer.inspect(uri, module)
+            return@withContext BulkImportPreview(0, 0, 0, mapOf(module to count))
+        }
         val payload = parseBulkImportCsv(readImportText(uri), modules)
         validateReferences(payload, mode)
         payload.preview()
@@ -161,10 +181,19 @@ class BulkDataImportRepository(
 
     suspend fun import(
         uri: Uri,
-        modules: Set<DataTransferModule> = DataTransferModule.entries.toSet(),
+        modules: Set<DataTransferModule> = legacyTransferModules,
         mode: BulkImportMode = BulkImportMode.MERGE
     ): BulkImportResult = withContext(Dispatchers.IO) {
         requireModules(modules)
+        modules.singleOrNull()?.takeIf { !it.usesLegacyTransfer }?.let { module ->
+            require(mode == BulkImportMode.MERGE) {
+                "La carga inicial que sustituye historiales solo está disponible para Animales."
+            }
+            val count = completeTransfer.import(uri, module)
+            return@withContext BulkImportResult(
+                0, 0, 0, 0, moduleCounts = mapOf(module to count)
+            )
+        }
         val payload = parseBulkImportCsv(readImportText(uri), modules)
         validateReferences(payload, mode)
 
@@ -422,7 +451,19 @@ class BulkDataImportRepository(
 
 private fun requireModules(modules: Set<DataTransferModule>) {
     require(modules.isNotEmpty()) { "Seleccione al menos un módulo." }
+    require(modules.all(DataTransferModule::usesLegacyTransfer) || modules.size == 1) {
+        "Los módulos completos se exportan e importan de uno en uno para conservar sus relaciones."
+    }
 }
+
+private val DataTransferModule.usesLegacyTransfer: Boolean
+    get() = this in legacyTransferModules
+
+private val legacyTransferModules = setOf(
+    DataTransferModule.ANIMALS,
+    DataTransferModule.WEIGHINGS,
+    DataTransferModule.SANITARY
+)
 
 private fun BulkAnimalRow.toEntity(resolvedId: String, resolvedMotherId: String?) = AnimalEntity(
     id = resolvedId,
@@ -521,9 +562,12 @@ private val bulkHeaders = listOf(
 
 /** Crea una plantilla únicamente con los módulos seleccionados. */
 fun bulkImportTemplateCsv(
-    modules: Set<DataTransferModule> = DataTransferModule.entries.toSet()
+    modules: Set<DataTransferModule> = legacyTransferModules
 ): String {
     requireModules(modules)
+    modules.singleOrNull()?.takeIf { !it.usesLegacyTransfer }?.let { module ->
+        return completeModuleTemplateCsv(module)
+    }
     return buildString {
         appendLine(bulkHeaders.joinToString(";"))
         if (DataTransferModule.ANIMALS in modules) appendLine(animalExampleRow())
@@ -643,7 +687,7 @@ private fun csvEscape(value: String): String {
 /** Analiza solo los módulos seleccionados antes de escribir una sola fila. */
 internal fun parseBulkImportCsv(
     csv: String,
-    modules: Set<DataTransferModule> = DataTransferModule.entries.toSet()
+    modules: Set<DataTransferModule> = legacyTransferModules
 ): BulkImportPayload {
     requireModules(modules)
     val lines = csv.removePrefix("\uFEFF").lineSequence().filter { it.isNotBlank() }.toList()
@@ -761,6 +805,8 @@ internal fun parseBulkImportCsv(
                 responsible = cell("responsable").ifBlank { null },
                 notes = cell("observaciones").ifBlank { null }
             )
+
+            else -> error("${module.displayName} usa el formato completo del módulo.")
         }
     }
 

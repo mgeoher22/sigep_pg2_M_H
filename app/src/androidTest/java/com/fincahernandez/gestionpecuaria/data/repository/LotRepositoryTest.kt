@@ -123,6 +123,40 @@ class LotRepositoryTest {
         assertEquals(475.0, average ?: 0.0, 0.001)
     }
 
+    @Test
+    fun changeParcelOnlyUpdatesLocationAndKeepsLotData() = runBlocking {
+        database.animalDao().insertar(testAnimal("animal-1", "FH-001"))
+        val parcelRepository = ParcelRepository(database)
+        parcelRepository.createParcel(
+            ParcelDraft(
+                name = "Potrero Norte",
+                areaHectares = 10.0,
+                pastureType = "Mombasa",
+                capacity = 20
+            )
+        )
+        parcelRepository.createParcel(
+            ParcelDraft(
+                name = "Potrero Sur",
+                areaHectares = 8.0,
+                pastureType = "Brachiaria",
+                capacity = 10
+            )
+        )
+        val lotId = repository.createLot(testDraft(listOf("animal-1")))
+        val before = repository.observeLots().first().single().lot
+
+        repository.changeLotParcel(lotId, "Potrero Sur")
+
+        val stored = repository.observeLots().first().single()
+        assertEquals("Potrero Sur", stored.lot.parcelaNombre)
+        assertEquals(before.nombre, stored.lot.nombre)
+        assertEquals(before.tipo, stored.lot.tipo)
+        assertEquals(before.pesoObjetivoLibras, stored.lot.pesoObjetivoLibras)
+        assertEquals(before.fechaSalidaEstimada, stored.lot.fechaSalidaEstimada)
+        assertEquals(listOf("animal-1"), stored.activeAnimalIds)
+    }
+
     private fun openDatabase() {
         database = Room.databaseBuilder(
             context,

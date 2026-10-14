@@ -23,7 +23,7 @@ val rolePermissions = listOf(
     RolePermission("lots", "Administrar lotes y parcelas"),
     RolePermission("health", "Gestionar sanidad y reproducción"),
     RolePermission("finance", "Registrar movimientos financieros"),
-    RolePermission("supplies", "Consultar y gestionar insumos"),
+    RolePermission("supplies", "Acceder al módulo de insumos"),
     RolePermission("employees", "Consultar empleados y nómina"),
     RolePermission("reports", "Consultar reportes autorizados"),
     RolePermission("users", "Crear y editar usuarios, roles y permisos")
@@ -51,17 +51,28 @@ val definedRoles = listOf(
     DefinedRole(
         name = "Operario",
         description = "Captura diariamente los datos primarios de campo.",
-        permissionIds = setOf("dashboard", "animals", "weighings", "lots", "reports")
+        permissionIds = setOf(
+            "dashboard", "animals", "weighings", "lots", "supplies", "reports"
+        )
     ),
     DefinedRole(
         name = FINANCIAL_ROLE,
         description = "Gestiona ingresos, egresos, empleados y nómina.",
-        permissionIds = setOf("dashboard", "finance", "employees", "reports")
+        permissionIds = setOf(
+            "dashboard", "lots", "finance", "employees", "supplies", "reports"
+        )
     )
 )
 
 fun permissionsForRole(roleName: String): Set<String> =
     definedRoles.firstOrNull { it.name == roleName }?.permissionIds.orEmpty()
+
+/** Accesos operativos inherentes al rol que también se aplican a sesiones ya guardadas. */
+fun mandatoryPermissionsForRole(roleName: String?): Set<String> = when (roleName) {
+    "Operario" -> setOf("supplies")
+    FINANCIAL_ROLE -> setOf("lots", "supplies")
+    else -> emptySet()
+}
 
 /**
  * Obtiene los permisos efectivos de una cuenta.
@@ -75,6 +86,7 @@ fun permissionsForUser(roleName: String, customizedPermissions: String?): Set<St
         .split(',')
         .map(String::trim)
         .filterTo(linkedSetOf()) { it.isNotEmpty() && it in validIds }
+        .plus(mandatoryPermissionsForRole(roleName))
 }
 
 /** Guarda una selección estable y legible dentro de una sola columna de Room. */
@@ -99,6 +111,21 @@ fun canUpdateAnimalFieldStatus(permissionIds: Set<String>): Boolean =
 fun canManageSupplies(roleName: String?): Boolean = roleName in setOf(
     GENERAL_ADMIN_ROLE,
     FIELD_ADMIN_ROLE
+)
+
+/** Movimientos cotidianos permitidos sin abrir la edición del catálogo ni los préstamos. */
+fun canRecordSupplyMovements(roleName: String?): Boolean = roleName in setOf(
+    GENERAL_ADMIN_ROLE,
+    FIELD_ADMIN_ROLE,
+    "Operario",
+    FINANCIAL_ROLE
+)
+
+/** Solo los roles administrativos y contables consultan costos e ingresos por lote. */
+fun canViewLotFinancials(roleName: String?): Boolean = roleName in setOf(
+    GENERAL_ADMIN_ROLE,
+    FIELD_ADMIN_ROLE,
+    FINANCIAL_ROLE
 )
 
 /** Importar archivos puede modificar muchos registros y continúa siendo administrativo. */

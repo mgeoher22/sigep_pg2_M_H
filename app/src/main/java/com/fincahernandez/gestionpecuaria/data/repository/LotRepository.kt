@@ -141,6 +141,35 @@ class LotRepository(private val database: GestionPecuariaDatabase) {
         }
     }
 
+    /**
+     * Cambia únicamente la parcela de un lote activo. Esta operación separada permite
+     * delegar el traslado sin conceder acceso a la edición completa del lote.
+     */
+    suspend fun changeLotParcel(lotId: String, parcelName: String?) = database.withTransaction {
+        val current = checkNotNull(lotDao.buscarPorId(lotId)) { "No se encontró el lote." }
+        check(current.estado == "ACTIVO") { "Un lote cerrado ya no puede cambiar de parcela." }
+        val normalizedParcelName = parcelName?.trim()?.takeIf(String::isNotBlank)
+        validateParcelSelection(
+            parcelName = normalizedParcelName,
+            allowLegacyName = normalizedParcelName.equals(current.parcelaNombre, ignoreCase = true)
+        )
+        val animalIds = lotDao.obtenerAsignacionesActivasDelLote(lotId)
+            .map { assignment -> assignment.animalId }
+            .distinct()
+        validateParcelCapacity(
+            parcelName = normalizedParcelName,
+            selectedAnimalIds = animalIds,
+            allowedLotId = lotId
+        )
+        if (normalizedParcelName.equals(current.parcelaNombre, ignoreCase = true)) return@withTransaction
+        lotDao.actualizar(
+            current.copy(
+                parcelaNombre = normalizedParcelName,
+                actualizadoEn = System.currentTimeMillis()
+            )
+        )
+    }
+
     /** Desactiva el lote y cierra sus asignaciones sin eliminar el historial. */
     suspend fun deactivateLot(lotId: String) = database.withTransaction {
         val lot = checkNotNull(lotDao.buscarPorId(lotId)) { "No se encontró el lote." }
