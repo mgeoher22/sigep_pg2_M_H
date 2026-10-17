@@ -43,7 +43,7 @@ fun createOfflineAuth(context: Context, manager: CloudSessionManager): OfflineFi
         },
         online={
             val connection=app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            connection.getNetworkCapabilities(connection.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)==true
+            connection.getNetworkCapabilities(connection.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)==true
         }
     )
 }

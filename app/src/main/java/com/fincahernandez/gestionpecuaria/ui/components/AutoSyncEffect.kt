@@ -20,26 +20,26 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 
-/** Observes validated internet only; a Wi-Fi connection alone is insufficient. */
+/** Observes internet-capable networks; server requests confirm actual reachability. */
 private fun internet(context: Context) = callbackFlow {
     val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     var defaultNetwork: Network? = null
     fun report(network: Network?) {
         trySend(
             network != null && manager.getNetworkCapabilities(network)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         )
     }
     val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             defaultNetwork = network
             // Algunos dispositivos no emiten otro cambio de capacidades después
-            // de recuperar una red que ya está validada. Comprobar aquí evita que
+            // de recuperar una red con capacidad de internet. Comprobar aquí evita que
             // la sincronización permanezca en estado sin conexión.
             report(network)
         }
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            if (network == defaultNetwork) trySend(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+            if (network == defaultNetwork) trySend(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
         }
         override fun onLost(network: Network) {
             if (network == defaultNetwork) { defaultNetwork = null; trySend(false) }
