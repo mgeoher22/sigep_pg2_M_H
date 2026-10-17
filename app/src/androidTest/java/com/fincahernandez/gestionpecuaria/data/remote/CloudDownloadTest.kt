@@ -91,7 +91,7 @@ class CloudDownloadTest {
         val m=manager {url,method,headers,_ ->
             assertEquals("Bearer test",headers["Authorization"])
             when {
-                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20261013_room23_fotos_lotes"}"""
+                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20261017_room24_owasp_columnas"}"""
                 url.contains("/animales?") -> {assertEquals("GET",method);pages++;when(pages){1->"""[{"id":"$id"}]""";2->{assertTrue(url.contains("id=gt.$id"));"""[{"id":"$other"}]"""};else->"[]"}}
                 else -> "[]"
             }
@@ -104,9 +104,32 @@ class CloudDownloadTest {
     }
     @Test fun movingCloudCursorRejectsDownload()=runBlocking {
         var cursor=0
-        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20261013_room23_fotos_lotes"}""" else "[]"}
+        val m=manager {url,_,_,_->if(url.contains("estado_sincronizacion")) """{"cursor":${cursor++},"versionEsquema":"20261017_room24_owasp_columnas"}""" else "[]"}
         m.signInCloud("test@example.com","123456")
         fails {m.download(id)}
+    }
+
+    @Test fun lotsAreDownloadedOnlyThroughProtectedProjection()=runBlocking {
+        var protectedCalls=0
+        val m=manager {url,method,_,body->
+            when {
+                url.contains("estado_sincronizacion") -> """{"cursor":10,"versionEsquema":"20261017_room24_owasp_columnas"}"""
+                url.contains("/rpc/descargar_lotes") -> {
+                    protectedCalls++
+                    assertEquals("POST",method)
+                    val request=JSONObject(body!!)
+                    assertEquals(500,request.getInt("p_limite"))
+                    assertFalse(request.getBoolean("p_incluir_eliminados"))
+                    assertTrue(request.isNull("p_ultimo_id"))
+                    "[]"
+                }
+                url.contains("/lotes?") -> error("Los lotes no deben descargarse directamente")
+                else -> "[]"
+            }
+        }
+        m.signInCloud("test@example.com","123456")
+        m.download(id)
+        assertEquals(1,protectedCalls)
     }
     @Test fun profileUpdateUsesOwnMetadataAndRestoresName()=runBlocking {
         val m=manager {url,method,_,body->

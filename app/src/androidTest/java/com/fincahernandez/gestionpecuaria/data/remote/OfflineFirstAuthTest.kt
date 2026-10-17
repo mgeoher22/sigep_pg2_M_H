@@ -32,7 +32,8 @@ class OfflineFirstAuthTest {
         },store,object:OfflineFirstAuth.Catalog {
             override suspend fun active(id:String)=active
             override suspend fun save(account:CloudAccount,password:ProtectedPassword):AuthenticatedUser {
-                saved++;return AuthenticatedUser(account.localUserId,"Prueba",account.email,account.role,account.permissions)
+                saved++;return AuthenticatedUser(account.localUserId,"Prueba",account.email,account.role,account.permissions,
+                    account.passwordChangeRequired)
             }
         },{connected},"https://test.supabase.co")
     }

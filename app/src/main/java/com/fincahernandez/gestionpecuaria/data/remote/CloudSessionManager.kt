@@ -277,8 +277,8 @@ class CloudSessionManager(
             val token=s.getString("access")
             fun state()=JSONObject(request("/rest/v1/rpc/estado_sincronizacion",token,JSONObject()))
             val before=state()
-            require(before.getString("versionEsquema")=="20261013_room24_referencia_fotos") {
-                "La nube requiere ejecutar 26_corregir_referencia_fotografias.sql antes de sincronizar."
+            require(before.getString("versionEsquema")=="20261017_room24_owasp_columnas") {
+                "La nube requiere ejecutar 27_restringir_finanzas_lotes_owasp.sql antes de sincronizar."
             }
             val rows=linkedMapOf<String,List<JSONObject>>()
             var total=0
@@ -288,8 +288,23 @@ class CloudSessionManager(
                 var last:String?=null
                 while(true) {
                     coroutineContext.ensureActive()
-                    val fields=table.columns.joinToString(",") { it.name } + if(forSync) ",syncVersion,syncEliminado" else ""
-                    val page=JSONArray(request("/rest/v1/"+table.name+"?select="+fields+(if(forSync) "" else "&syncEliminado=eq.false")+"&order=id.asc&limit=500"+(last?.let { "&id=gt."+it } ?: ""),token))
+                    val page = if (table.name == "lotes") {
+                        // precioVenta nunca se descarga directamente de la tabla base. Supabase
+                        // lo proyecta o lo reemplaza por null según el rol y sus permisos vigentes.
+                        JSONArray(
+                            request(
+                                "/rest/v1/rpc/descargar_lotes",
+                                token,
+                                JSONObject()
+                                    .put("p_ultimo_id", last ?: JSONObject.NULL)
+                                    .put("p_limite", 500)
+                                    .put("p_incluir_eliminados", forSync)
+                            )
+                        )
+                    } else {
+                        val fields=table.columns.joinToString(",") { it.name } + if(forSync) ",syncVersion,syncEliminado" else ""
+                        JSONArray(request("/rest/v1/"+table.name+"?select="+fields+(if(forSync) "" else "&syncEliminado=eq.false")+"&order=id.asc&limit=500"+(last?.let { "&id=gt."+it } ?: ""),token))
+                    }
                     if(page.length()==0)break
                     for(i in 0 until page.length()) {
                         val row=page.getJSONObject(i)

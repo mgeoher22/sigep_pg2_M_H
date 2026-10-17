@@ -39,6 +39,10 @@ class CloudSessionManagerTest {
         val s = Memory(); var reads = 0
         val m = manager(s) { url, _, headers, body ->
             if (url.contains("grant_type=password")) { assertEquals("password-test", JSONObject(body!!).getString("password")); session() }
+            else if (url.endsWith("/auth/v1/user")) {
+                assertEquals("Bearer access-test", headers["Authorization"])
+                """{"id":"$uid","app_metadata":{}}"""
+            }
             else { reads++; assertEquals("Bearer access-test", headers["Authorization"]); member() }
         }
         assertEquals(uid, m.signIn(user,"test@example.com","password-test").userId)
@@ -66,6 +70,7 @@ class CloudSessionManagerTest {
         val m=manager(s){url,_,_,_->when {
             url.contains("grant_type=password")->session()
             url.contains("miembros_finca")->member(null,role="Operario")
+            url.endsWith("/auth/v1/user")->"""{"id":"$uid","app_metadata":{}}"""
             else->throw AssertionError("El ingreso único no requiere escritura administrativa")
         }}
         assertEquals(uid,m.signInCloud("test@example.com","123456").localUserId)
@@ -83,6 +88,7 @@ class CloudSessionManagerTest {
         val m=manager(s){url,_,_,body->when {
             url.contains("grant_type=password")->session(1)
             url.contains("grant_type=refresh_token")->{assertEquals("refresh-test",JSONObject(body!!).getString("refresh_token"));refreshed=true;session().replace("refresh-test","rotated")}
+            url.endsWith("/auth/v1/user")->"""{"id":"$uid","app_metadata":{}}"""
             else->member(role=if(refreshed)"Operario" else "Administrador General")
         }}
         m.signIn(user,"test@example.com","p")
@@ -121,6 +127,7 @@ class CloudSessionManagerTest {
             url.contains("grant_type=password")->session()
             url.contains("grant_type=refresh_token")->{refreshes++;reject=false;session()}
             reject->throw CloudHttpException(401,"Expirado")
+            url.endsWith("/auth/v1/user")->"""{"id":"$uid","app_metadata":{}}"""
             else->member()
         }}
         m.signIn(user,"test@example.com","p");reject=true
